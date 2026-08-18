@@ -145,12 +145,31 @@ const RETAIN_TEXELS=1024*1024;         // bigger than this is dropped on tab-out
 function stateFor(mode){
   return STATE[mode.id]||(STATE[mode.id]={
     mode:mode,P:{},panel:null,params:null,
-    B:null,built:false,
+    B:null,built:false,flags:null,
     busy:false,pending:null,preview:false,qTimer:null,zipUrl:null
   });
 }
 const pid=(st,id)=>st.mode.id+"--"+id;
 const node=(st,id)=>el(pid(st,id));
+
+/* A mode flag may be a plain value or a function of the parameters, so one
+   mode can switch between a tiling surface and a single cut-out piece per
+   build (the envelope mode does: walls are cut-outs, roofs tile). Resolved
+   once per build and read back from the build, never from the live form —
+   the preview belongs to the texture that is actually on screen. */
+function flag(m,name,P){const v=m[name];return typeof v==="function"?!!v(P):!!v;}
+function flagsOf(st){
+  return st.flags||(st.flags={
+    seamless:flag(st.mode,"seamless",st.P),
+    backdrops:flag(st.mode,"backdrops",st.P)
+  });
+}
+function syncChrome(st){
+  const f=flagsOf(st);
+  el("tiles").hidden=!f.seamless;
+  el("bgs").hidden=!f.backdrops;
+  el("h16").hidden=st.mode.height16===false;
+}
 
 /* ============================ panel construction ============================
    A mode declares `controls`; the runtime turns that into markup, collects
@@ -480,6 +499,7 @@ const FS=[
 "}"].join("\n");
 
 let glc=null,flat=null,fctx=null,gl=null,prog=null,tex={},uloc={},blackTex=null,noGL=false;
+let canRepeat=false;                   // whether the live textures can tile in the preview
 
 function initGL(){
   gl=glc.getContext("webgl",{antialias:true})||glc.getContext("experimental-webgl");
@@ -510,16 +530,22 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
   return true;
 }
+const isPOT=n=>n>0&&(n&(n-1))===0;
 function upload(unit,texture,canvas,seamless){
   gl.activeTexture(gl.TEXTURE0+unit);
   gl.bindTexture(gl.TEXTURE_2D,texture);
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);
-  const wrap=seamless?gl.REPEAT:gl.CLAMP_TO_EDGE;
+  /* WebGL1 will not repeat or mipmap a non-power-of-two texture — it renders
+     black instead. A tiling mode previewing at, say, 200 px would hit that,
+     so fall back rather than showing nothing. */
+  const rep=seamless&&isPOT(canvas.width)&&isPOT(canvas.height);
+  const wrap=rep?gl.REPEAT:gl.CLAMP_TO_EDGE;
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,wrap);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,wrap);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,seamless?gl.LINEAR_MIPMAP_LINEAR:gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,rep?gl.LINEAR_MIPMAP_LINEAR:gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  if(seamless)gl.generateMipmap(gl.TEXTURE_2D);
+  if(rep)gl.generateMipmap(gl.TEXTURE_2D);
+  return rep;
 }
 function fitCanvas(c){
   const st=el("stage");
@@ -534,9 +560,9 @@ function fitCanvas(c){
 }
 function refreshGL(){
   if(!gl||!active||!active.B)return;
-  const m=active.mode,seamless=!!m.seamless;
+  const seamless=flagsOf(active).seamless;
   const PS=Math.min(active.B.W,2048);
-  upload(0,tex.uB,makeMap(active,"basecolor",PS),seamless);
+  canRepeat=upload(0,tex.uB,makeMap(active,"basecolor",PS),seamless);
   upload(1,tex.uN,makeMap(active,"normal",PS),seamless);
   upload(2,tex.uO,makeMap(active,"orm",PS),seamless);
   if(active.writers.emissive)upload(3,tex.uE,makeMap(active,"emissive",PS),seamless);
@@ -548,7 +574,7 @@ function drawGL(){
   const m=active.mode,pv=m.preview||{};
   fitCanvas(glc);
   gl.viewport(0,0,glc.width,glc.height);
-  gl.uniform1f(uloc.uRep,m.seamless?tileN:1);
+  gl.uniform1f(uloc.uRep,(flagsOf(active).seamless&&canRepeat)?tileN:1);
   gl.uniform1f(uloc.uFlip,m.flipPreviewY?1:0);
   gl.uniform3f(uloc.uL,light[0],light[1],0.72);
   gl.uniform1f(uloc.uGain,pv.gain||3.0);
@@ -562,13 +588,13 @@ function drawGL(){
 }
 function drawFlat(){
   if(!active||!active.B)return;
-  const m=active.mode;
-  const src=makeMap(active,view,Math.min(active.B.W,m.seamless?1024:1400));
+  const seamless=flagsOf(active).seamless;
+  const src=makeMap(active,view,Math.min(active.B.W,seamless?1024:1400));
   fitCanvas(flat);
   fctx.fillStyle=bg==="sky"?"#7f97b0":(bg==="check"?"#2b2b2b":"#141414");
   fctx.fillRect(0,0,flat.width,flat.height);
   fctx.imageSmoothingEnabled=true;
-  if(m.seamless){
+  if(seamless){
     const cell=flat.width/tileN,rows=flat.height/ (flat.width/tileN);
     for(let ty=0;ty<Math.ceil(rows);ty++)
       for(let tx=0;tx<tileN;tx++)fctx.drawImage(src,tx*cell,ty*cell,cell,cell);
@@ -619,9 +645,12 @@ function exportGuard(){
   if(!st||!st.B){setStatus("Build something first");return false;}
   /* compared against the size the controls ask for now, so changing the
      resolution and exporting without rebuilding is caught too */
-  const want=st.mode.size(st.P,false).w;
-  if(st.B.W<want){
-    setStatus("That is a "+st.B.W+" px build — press "+verb(st.mode)+" for "+want+" px first");
+  /* both axes: a mode whose output changes shape (a facade face, a roof) can
+     otherwise pass a width-only check and export the previous shape's pixels */
+  const want=st.mode.size(st.P,false);
+  if(st.B.W<want.w||st.B.H!==want.h){
+    setStatus("That is a "+st.B.W+"×"+st.B.H+" build — press "+verb(st.mode)+
+      " for "+want.w+"×"+want.h+" first");
     return false;
   }
   return true;
@@ -798,9 +827,11 @@ function run(st,preview){
     done:B=>{
       B.W=dim.w;B.H=dim.h;
       st.B=B;st.built=true;st.busy=false;
+      st.flags={seamless:flag(m,"seamless",st.P),backdrops:flag(m,"backdrops",st.P)};
       if(btn)btn.disabled=false;
       makeWriters(st);
       if(st===active){
+        syncChrome(st);
         setBar(0);
         el("zipsave").hidden=true;                  // any previous archive is stale
         setStatus(st.preview&&B.W<full.w
@@ -835,7 +866,7 @@ function activate(id){
     /* keep the last build for a quick flick back, but do not sit on a
        4096² set for every mode the user has opened */
     if(active.B&&active.B.W*active.B.H>RETAIN_TEXELS){
-      active.B=null;active.writers=null;active.built=false;   // writers close over the buffers
+      active.B=null;active.writers=null;active.built=false;active.flags=null;  // writers close over the buffers
     }
   }
   active=st;
@@ -847,9 +878,7 @@ function activate(id){
   try{history.replaceState(null,"","#"+id);}catch(e){}
 
   buildViewTabs(st);
-  el("tiles").hidden=!st.mode.seamless;
-  el("bgs").hidden=!st.mode.backdrops;
-  el("h16").hidden=st.mode.height16===false;
+  syncChrome(st);
   el("zipsave").hidden=true;
   syncUI(st);
 

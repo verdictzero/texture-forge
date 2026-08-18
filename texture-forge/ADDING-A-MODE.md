@@ -58,6 +58,23 @@ preview:{gain:3.2,amb:1.15,specK:0.55,skyLo:[0.13,0.15,0.19],skyHi:[0.30,0.34,0.
 `gain` scales the direct light, `amb` the sky term, `specK` the specular
 horizon rolloff, `skyLo`/`skyHi` the ambient gradient by normal Z.
 
+**`seamless` and `backdrops` may be functions of the parameters** when one mode
+produces more than one kind of output — the envelope mode draws cut-out wall
+elevations and tiling roofs from the same panel:
+
+```js
+seamless:P=>P.face==="roof",
+backdrops:P=>P.face!=="roof",
+```
+
+They are resolved once per build and read back from the build, never from the
+live form, so the chrome always describes the texture actually on screen.
+
+One caveat if your mode tiles: WebGL1 cannot repeat or mipmap a
+non-power-of-two texture. The runtime falls back to clamping rather than
+rendering black, but the 2×/4× preview then shows a single tile — so keep
+`previewSize` and every `size()` result a power of two in a seamless mode.
+
 ### Channels
 
 ```js
@@ -198,6 +215,36 @@ as "OpenGL (green up)" or "DirectX (green down)" from `P.flipG`.
 
 ---
 
+## Sharing code between modes
+
+Two modes that are really one generator belong in `modes/lib/`. The house and
+envelope modes are the worked example: `modes/lib/house-shell.js` holds the
+whole facade generator plus the control groups and presets they have in
+common, and each mode file is a thin registration over it —
+
+```js
+Forge.register({
+  id:"house",
+  presets:Shell.PRESETS,
+  controls:[ /* the groups only this mode has */ ]
+    .concat(Shell.controls(["cladding","openings","glass","weathering"])),
+  size:function(P,preview){return Shell.size(P,"front",preview);},
+  build:function(P,io){return Shell.build(P,io,"front");}
+});
+```
+
+A library is a plain script that publishes one global (`window.HouseShell`,
+`window.RoofGen`) and is listed in `index.html` **before** the modes that use
+it. Two rules earn their keep:
+
+- **Latch your state per build.** A library with module-level parameter state
+  is re-entered by the other mode's readout on every keystroke, and builds run
+  in bands across `setTimeout`. Capture what the build needs at the top and
+  re-assert it at the start of each band; a build half-drawn with another
+  mode's parameters is a maddening bug to find.
+- **Key any cache by what varies.** One geometry slot shared by three faces
+  means the front's readme prints the side's dimensions.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:
@@ -233,7 +280,19 @@ rotation table — belongs in that mode's file.
 
 ## Checking a mode
 
-Load `index.html` from disk — no server needed — and watch the console. Then:
+`tools/smoke-test.mjs` does the mechanical half: it builds every registered
+mode, checks the channels it declares actually render, walks the view tabs, and
+measures whether a tiling mode really tiles (the wrap difference against the
+sharpest interior edge — the only test that does not fail a texture with hard
+edges in it).
+
+```
+node tools/smoke-test.mjs            # every mode
+node tools/smoke-test.mjs mymode     # just yours
+```
+
+The other half is your eyes. Load `index.html` from disk — no server needed —
+and watch the console. Then:
 
 - every preset builds without an error
 - dragging a slider gives a preview and releasing rebuilds (below 1024)

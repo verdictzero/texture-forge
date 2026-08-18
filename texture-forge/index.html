@@ -17,6 +17,9 @@
 body[data-mode=street]{--accent:#e6b32a}
 body[data-mode=plating]{--accent:#8fb8d8}
 body[data-mode=house]{--accent:#d9a066}
+body[data-mode=envelope]{--accent:#9db8a6}
+body[data-mode=hazard]{--accent:#ff8c1a}
+body[data-mode=circuitry]{--accent:#57e6c9}
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -231,7 +234,12 @@ select,input[type=number]{width:100%;font-family:"IBM Plex Mono",monospace;font-
 <script src="forge-core.js"></script>
 <script src="modes/street.js"></script>
 <script src="modes/plating.js"></script>
+<script src="modes/lib/house-shell.js"></script>
 <script src="modes/house.js"></script>
+<script src="modes/lib/roof.js"></script>
+<script src="modes/envelope.js"></script>
+<script src="modes/hazard.js"></script>
+<script src="modes/circuitry.js"></script>
 <!-- <script src="modes/_template.js"></script>  uncomment for the worked example -->
 </body>
 </html>
