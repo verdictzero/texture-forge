@@ -164,6 +164,15 @@ Forge.register({
 
   tileTag:function(P){return isRoof(P)?"tiles ↔ and ↕":"single piece — one face of a house";},
 
+  /* the two kinds of output preview at different sizes, so say which */
+  autonote:function(P){
+    const size=P.size|0;
+    const pv=isRoof(P)?Roof.size(P,true).w:Shell.PREVIEW_W;
+    return size>1024
+      ?"Dragging previews at "+pv+" px · press build face for "+size
+      :"Dragging shows a "+pv+" px preview · release rebuilds at "+size;
+  },
+
   size:function(P,preview){
     return isRoof(P)?Roof.size(P,preview):Shell.size(P,wall(P),preview);
   },
