@@ -1,0 +1,242 @@
+# Adding a mode
+
+A mode is one surface generator: street, plating, house. The runtime
+(`forge-core.js`) owns everything around it — the tab bar, the control panel,
+parameter reading, presets, the lit preview, the channel views, the chips, the
+PNG/zip/16-bit export. A mode supplies the parameters it wants, how big the
+output is, and a function that fills typed arrays.
+
+Adding one is two steps:
+
+1. Copy `modes/_template.js` to `modes/<yourmode>.js`, change `id`, and write
+   your generator.
+2. Add `<script src="modes/<yourmode>.js"></script>` to `index.html`, after
+   `forge-core.js`.
+
+Nothing else in the app changes. Tab order follows script order.
+
+`modes/_template.js` is a complete working mode (a plaster wall) rather than a
+stub — read it alongside this file. To see it running, uncomment its script tag
+in `index.html`.
+
+---
+
+## The mode object
+
+```js
+Forge.register({ id:"mymode", label:"My mode", /* … */ });
+```
+
+### Identity and chrome
+
+| key | type | meaning |
+|---|---|---|
+| `id` | string | unique; also the deep link (`index.html#mymode`) and the DOM id prefix |
+| `label` | string | text on the mode tab |
+| `blurb` | string | tooltip on the mode tab |
+| `title` | HTML | panel headline, e.g. `'Surface <em>Course</em>'` |
+| `tagline` | string | line under the headline |
+| `actionLabel` | string | the build button ("Lay surface"); lower-cased when it appears mid-sentence |
+| `busyLabel` | string | status while building ("Laying…") |
+
+### Behaviour
+
+| key | default | meaning |
+|---|---|---|
+| `seamless` | `false` | output tiles: shows the 1×/2×/4× buttons, repeats in the preview, mipmaps the textures |
+| `backdrops` | `false` | show the dark/sky/checker buttons — for modes whose output has an alpha cut-out |
+| `flipPreviewY` | `false` | flip V in the lit preview (a facade is drawn with y up in world terms) |
+| `previewSize` | none | width in px of the cheap build made while a slider is dragged; omit for no drag preview |
+| `chipSource` | `176` | source width the channel chips are rendered at |
+| `height16` | `true` | offer the 16-bit height PNG and include it in the zip |
+| `preview` | see below | lighting constants for the GGX preview |
+
+```js
+preview:{gain:3.2,amb:1.15,specK:0.55,skyLo:[0.13,0.15,0.19],skyHi:[0.30,0.34,0.42]}
+```
+
+`gain` scales the direct light, `amb` the sky term, `specK` the specular
+horizon rolloff, `skyLo`/`skyHi` the ambient gradient by normal Z.
+
+### Channels
+
+```js
+channels:[
+  {key:"basecolor",label:"Base colour"},
+  {key:"metallic",label:"Metallic",tab:false},   // exported, but no preview tab
+  …
+]
+```
+
+Order sets the chip order, the tab order and the zip order. `tab:false` keeps a
+channel out of the view tabs while still exporting it — use it for a channel
+that is flat by design. The first channel is what the app falls back to when
+the browser has no WebGL.
+
+These keys are written for you if the corresponding buffer is present:
+`basecolor`, `normal`, `roughness`, `metallic`, `ao`, `height`, `orm`,
+`opacity` (needs `ALP`), `emissive` (needs `EMI`). Anything else needs a
+writer — see **Custom channels**.
+
+### Controls
+
+```js
+controls:[
+  {title:"Output",open:true,rows:[ … ]},
+  {title:"Crossings",id:"gCross",need:["cw","int"],rows:[ … ]}
+]
+```
+
+A group with `need` is hidden unless `needs(P)` returns one of those keys. Row
+types:
+
+```js
+{id:"tileM",label:"Tile covers",unit:"m",min:0.5,max:24,step:0.5,value:2}   // range (default)
+{id:"piece",type:"select",label:"Piece",value:"none",options:[["none","Plain"],["cross","Cross-section"]]}
+{id:"seed",type:"seed",value:1963}                                          // number + Roll
+{type:"colors",label:"Bitumen · stone",items:[{id:"cBitumen",value:"#2b2b2c"}, …]}
+{type:"checks",items:[{id:"flipG",label:"Flip green (DirectX)",value:false}]}
+{type:"readout"}                                    // filled by readout(P)
+{type:"note",html:"Standing text."}
+```
+
+Any row can carry `need:"kerb"` to hide it the same way. A select whose option
+values are all numeric reads back as a number, otherwise as a string. Ranges
+display with the decimal places implied by `step`. Add `showValue:true` to a
+select to echo its value in the label.
+
+Every control id must be unique within the mode; in the DOM it becomes
+`<modeid>--<controlid>`, so two modes can use `size` and `seed` freely.
+
+Two ids are conventional and the runtime does lean on them: `size` (the build
+size — anything over 1024 waits for the button instead of auto-rebuilding) and
+`seed` (shown in the status line).
+
+### Presets
+
+```js
+presets:[{id:"wet",label:"Wet night",set:{tileM:4,wet:0.75,puddles:0.7}}]
+```
+
+`set` is control id → value; anything not listed keeps its current value, which
+is how the originals behaved.
+
+### Parameter hooks
+
+```js
+derive(P,ui)      // clamp or fix up parameters; ui.set(id,value) writes back to the form
+needs(P)          // -> ["road","kerb"]; drives row and group visibility
+readout(P)        // -> HTML for the {type:"readout"} row
+tileTag(P)        // -> the note in the bottom right of the stage
+sizeTag(P)        // -> extra status text, e.g. "2 m"
+autonote(P)       // -> override the line under the build button
+```
+
+All are optional.
+
+### Size and build
+
+```js
+size(P,preview)   // -> {w,h}. Called with preview=true for the drag preview.
+build(P,io)       // fill buffers, then io.done(B)
+```
+
+`io` carries `{W,H,preview,progress(t),done(B)}` where `W`/`H` are what `size()`
+returned. Report progress 0→1 and call `done` exactly once. Work in bands with
+a `setTimeout` between them — a synchronous loop over a 4096² tile freezes the
+tab and the progress bar with it:
+
+```js
+const band=Math.max(8,Math.round(65536/S));
+let y=0;
+function pass1(){
+  const end=Math.min(S,y+band);
+  for(;y<end;y++){ /* … */ }
+  if(y<S){io.progress(y/S*0.7);setTimeout(pass1,0);}
+  else{io.progress(0.75);setTimeout(pass2,0);}
+}
+```
+
+`B` is a plain object of typed arrays, all `W*H` long (`A` and `NRM` are
+`W*H*3`):
+
+| field | type | required |
+|---|---|---|
+| `A` | `Uint8ClampedArray` RGB | yes |
+| `NRM` | `Uint8ClampedArray` RGB | yes |
+| `RGH`, `MET`, `AO` | `Uint8ClampedArray` | yes |
+| `HGT` | `Float32Array` | yes |
+| `hMin`, `hMax` | number | yes — the height range, used by the 8/16-bit height maps |
+| `ALP` | `Uint8ClampedArray` | only for cut-out modes |
+| `EMI` | `Uint8ClampedArray` | only if something glows |
+| anything else | | whatever your custom writers need |
+
+### Custom channels
+
+```js
+writers:function(B,P){
+  return {markings:function(i,o,k){
+    o[k]=236;o[k+1]=235;o[k+2]=230;
+    return B.MK[i];                 // the return value is the alpha
+  }};
+}
+```
+
+`i` indexes the source texel, `o`/`k` are the destination `ImageData` array and
+offset. Return the alpha byte. Writers are resolved once per build, not per
+texel, so a custom channel costs no more than a built-in one.
+
+### Export text
+
+```js
+fileBase(P,W,H)   // -> "street_cross_1963_2048"; the runtime appends _<channel>.png, .zip, _readme.txt
+readme(P,info)    // -> the text file packed into the zip
+```
+
+`info` is `{W,H,hMin,hMax,normalNote}`, where `normalNote` is already phrased
+as "OpenGL (green up)" or "DirectX (green down)" from `P.flipG`.
+
+---
+
+## Shared helpers
+
+On the `Forge` object, so a mode does not carry its own copy:
+
+```js
+Forge.clamp(x,a,b)  Forge.lerp(a,b,t)  Forge.smoothstep(e0,e1,x)
+Forge.mulberry32(seed)          // -> rng()
+Forge.hashi(x,y,seed)           // integer hash -> 0..1
+Forge.vnoise(x,y,period,seed)   // value noise wrapping at `period` — tileable
+Forge.fbm(u,v,period,oct,seed)
+Forge.vnoise2(x,y,px,py,seed)   // independent period per axis, for stretched grain
+Forge.fbm2(u,v,px,py,oct,seed)
+Forge.wrapDist(a,b)             // distance on a unit torus
+Forge.hex2rgb("#rrggbb")
+Forge.blurWrap(src,n,r)         // separable box blur, wrapping (square)
+Forge.blurClamp(src,w,h,r)      // separable box blur, clamped at the edges
+```
+
+Anything a single mode needs and nobody else does — a Worley variant, a
+rotation table — belongs in that mode's file.
+
+## Conventions worth keeping
+
+- **Dimension in real units.** Street works in metres, house in feet. It is
+  what makes the output composable and makes "zoom out" mean more detail
+  rather than bigger blobs.
+- **Warn in the readout when the resolution cannot hold the detail** rather
+  than silently producing mush.
+- **Drop detail grades that fall below a couple of texels.** Aliased noise
+  looks worse than absent noise.
+- **Keep metallic honest.** Flat black for dielectrics, and say so in the
+  readme if you cheat (house does, for glass).
+
+## Checking a mode
+
+Load `index.html` from disk — no server needed — and watch the console. Then:
+
+- every preset builds without an error
+- dragging a slider gives a preview and releasing rebuilds (below 1024)
+- each channel tab renders, and the chips match them
+- the zip contains one PNG per channel plus the readme
+- for a seamless mode, 4×4 tiling shows no seam at the tile edges

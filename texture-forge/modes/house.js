@@ -1,0 +1,1354 @@
+/* =====================================================================
+   MODE: house — American house front elevation
+   =====================================================================
+   A composed facade rather than a tiling texture, dimensioned in feet.
+   Output is non-square at uniform texel density and carries an alpha
+   channel, so a gable front gives a real cut-out silhouette.
+
+   Was elevation-forge.html; the generator below is unchanged, so seeds
+   and exports match the standalone tool.
+   ===================================================================== */
+"use strict";
+
+(function(){
+const clamp=Forge.clamp,lerp=Forge.lerp,smoothstep=Forge.smoothstep,mulberry32=Forge.mulberry32,
+      hashi=Forge.hashi,hex2rgb=Forge.hex2rgb,boxBlur=Forge.blurClamp;
+
+/* the live parameter set; every entry point below refreshes it first because
+   geometry() and the stencils read it directly */
+let P={},GEO=null;
+const use=params=>{P=params;};
+
+/* value noise; the facade does not tile, so a large fixed lattice is fine */
+function vnoise(x,y,seed){
+  const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
+  const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  const a=hashi(xi,yi,seed),b=hashi(xi+1,yi,seed),c=hashi(xi,yi+1,seed),d=hashi(xi+1,yi+1,seed);
+  return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;
+}
+function fbm(x,y,oct,seed){
+  let amp=1,sum=0,norm=0;
+  for(let i=0;i<oct;i++){sum+=amp*vnoise(x,y,seed+i*7919);norm+=amp;amp*=0.5;x*=2;y*=2;}
+  return sum/norm;
+}
+let W_f1=0,W_f2=0,W_cx=0,W_cy=0,W_dx=0,W_dy=0;
+function worley(x,y,seed,jit){
+  const xi=Math.floor(x),yi=Math.floor(y);
+  let d1=1e9,d2=1e9,bx=0,by=0,ex=0,ey=0;
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    const cx=xi+dx,cy=yi+dy;
+    const fx=cx+0.5+(hashi(cx,cy,seed)-0.5)*jit;
+    const fy=cy+0.5+(hashi(cx,cy,seed+7717)-0.5)*jit;
+    const ax=x-fx,ay=y-fy,d=ax*ax+ay*ay;
+    if(d<d1){d2=d1;d1=d;bx=cx;by=cy;ex=ax;ey=ay;}
+    else if(d<d2)d2=d;
+  }
+  W_f1=Math.sqrt(d1);W_f2=Math.sqrt(d2);W_cx=bx;W_cy=by;W_dx=ex;W_dy=ey;
+}
+const IN=1/12;                                   // one inch, in feet
+/* feet to the nearest boundary of a grid of period L — the basis for every
+   seam, joint, strap and form line on the building */
+const edgeDist=(v,L)=>{const f=v/L-Math.floor(v/L);return (f<0.5?f:1-f)*L;};
+
+/* ============================ geometry ============================ */
+function geometry(){
+  const FW=P.facadeW;
+  const wallTop=P.foundH+P.storeys*P.storeyH;
+  const eaveBand=(P.roof==="flat")?1.4:(P.roof==="gable"?0.30:(P.soffitD*IN+0.75));
+  const gableH=(P.roof==="gable")?(FW/2)*(P.pitch/12):0;
+  const FH=wallTop+eaveBand+gableH;
+  const TW=P.size|0;
+  const TH=Math.max(8,Math.round(TW*FH/FW/4)*4);
+  return {FW:FW,FH:FH,wallTop:wallTop,eaveBand:eaveBand,gableH:gableH,TW:TW,TH:TH};
+}
+/* the openings, laid out bay by bay, storey by storey */
+function buildOpenings(g){
+  const rng=mulberry32((P.seed|0)*2654435761+7);
+  const ops=[];
+  const bays=Math.max(1,P.bays|0);
+  const margin=Math.max(1.2,g.FW*0.06);
+  const span=(g.FW-2*margin)/bays;
+  const doorIdx=clamp((P.doorBay|0)-1,0,bays-1);
+  for(let s=0;s<P.storeys;s++){
+    const floor=P.foundH+s*P.storeyH;
+    for(let bi=0;bi<bays;bi++){
+      const cx=margin+span*(bi+0.5);
+      if(s===0&&bi===doorIdx){
+        const th=P.transom?0.95:0;
+        const w=P.doorW,h=6.7+th;
+        ops.push({type:"door",x0:cx-w/2,x1:cx+w/2,y0:floor,y1:floor+h,
+          hood:P.doorHood,transomH:th,rng:rng()});
+        continue;
+      }
+      const w=P.winW,h=P.winH,y0=floor+P.sillH;
+      const o={type:"window",x0:cx-w/2,x1:cx+w/2,y0:y0,y1:y0+h,
+        lit:P.litWin&&rng()<0.55,rng:rng(),tilt:(rng()-0.5)*0.06};
+      o.boarded=rng()<P.boardUp*P.aband;
+      o.brokeSeed=(rng()*1e6)|0;
+      o.partial=rng()<0.35;
+      ops.push(o);
+    }
+  }
+  return ops;
+}
+
+/* ============================ drawn stencils ============================ */
+/* R = graffiti coverage, G = graffiti hue pick, B = vines/weeds */
+function buildStencil(g,SW,SH){
+  const c=document.createElement("canvas");c.width=SW;c.height=SH;
+  const q=c.getContext("2d",{willReadFrequently:true});
+  q.fillStyle="#000";q.fillRect(0,0,SW,SH);
+  const rng=mulberry32((P.seed|0)*40503+13);
+  const fx=SW/g.FW,fy=SH/g.FH;                     // px per foot
+  const Y=(ft)=>SH-ft*fy;                          // world feet -> canvas y
+
+  if(P.graffiti*P.aband>0){
+    const n=Math.round(2+P.graffiti*P.aband*7);
+    q.lineCap="round";q.lineJoin="round";
+    for(let i=0;i<n;i++){
+      const cx=rng()*g.FW,cy=0.9+rng()*Math.min(7,g.FH*0.35);
+      const sc=(0.7+rng()*1.9)*fx;
+      const hue=rng();
+      const strokes=2+Math.floor(rng()*4);
+      for(let s=0;s<strokes;s++){
+        const w=(0.12+rng()*0.22)*sc;
+        q.lineWidth=w;
+        q.strokeStyle="rgba(255,"+Math.round(hue*255)+",0,"+(0.55+rng()*0.45).toFixed(2)+")";
+        q.beginPath();
+        const px=cx*fx+(rng()-0.5)*sc,py=Y(cy)+(rng()-0.5)*sc*0.6;
+        const a0=rng()*Math.PI*2,len=(0.6+rng()*1.6)*sc,curl=(rng()-0.5)*4;
+        for(let t=0;t<=18;t++){
+          const u=t/18;
+          const a=a0+curl*u;
+          const X=px+Math.cos(a)*len*u+Math.sin(u*6.0)*sc*0.18;
+          const Yy=py+Math.sin(a)*len*u*0.6+Math.cos(u*4.0)*sc*0.14;
+          if(t===0)q.moveTo(X,Yy);else q.lineTo(X,Yy);
+        }
+        q.stroke();
+        if(rng()<0.5){                              // a drip off the stroke
+          q.lineWidth=w*0.22;
+          q.beginPath();
+          const dx=px+(rng()-0.5)*len,dy=py+(rng()-0.3)*len*0.4;
+          q.moveTo(dx,dy);q.lineTo(dx,dy+(0.3+rng()*1.2)*sc);q.stroke();
+        }
+      }
+    }
+  }
+  if(P.vines*P.aband>0){
+    const n=Math.round(3+P.vines*P.aband*14);
+    q.lineCap="round";
+    for(let i=0;i<n;i++){
+      let x=rng()*g.FW*fx,y=SH-rng()*0.6*fy;
+      const climb=(2+rng()*Math.min(16,g.FH*0.75))*fy;
+      const segs=Math.max(8,Math.round(climb/(0.3*fy)));
+      let ang=-Math.PI/2+(rng()-0.5)*0.5;
+      const pts=[[x,y]];
+      for(let s2=0;s2<segs;s2++){
+        ang+=(rng()-0.5)*0.45;
+        if(ang>-0.35)ang=-0.35;if(ang<-Math.PI+0.35)ang=-Math.PI+0.35;   // keep climbing
+        x+=Math.cos(ang)*climb/segs;y+=Math.sin(ang)*climb/segs;
+        pts.push([x,y]);
+      }
+      // stem first, as one unbroken polyline
+      q.strokeStyle="rgba(0,0,255,0.95)";
+      q.lineWidth=Math.max(1.2,0.055*fx*(0.7+rng()));
+      q.beginPath();q.moveTo(pts[0][0],pts[0][1]);
+      for(let k=1;k<pts.length;k++)q.lineTo(pts[k][0],pts[k][1]);
+      q.stroke();
+      // then leaves clustered along it
+      for(let k=1;k<pts.length;k++){
+        const cnt=rng()<0.75?(1+Math.floor(rng()*3)):0;
+        for(let c=0;c<cnt;c++){
+          const lr=(0.10+rng()*0.16)*fx;
+          const px=pts[k][0]+(rng()-0.5)*lr*3.0,py=pts[k][1]+(rng()-0.5)*lr*3.0;
+          q.fillStyle="rgba(0,0,255,"+(0.6+rng()*0.4).toFixed(2)+")";
+          q.beginPath();
+          const lobes=5;
+          for(let t=0;t<=lobes*4;t++){
+            const a=t/(lobes*4)*Math.PI*2;
+            const rr=lr*(0.62+0.38*Math.abs(Math.cos(a*lobes*0.5)));
+            const X=px+Math.cos(a)*rr,Y=py+Math.sin(a)*rr*1.1;
+            if(t===0)q.moveTo(X,Y);else q.lineTo(X,Y);
+          }
+          q.closePath();q.fill();
+        }
+      }
+    }
+  }
+  return q.getImageData(0,0,SW,SH).data;
+}
+
+/* ============================ the generator ============================ */
+
+/* material scratch, written by the cladding routines */
+let Mh=0,Mr=0,Mg=0,Mb=0,Mrg=0.8,Mid=1,Mmet=0,Mwood=0,Mcourse=0,Mboard=0;
+let Gr=0,Gg=0,Gb=0,Grough=0.08,Gmet=0,Gemis=0;
+
+function build(params,io){
+  use(params);
+  let hMin=0,hMax=1;
+  const g=geometry();
+  const TW=io.W,TH=io.H;
+  GEO=g;
+  const seed=P.seed|0;
+  const FW=g.FW,FH=g.FH;
+  const ftPerPx=FW/TW;
+  const ops=buildOpenings(g);
+  const SW=Math.min(TW,1024),SH=Math.max(8,Math.round(SW*FH/FW));
+  const sten=buildStencil(g,SW,SH);
+
+  const N=TW*TH;
+  const A=new Uint8ClampedArray(N*3);
+  const RGH=new Uint8ClampedArray(N);
+  const MET=new Uint8ClampedArray(N);
+  const AOc=new Uint8ClampedArray(N);
+  const NRM=new Uint8ClampedArray(N*3);
+  const HGT=new Float32Array(N);
+  const IDm=new Uint8ClampedArray(N);
+  const EMI=new Uint8ClampedArray(N);
+  const ALP=new Uint8ClampedArray(N);
+
+  const wall=hex2rgb(P.cWall),trim=hex2rgb(P.cTrim),under=hex2rgb(P.cUnder);
+  const doorC=hex2rgb(P.cDoor),shutC=hex2rgb(P.cShut),roofC=hex2rgb(P.cRoof);
+  const gutC=hex2rgb(P.cGutter);
+  const REL=P.cladRelief,IRR=P.cladIrreg;
+  const expo=P.exposure*IN,mortar=P.mortarW*IN,cH=P.courseH*IN,uL=P.unitLen*IN;
+  const casing=P.casingW*IN,cornerW=P.cornerW*IN,friezeH=P.friezeH*IN;
+  const waterT=P.waterT*IN,soffitD=P.soffitD*IN;
+  const AB=P.aband;
+
+  const sample=(u,v,ch)=>{                          // stencil read, clamped
+    const x=clamp(u*SW-0.5,0,SW-1.001),y=clamp(v*SH-0.5,0,SH-1.001);
+    const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0;
+    const x1=Math.min(SW-1,x0+1),y1=Math.min(SH-1,y0+1);
+    const a=sten[(y0*SW+x0)*4+ch],b=sten[(y0*SW+x1)*4+ch];
+    const c=sten[(y1*SW+x0)*4+ch],d=sten[(y1*SW+x1)*4+ch];
+    return (a+(b-a)*fx+(c-a)*fy+(a-b-c+d)*fx*fy)/255;
+  };
+
+  /* ---------- cladding ---------- */
+  function cladding(x,y){
+    Mid=1;Mmet=0;Mwood=1;Mrg=0.72;Mcourse=0;Mboard=0;
+    let r=wall[0],gg=wall[1],b=wall[2],h=0;
+    if(P.clad==="clapboard"||P.clad==="vinyl"){
+      const vin=P.clad==="vinyl";
+      const E=vin?expo*0.5:expo;
+      const c=Math.floor(y/E),f=y/E-c;
+      const T=(vin?0.035:0.055)*REL;
+      h=T*(1-f*f*0.85);                               // proud at the butt, receding up
+      h+=Math.sin(f*Math.PI)*0.012*REL*(vin?0.4:1)*IRR;   // cupping
+      const L=vin?12:P.boardLen;
+      const off=hashi(c,7,seed)*L;
+      const bi=Math.floor((x+off)/L);
+      const jd=Math.abs(((x+off)/L-bi-0.5))*L;         // ft from board centre
+      const jg=1-smoothstep(L*0.5-0.02,L*0.5,jd);
+      h-=jg*0.02*REL;
+      const bh=hashi(bi,c,seed+11);
+      h+=(bh-0.5)*0.010*REL*IRR;
+      Mcourse=c;Mboard=bi;
+      const grain=fbm(x*26,y*3.5,3,seed+31);
+      h+=(grain-0.5)*0.006*REL*(vin?0.15:1);
+      const tone=1+(bh-0.5)*0.06*IRR+(grain-0.5)*0.05;
+      r*=tone;gg*=tone;b*=tone;
+      Mrg=vin?0.55:0.68;
+      if(vin)Mwood=0;
+    }else if(P.clad==="batten"){
+      const sp=P.battenSpace*IN;
+      const bi=Math.floor(x/sp),f=x/sp-bi;
+      const bw=2.5*IN;
+      const dB=Math.min(f,1-f)*sp;
+      const bat=1-smoothstep(bw*0.5-ftPerPx,bw*0.5,dB);
+      h=bat*0.06*REL;
+      const grain=fbm(x*3.5,y*26,3,seed+31);
+      h+=(grain-0.5)*0.008*REL;
+      const bh=hashi(bi,3,seed+11);
+      Mcourse=0;Mboard=bi;
+      const tone=1+(bh-0.5)*0.07*IRR+(grain-0.5)*0.06;
+      r*=tone;gg*=tone;b*=tone;
+      Mrg=0.70;
+    }else if(P.clad==="shingle"){
+      const E=expo;
+      const c=Math.floor(y/E),f=y/E-c;
+      const off=hashi(c,3,seed)*3;
+      const w=Math.max(0.35,expo*1.15);
+      const si=Math.floor((x+off)/w);
+      let dg=1e9,sid=si;
+      for(let k=-1;k<=1;k++){
+        const idx=si+k;
+        const gp=(idx+(hashi(idx,c,seed+5)-0.5)*0.7)*w-off;
+        const d=x-gp;
+        if(Math.abs(d)<Math.abs(dg)){dg=d;sid=(d>=0)?idx:idx-1;}
+      }
+      const sh=hashi(sid,c,seed+17);
+      Mcourse=c;Mboard=sid;
+      h=0.05*REL*(1-f*f*0.7)+(sh-0.5)*0.02*REL*IRR;
+      h-=(1-smoothstep(0,0.018,Math.abs(dg)))*0.035*REL;
+      const grain=fbm(x*30,y*6,3,seed+31);
+      h+=(grain-0.5)*0.008*REL;
+      const tone=1+(sh-0.5)*0.16*IRR+(grain-0.5)*0.08;
+      r*=tone;gg*=tone;b*=tone;
+      Mrg=0.80;
+    }else if(P.clad==="brick"){
+      const row=Math.floor(y/cH);
+      const off=(row&1)?uL*0.5:0;
+      const col=Math.floor((x+off)/uL);
+      const fx2=(x+off)/uL-col,fy2=y/cH-row;
+      const dj=Math.min(Math.min(fx2,1-fx2)*uL,Math.min(fy2,1-fy2)*cH);
+      const face=smoothstep(mortar*0.5-ftPerPx,mortar*0.5+ftPerPx*0.5,dj);
+      const bh=hashi(col,row,seed+23);
+      h=-0.035*REL*(1-face);
+      h+=face*(bh-0.5)*0.012*REL*IRR;
+      h+=(fbm(x*80,y*80,2,seed+29)-0.5)*0.006*REL;
+      const bt=0.80+bh*0.42;
+      r=lerp(178,120,1-bt*0.6)*bt*0.9;gg=lerp(96,70,1-bt)*bt;b=lerp(78,60,1-bt)*bt;
+      r=lerp(r,wall[0],0.25);gg=lerp(gg,wall[1],0.25);b=lerp(b,wall[2],0.25);
+      const mo=1-face;
+      r=lerp(r,196,mo);gg=lerp(gg,190,mo);b=lerp(b,178,mo);
+      Mrg=lerp(0.78,0.92,mo);Mid=5;Mwood=0;
+    }else if(P.clad==="stone"){
+      const sc=1/Math.max(0.35,uL*1.6);
+      worley(x*sc,y*sc*1.5,seed+37,0.95);
+      const edge=W_f2-W_f1;
+      const face=smoothstep(0.03,0.10,edge);
+      h=-0.05*REL*(1-face);
+      const sh=hashi(W_cx,W_cy,seed+41);
+      h+=face*(sh-0.5)*0.05*REL*IRR;
+      h+=(fbm(x*40,y*40,3,seed+43)-0.5)*0.012*REL;
+      const t=0.62+sh*0.6;
+      r=lerp(150,110,sh)*t;gg=lerp(142,104,sh)*t;b=lerp(130,96,sh)*t;
+      const mo=1-face;
+      r=lerp(r,186,mo);gg=lerp(gg,180,mo);b=lerp(b,168,mo);
+      Mrg=lerp(0.85,0.93,mo);Mid=5;Mwood=0;
+    }else{                                            // stucco
+      const n1=fbm(x*36,y*36,4,seed+47);
+      const n2=fbm(x*130,y*130,3,seed+53);
+      h=(n1-0.5)*0.022*REL+(n2-0.5)*0.006*REL;
+      worley(x*3.2,y*3.2,seed+59,0.95);
+      const crack=1-smoothstep(0,0.05,W_f2-W_f1);
+      const creg=smoothstep(0.45,0.75,fbm(x*0.35,y*0.35,3,seed+61));
+      h-=crack*creg*0.012*REL;
+      const t=0.94+n1*0.14;
+      r*=t;gg*=t;b*=t;
+      r=lerp(r,r*0.55,crack*creg);gg=lerp(gg,gg*0.55,crack*creg);b=lerp(b,b*0.55,crack*creg);
+      Mrg=0.88;Mwood=0;
+    }
+    Mh=h;Mr=r;Mg=gg;Mb=b;
+  }
+
+  /* ---------- foundation ---------- */
+  function foundation(x,y){
+    Mid=5;Mmet=0;Mwood=0;
+    let r=150,gg=147,b=140,h=-0.02,rg=0.9;
+    if(P.found==="cmu"){
+      const bh2=7.625*IN,bl=15.625*IN,mj=0.375*IN;
+      const row=Math.floor(y/(bh2+mj)),col=Math.floor(x/(bl+mj));
+      const fx2=x/(bl+mj)-col,fy2=y/(bh2+mj)-row;
+      const dj=Math.min(Math.min(fx2,1-fx2)*bl,Math.min(fy2,1-fy2)*bh2);
+      const face=smoothstep(mj*0.4-ftPerPx,mj*0.4+ftPerPx,dj);
+      h=-0.02-0.03*(1-face)*REL;
+      const t=0.92+hashi(col,row,seed+67)*0.16;
+      r*=t;gg*=t;b*=t;
+      r=lerp(r,168,1-face);gg=lerp(gg,166,1-face);b=lerp(b,158,1-face);
+    }else if(P.found==="brick"){
+      const row=Math.floor(y/cH),off=(row&1)?uL*0.5:0,col=Math.floor((x+off)/uL);
+      const fx2=(x+off)/uL-col,fy2=y/cH-row;
+      const dj=Math.min(Math.min(fx2,1-fx2)*uL,Math.min(fy2,1-fy2)*cH);
+      const face=smoothstep(mortar*0.5-ftPerPx,mortar*0.5+ftPerPx,dj);
+      const bh3=hashi(col,row,seed+71);
+      h=-0.02-0.035*(1-face)*REL;
+      r=126+bh3*46;gg=74+bh3*26;b=62+bh3*22;
+      r=lerp(r,190,1-face);gg=lerp(gg,184,1-face);b=lerp(b,172,1-face);
+    }else if(P.found==="stone"){
+      worley(x*1.9,y*2.6,seed+73,0.95);
+      const face=smoothstep(0.04,0.12,W_f2-W_f1);
+      const sh=hashi(W_cx,W_cy,seed+79);
+      h=-0.02-0.06*(1-face)*REL+face*(sh-0.5)*0.05*REL;
+      const t=0.6+sh*0.55;
+      r=140*t;gg=134*t;b=124*t;
+      r=lerp(r,180,1-face);gg=lerp(gg,174,1-face);b=lerp(b,164,1-face);
+    }else{
+      const n=fbm(x*22,y*22,4,seed+83);
+      h=-0.02+(n-0.5)*0.012*REL;
+      const t=0.9+n*0.2;
+      r*=t;gg*=t;b*=t;
+      const form=1-smoothstep(0,0.02,edgeDist(y,4));
+      h-=form*0.004;
+    }
+    Mh=h;Mr=r;Mg=gg;Mb=b;Mrg=rg;
+  }
+
+  /* ---------- glass ----------
+     pv runs 0 at the bottom of the lite to 1 at the top; a vertical pane
+     reflects sky up top and ground below, so it brightens upward. Grime is a
+     dielectric film: it dulls the mirror and takes the metallicity with it. */
+  function glass(pu,pv,edgeD,nx,ny,paneSeed,lit){
+    const sky=pv*pv;
+    let r=lerp(38,96,sky),g2=lerp(44,108,sky),b=lerp(52,126,sky);
+    const refl=fbm(nx*3.2,ny*1.4,2,paneSeed);
+    r+=refl*24;g2+=refl*26;b+=refl*28;
+    Gemis=0;
+    if(lit){r=lerp(r,236,0.74);g2=lerp(g2,208,0.74);b=lerp(b,150,0.74);Gemis=0.85;}
+    let rough=P.glassRough,met=P.glassMetal;
+    const amt=P.glassGrime*(1+P.aband*1.2);
+    if(amt>0){
+      const dust=(1-smoothstep(0,0.24,pv))*0.75            // settles on the bottom rail
+                +(1-smoothstep(0,0.10,edgeD))*0.55;        // and creeps in from the edges
+      const film=fbm(nx*7,ny*7,3,paneSeed+13);
+      const runs=fbm(nx*26,ny*1.7,3,paneSeed+17);          // rain runs, stretched vertically
+      const gA=clamp(clamp((dust*0.5+film*0.55+runs*0.42-0.34)*1.8,0,1)*amt,0,0.95);
+      rough=lerp(rough,0.68,gA);
+      met=met*(1-gA*0.88);
+      const haze=gA*0.62;
+      r=lerp(r,r*0.60+98,haze);g2=lerp(g2,g2*0.60+96,haze);b=lerp(b,b*0.60+92,haze);
+      Gemis*=(1-gA*0.5);
+    }
+    Gr=r;Gg=g2;Gb=b;Grough=rough;Gmet=met;
+  }
+
+  /* ---------- board-up panel over an opening ---------- */
+  function boardPanel(lx,ly,w,hgt,sd){
+    Mid=8;Mmet=0;Mwood=1;
+    let r=150,gg=126,b=92,h=0.06,rg=0.86;
+    if(P.boardMat==="osb"){
+      worley(lx*26,ly*26,sd+3,0.95);
+      const fl=smoothstep(0.05,0.32,W_f2-W_f1);
+      const ch=hashi(W_cx,W_cy,sd+5);
+      const t=0.72+ch*0.55;
+      r=168*t;gg=134*t;b=88*t;
+      h+=(0.5-fl)*0.008;
+      r=lerp(r,r*0.7,1-fl);gg=lerp(gg,gg*0.7,1-fl);b=lerp(b,b*0.7,1-fl);
+      rg=0.9;
+    }else if(P.boardMat==="ply"){
+      const grain=fbm(lx*90,ly*7,4,sd+7);
+      const t=0.85+grain*0.3;
+      r=176*t;gg=142*t;b=98*t;
+      h+=(grain-0.5)*0.006;
+      rg=0.82;
+    }else{
+      const bw=0.62;
+      const bi=Math.floor(ly/bw),f=ly/bw-bi;
+      const t=0.7+hashi(bi,1,sd+11)*0.5;
+      r=150*t;gg=124*t;b=94*t;
+      h+=0.012*(1-Math.abs(f-0.5)*2*0.3);
+      h-=(1-smoothstep(0,0.02,Math.min(f,1-f)*bw))*0.03;
+      const grain=fbm(lx*70,ly*9,3,sd+13);
+      h+=(grain-0.5)*0.008;
+      rg=0.88;
+    }
+    // fasteners round the edge
+    const ex=Math.min(lx,w-lx),ey=Math.min(ly,hgt-ly);
+    const near=Math.min(ex,ey);
+    if(near<0.5){
+      const sp=0.85;
+      const sxi=Math.round(lx/sp)*sp,syi=Math.round(ly/sp)*sp;
+      const ax1=lx-sxi,ay1=ly-(ey<ex?(ly<hgt*0.5?0.22:hgt-0.22):syi);
+      const dsx=Math.sqrt(ax1*ax1+ay1*ay1);
+      const ax2=lx-(lx<w*0.5?0.22:w-0.22),ay2=ly-syi;
+      const dsy=Math.sqrt(ax2*ax2+ay2*ay2);
+      const d=Math.min(dsx,dsy);
+      const sm=1-smoothstep(0.02,0.035,d);
+      if(sm>0){h-=sm*0.01;r=lerp(r,96,sm);gg=lerp(gg,88,sm);b=lerp(b,82,sm);Mmet=lerp(0,0.8,sm);}
+    }
+    Mh=h;Mr=r;Mg=gg;Mb=b;Mrg=rg;
+  }
+
+  const pxPerFtL=TW/FW;
+  const band=Math.max(2,Math.round(16384/TW));
+  let yy=0;
+
+  function pass1(){
+    const end=Math.min(TH,yy+band);
+    for(;yy<end;yy++){
+      const wy=(1-(yy+0.5)/TH)*FH;                   // feet above grade
+      const rowOps=[];
+      for(const o of ops)if(wy>o.y0-1.6&&wy<o.y1+1.4)rowOps.push(o);
+      const sillAbove=[];
+      if(P.streak>0)for(const o of ops)if(o.type==="window"&&o.y0>wy)sillAbove.push(o);
+      // which storey band are we in
+      const storey=clamp(Math.floor((wy-P.foundH)/P.storeyH),0,P.storeys-1);
+      const floorY=P.foundH+storey*P.storeyH;
+
+      for(let xx=0;xx<TW;xx++){
+        const wx=(xx+0.5)/TW*FW,i=yy*TW+xx;
+
+        /* ---- silhouette ---- */
+        let alpha=1;
+        if(g.gableH>0){
+          const top=g.wallTop+g.eaveBand;
+          if(wy>top){
+            const t=(wy-top)/g.gableH;
+            const half=(FW/2)*(1-t);
+            const d=Math.abs(wx-FW/2)-half;
+            alpha=1-smoothstep(0,ftPerPx*1.4,d);
+          }
+        }else if(wy>g.wallTop+g.eaveBand){alpha=0;}
+        if(alpha<=0.004){
+          ALP[i]=0;HGT[i]=0;RGH[i]=200;AOc[i]=255;A[i*3]=A[i*3+1]=A[i*3+2]=0;
+          continue;
+        }
+
+        let r,gg,b,h,rg,id,met=0,emis=0,wood=0;
+
+        /* ---- base surface by band ---- */
+        const inFound=wy<P.foundH;
+        if(inFound){foundation(wx,wy);}
+        else if(wy>g.wallTop&&P.roof==="eave"){
+          const d=wy-g.wallTop;
+          if(d<soffitD){                               // soffit, seen up under the overhang
+            const t=d/Math.max(0.01,soffitD);
+            Mh=-0.34-t*0.10;                           // recedes towards the fascia
+            let sh=0.60-t*0.10;
+            Mr=trim[0]*sh;Mg=trim[1]*sh;Mb=trim[2]*sh;Mrg=0.62;Mid=2;Mwood=1;
+            /* soffit panels butt every few feet */
+            const pj=1-smoothstep(0,0.025,edgeDist(wx,3.9));
+            if(pj>0){Mh-=pj*0.02;Mr*=1-pj*0.25;Mg*=1-pj*0.25;Mb*=1-pj*0.25;}
+            /* venting: without it this band is just a blank shadow */
+            if(P.soffitVent!=="none"){
+              let inVent=0,vt=0;
+              if(P.soffitVent==="strip"){
+                const vw=soffitD*0.34;
+                const vd=Math.abs(d-soffitD*0.5);
+                inVent=1-smoothstep(vw*0.5-ftPerPx,vw*0.5,vd);
+                vt=(d-(soffitD*0.5-vw*0.5))/vw;
+              }else{
+                const sp=7.5;                          // a vent every 7.5 ft
+                const cx2=(Math.floor(wx/sp)+0.5)*sp;
+                const hw=0.95,hh2=soffitD*0.42;
+                const dx2=Math.abs(wx-cx2),dy2=Math.abs(d-soffitD*0.5);
+                inVent=(1-smoothstep(hw-ftPerPx,hw,dx2))*(1-smoothstep(hh2-ftPerPx,hh2,dy2));
+                vt=(d-(soffitD*0.5-hh2))/(hh2*2);
+              }
+              if(inVent>0.02){
+                /* slots read only if they are a few texels apart, else a flat mesh */
+                const slotSp=0.075;
+                let mesh=0.5;
+                if(slotSp*pxPerFtL>=2.5){
+                  const f=(d/slotSp)-Math.floor(d/slotSp);
+                  mesh=Math.abs(f-0.5)*2;
+                }else{
+                  mesh=0.35+fbm(wx*90,d*90,2,seed+151)*0.4;
+                }
+                const vr=lerp(trim[0]*0.34,trim[0]*0.55,mesh);
+                const vg=lerp(trim[1]*0.34,trim[1]*0.55,mesh);
+                const vb=lerp(trim[2]*0.34,trim[2]*0.55,mesh);
+                Mr=lerp(Mr,vr,inVent);Mg=lerp(Mg,vg,inVent);Mb=lerp(Mb,vb,inVent);
+                Mh=lerp(Mh,Mh-0.022-mesh*0.008,inVent);
+                Mrg=lerp(Mrg,0.55,inVent);
+                Mmet=lerp(0,0.4,inVent);
+                if(inVent>0.5)Mid=4;
+                /* the pressed frame around the vent */
+                const fr=1-smoothstep(0.85,0.98,Math.abs(vt-0.5)*2);
+                Mh+=inVent*(1-fr)*0.02;
+              }
+            }
+          }else{                                       // fascia board, the frontmost trim
+            Mh=0.16;Mr=trim[0];Mg=trim[1];Mb=trim[2];Mrg=0.52;Mid=2;Mwood=1;
+          }
+        }else if(wy>g.wallTop&&P.roof==="flat"){
+          const d=wy-g.wallTop;                        // parapet cap
+          Mh=(d<g.eaveBand-0.35)?0.06:0.20;
+          const sh=(d<g.eaveBand-0.35)?0.92:1.0;
+          Mr=trim[0]*sh;Mg=trim[1]*sh;Mb=trim[2]*sh;Mrg=0.6;Mid=2;Mwood=1;
+        }else{cladding(wx,wy);}
+        r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;wood=Mwood;
+
+        /* ---- gable field above the eave line ---- */
+        if(g.gableH>0&&wy>g.wallTop+g.eaveBand){
+          cladding(wx,wy);
+          r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;wood=Mwood;
+          const top=g.wallTop+g.eaveBand;
+          const t=(wy-top)/g.gableH;
+          const half=(FW/2)*(1-t);
+          const d=half-Math.abs(wx-FW/2);
+          const rake=1-smoothstep(0.5,0.62,d);        // rake board along the slope
+          if(rake>0){r=lerp(r,trim[0],rake);gg=lerp(gg,trim[1],rake);b=lerp(b,trim[2],rake);
+            h=lerp(h,0.11,rake);rg=lerp(rg,0.55,rake);id=2;}
+          if(P.gableVent){
+            const vy=top+g.gableH*0.42;
+            const vw=Math.min(2.0,FW*0.09),vh=vw*0.78;
+            const dx=Math.abs(wx-FW/2),dy=Math.abs(wy-vy);
+            if(dx<vw&&dy<vh){
+              const fr=Math.min(0.16,vw*0.18);
+              if(dx>vw-fr||dy>vh-fr){                 // surround
+                r=trim[0];gg=trim[1];b=trim[2];h=0.13;rg=0.55;id=2;wood=1;
+              }else{                                  // louvre blades in shadow
+                const lp=Math.max(0.06,vh*0.16);
+                const f=(wy/lp)-Math.floor(wy/lp);
+                const sh=0.30+f*0.62;
+                r=30+34*sh;gg=29+32*sh;b=28*sh+26;
+                h=-0.18+f*0.07;rg=0.82;id=2;wood=1;
+              }
+            }
+          }
+        }
+
+        /* ---- horizontal trim bands ---- */
+        if(!inFound&&waterT>0&&wy>=P.foundH&&wy<P.foundH+waterT){
+          const t=(wy-P.foundH)/waterT;
+          r=trim[0];gg=trim[1];b=trim[2];rg=0.55;id=2;wood=1;
+          h=0.09-t*0.02;
+        }
+        if(P.bandBoard&&P.storeys>1){
+          for(let s=1;s<P.storeys;s++){
+            const by=P.foundH+s*P.storeyH;
+            if(wy>by-0.32&&wy<by+0.12){
+              r=trim[0];gg=trim[1];b=trim[2];rg=0.55;id=2;wood=1;
+              h=0.08;
+            }
+          }
+        }
+        if(friezeH>0&&wy<g.wallTop&&wy>g.wallTop-friezeH){
+          r=trim[0];gg=trim[1];b=trim[2];rg=0.55;id=2;wood=1;h=0.07;
+        }
+        /* corner boards */
+        if(cornerW>0){
+          const dc=Math.min(wx,FW-wx);
+          if(dc<cornerW&&wy<g.wallTop){
+            const e=1-smoothstep(cornerW-ftPerPx,cornerW,dc);
+            r=lerp(r,trim[0],e);gg=lerp(gg,trim[1],e);b=lerp(b,trim[2],e);
+            h=lerp(h,0.085,e);rg=lerp(rg,0.55,e);if(e>0.5){id=2;wood=1;}
+          }
+        }
+        /* gutter and downspout */
+        if(P.gutter&&P.roof==="eave"){
+          const gTop=g.wallTop+g.eaveBand,gH=0.42,gBot=gTop-gH;
+          if(wy>gBot&&wy<=gTop){
+            const t=(wy-gBot)/gH;                       // 0 at the bottom lip, 1 at the bead
+            /* K-style ogee: bead, hollow face, step, lower face, rolled underside */
+            let hh3,sh3;
+            if(t>0.88){hh3=0.36;sh3=1.06;}              // top bead catches the light
+            else if(t>0.62){hh3=0.30;sh3=0.90;}         // hollow of the ogee
+            else if(t>0.46){hh3=0.35;sh3=1.02;}         // the step back out
+            else if(t>0.18){hh3=0.32;sh3=0.84;}         // lower face
+            else{hh3=0.32-(0.18-t)*0.55;sh3=0.58;}      // rolls under, in shadow
+            h=hh3;
+            r=gutC[0]*sh3;gg=gutC[1]*sh3;b=gutC[2]*sh3;
+            rg=0.38;met=0.55;id=4;wood=0;
+            /* lengths join every 10 ft */
+            const sm=1-smoothstep(0,0.022,edgeDist(wx,10));
+            if(sm>0){h+=sm*0.012;r*=1-sm*0.18;gg*=1-sm*0.18;b*=1-sm*0.18;}
+            /* hangers every 2.5 ft, visible through the trough */
+            const hg=1-smoothstep(0,0.035,edgeDist(wx,2.5));
+            if(hg>0&&t>0.66&&t<0.90){
+              const hm=hg*smoothstep(0.66,0.72,t)*(1-smoothstep(0.84,0.90,t));
+              r*=1-hm*0.45;gg*=1-hm*0.45;b*=1-hm*0.45;h-=hm*0.02;
+            }
+            /* grime collects in the trough and streaks the face */
+            const dirt=fbm(wx*3.2,wy*9,3,seed+153);
+            const grimeG=clamp((dirt-0.42)*1.8,0,1)*(0.35+P.grunge*0.65)*(1-smoothstep(0.2,0.7,t));
+            r=lerp(r,r*0.55+10,grimeG);gg=lerp(gg,gg*0.55+9,grimeG);b=lerp(b,b*0.54+8,grimeG);
+            rg=lerp(rg,0.9,grimeG*0.8);met=lerp(met,0.1,grimeG*0.8);
+          }
+          /* downspout: from under the gutter all the way to grade */
+          const dsx=FW-0.95,dsHalf=0.145;
+          const dsTop=gBot+0.06;
+          if(wy<dsTop){
+            const outlet=(wy>dsTop-0.5)?1:0;            // the elbow at the top is wider
+            const half=dsHalf*(outlet?1.22:1);
+            const du=(wx-dsx)/half;
+            if(du>-1&&du<1){
+              const round=1-du*du;
+              h=0.22+round*0.07;
+              const sh4=0.72+round*0.36;
+              r=gutC[0]*sh4;gg=gutC[1]*sh4;b=gutC[2]*sh4;
+              rg=0.40;met=0.55;id=4;wood=0;
+              /* straps every 4 ft and a seam every 10 */
+              const st2=1-smoothstep(0,0.05,edgeDist(wy,4));
+              if(st2>0){h+=st2*0.03;r*=1-st2*0.22;gg*=1-st2*0.22;b*=1-st2*0.22;}
+              const sm2=1-smoothstep(0,0.02,edgeDist(wy,10));
+              if(sm2>0){r*=1-sm2*0.15;gg*=1-sm2*0.15;b*=1-sm2*0.15;}
+              /* rust and dirt, worst at the bottom where it stays wet */
+              const rustD=clamp(smoothstep(3.0,0,wy)*0.7+fbm(wy*4,wx*4,3,seed+157)*0.5-0.25,0,1)
+                          *(0.3+P.rust*0.7);
+              r=lerp(r,124,rustD*0.55);gg=lerp(gg,78,rustD*0.55);b=lerp(b,50,rustD*0.55);
+              rg=lerp(rg,0.92,rustD*0.6);met=lerp(met,0.15,rustD*0.6);
+            }
+          }
+        }
+
+        /* ---- openings ---- */
+        let inOpening=0;
+        for(let k=0;k<rowOps.length;k++){
+          const o=rowOps[k];
+          const cw=casing;
+          if(wx<o.x0-cw-0.85||wx>o.x1+cw+0.85)continue;
+          const w=o.x1-o.x0,hh=o.y1-o.y0;
+          let lx=wx-o.x0,ly=wy-o.y0;
+
+          if(o.type==="door"){
+            /* steps */
+            if(P.steps&&wy<P.foundH&&wx>o.x0-0.5&&wx<o.x1+0.5){
+              const n=Math.max(1,Math.round(P.foundH/0.6));
+              const si=Math.floor(wy/(P.foundH/n));
+              const f=wy/(P.foundH/n)-si;
+              const t=0.86+hashi(si,5,seed+91)*0.2;
+              r=150*t;gg=146*t;b=138*t;rg=0.9;id=5;wood=0;
+              h=0.55-si*0.14-f*0.02;
+              inOpening=1;
+            }
+            /* hood */
+            if(o.hood){
+              const hy=o.y1+0.55;
+              if(wy>o.y1+0.1&&wy<hy+0.35&&wx>o.x0-0.9&&wx<o.x1+0.9){
+                r=trim[0];gg=trim[1];b=trim[2];rg=0.5;id=2;wood=1;
+                h=0.45-(wy-o.y1-0.1)*0.25;
+                inOpening=1;
+              }
+            }
+          }
+          if(wx<o.x0-cw||wx>o.x1+cw||wy<o.y0-cw-(o.type==="door"?0:0.30)||wy>o.y1+cw)continue;
+
+          /* casing band */
+          const inX=wx>o.x0&&wx<o.x1,inY=wy>o.y0&&wy<o.y1;
+          if(!(inX&&inY)){
+            /* sill and apron under a window */
+            if(o.type==="window"&&wy<o.y0){
+              const d=o.y0-wy;
+              if(d<0.20){h=0.20-d*0.35;r=trim[0]*0.98;gg=trim[1]*0.98;b=trim[2]*0.98;}
+              else{h=0.10;r=trim[0]*0.92;gg=trim[1]*0.92;b=trim[2]*0.92;}
+              rg=0.5;id=2;wood=1;inOpening=1;continue;
+            }
+            const e=1-smoothstep(cw-ftPerPx,cw,Math.min(
+              Math.min(wx-(o.x0-cw),(o.x1+cw)-wx),Math.min(wy-(o.y0-cw),(o.y1+cw)-wy)));
+            r=lerp(r,trim[0],1);gg=lerp(gg,trim[1],1);b=lerp(b,trim[2],1);
+            h=0.10;rg=0.5;id=2;wood=1;inOpening=1;
+            continue;
+          }
+
+          inOpening=1;
+          const sd=(seed+((o.x0*13+o.y0*7)|0)*17)|0;
+
+          /* boarded over */
+          if(o.boarded){
+            const cover=o.partial?0.72:1.0;
+            if(ly<hh*cover){
+              boardPanel(lx,ly,w,hh*cover,sd);
+              r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;met=Mmet;wood=1;
+              continue;
+            }
+          }
+
+          /* the opening proper */
+          if(o.type==="door"){
+            const jam=0.10;
+            const th=o.transomH||0;
+            if(lx<jam||lx>w-jam||ly>hh-jam){
+              h=-0.06;r=trim[0]*0.9;gg=trim[1]*0.9;b=trim[2]*0.9;rg=0.55;id=2;wood=1;continue;
+            }
+            if(th>0&&ly>hh-th){                          // fanlight over the door
+              const ty=ly-(hh-th);
+              if(ty<0.14){                               // the rail it sits on
+                h=-0.02;r=trim[0]*0.94;gg=trim[1]*0.94;b=trim[2]*0.94;rg=0.52;id=2;wood=1;continue;
+              }
+              const tw=w-2*jam,thh=th-0.14-jam;
+              const pu=(lx-jam)/tw,pv=clamp((ty-0.14)/Math.max(0.05,thh),0,1);
+              const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
+              glass(pu,pv,edgeD,lx,ly,(sd+733)|0,false);
+              r=Gr;gg=Gg;b=Gb;rg=Grough;met=Gmet;emis=Gemis;
+              h=-0.28;id=3;wood=0;continue;
+            }
+            const dhh=hh-th;
+            const dx=lx-jam,dy=ly-jam,dw=w-2*jam,dh=dhh-2*jam;
+            h=-0.22;r=doorC[0];gg=doorC[1];b=doorC[2];rg=0.45;id=9;wood=1;
+            const grain=fbm(dx*70,dy*7,3,sd+19);
+            r*=0.94+grain*0.12;gg*=0.94+grain*0.12;b*=0.94+grain*0.12;
+            if(P.doorStyle!=="flush"){
+              const half=P.doorStyle==="half";
+              const rowsN=P.doorStyle==="p4"?2:3;
+              const stile=0.34,rail=0.32;
+              let inPanel=0,pd=0;
+              if(half){
+                if(dy>dh*0.52+rail*0.5){
+                  const px0=stile,px1=dw-stile,py0=dh*0.52+rail*0.5,py1=dh-rail;
+                  if(dx>px0&&dx<px1&&dy>py0&&dy<py1){
+                    inPanel=2;pd=Math.min(Math.min(dx-px0,px1-dx),Math.min(dy-py0,py1-dy));
+                  }
+                }else{
+                  const px0=stile,px1=dw-stile,py0=rail,py1=dh*0.52-rail*0.5;
+                  if(dx>px0&&dx<px1&&dy>py0&&dy<py1){
+                    inPanel=1;pd=Math.min(Math.min(dx-px0,px1-dx),Math.min(dy-py0,py1-dy));
+                  }
+                }
+              }else{
+                const cols=2,ph=(dh-rail*(rowsN+1))/rowsN,pw=(dw-stile*(cols+1))/cols;
+                const ci=Math.floor((dx-stile)/(pw+stile)),ri=Math.floor((dy-rail)/(ph+rail));
+                if(ci>=0&&ci<cols&&ri>=0&&ri<rowsN){
+                  const px0=stile+ci*(pw+stile),py0=rail+ri*(ph+rail);
+                  const ix=dx-px0,iy=dy-py0;
+                  if(ix>0&&ix<pw&&iy>0&&iy<ph){inPanel=1;pd=Math.min(Math.min(ix,pw-ix),Math.min(iy,ph-iy));}
+                }
+              }
+              if(inPanel===1){
+                const bev=smoothstep(0,0.09,pd);
+                h=-0.22-0.028*bev;
+                const sh3=lerp(0.78,1.0,bev);
+                r*=sh3;gg*=sh3;b*=sh3;
+              }else if(inPanel===2){                 // glazed upper panel
+                const px0=stile,px1=dw-stile,py0=dh*0.52+rail*0.5,py1=dh-rail;
+                const pu=clamp((dx-px0)/Math.max(0.05,px1-px0),0,1);
+                const pv=clamp((dy-py0)/Math.max(0.05,py1-py0),0,1);
+                const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
+                glass(pu,pv,edgeD,dx,dy,(sd+331)|0,false);
+                r=Gr;gg=Gg;b=Gb;rg=Grough;met=Gmet;emis=Gemis;
+                h=-0.30;id=3;wood=0;
+              }
+            }
+            /* knob */
+            const kx=dx-(dw-0.30),ky=dy-dh*0.45;
+            const kd=Math.sqrt(kx*kx+ky*ky*1.1025);
+            if(kd<0.075){
+              const km=1-smoothstep(0.055,0.075,kd);
+              h=lerp(h,-0.10,km);
+              r=lerp(r,186,km);gg=lerp(gg,158,km);b=lerp(b,92,km);
+              rg=lerp(rg,0.22,km);met=lerp(met,0.9,km);if(km>0.5)id=4;
+            }
+            continue;
+          }
+
+          /* window */
+          const jam=0.075;
+          if(lx<jam||lx>w-jam||ly<jam*0.6||ly>hh-jam){
+            h=-0.08;r=trim[0]*0.88;gg=trim[1]*0.88;b=trim[2]*0.88;rg=0.55;id=2;wood=1;continue;
+          }
+          const gx=lx-jam,gy2=ly-jam*0.6,gw=w-2*jam,gh=hh-jam-jam*0.6;
+          const sashSplit=gh*0.5;
+          const lower=gy2<sashSplit;
+          const sy=lower?gy2:gy2-sashSplit,sh4=sashSplit;
+          const st=0.14;                              // stile / rail width
+          const meet=Math.abs(gy2-sashSplit)<0.075;
+          if(gx<st||gx>gw-st||sy<st*0.8||sy>sh4-st*0.8||meet){
+            h=lower?-0.20:-0.28;
+            r=trim[0]*0.95;gg=trim[1]*0.95;b=trim[2]*0.95;rg=0.5;id=2;wood=1;continue;
+          }
+          /* glass and muntins */
+          const px=gx-st,py=sy-st*0.8,pw=gw-2*st,ph=sh4-1.6*st;
+          const cols=Math.max(1,P.liteC|0),rows=Math.max(1,P.liteR|0);
+          const cwid=pw/cols,chei=ph/rows;
+          const ci=clamp(Math.floor(px/cwid),0,cols-1),ri=clamp(Math.floor(py/chei),0,rows-1);
+          const mx=px-ci*cwid,my=py-ri*chei;
+          const mw=0.055;
+          const dM=Math.min(Math.min(mx,cwid-mx),Math.min(my,chei-my));
+          const isMuntin=(ci>0&&mx<mw)||(ci<cols-1&&cwid-mx<mw)||(ri>0&&my<mw)||(ri<rows-1&&chei-my<mw);
+          if(isMuntin){
+            h=lower?-0.24:-0.32;
+            r=trim[0]*0.92;gg=trim[1]*0.92;b=trim[2]*0.92;rg=0.5;id=2;wood=1;continue;
+          }
+          /* the pane itself */
+          h=lower?-0.30:-0.38;
+          id=3;wood=0;
+          const paneSeed=(o.brokeSeed+ci*31+ri*7+(lower?0:911))|0;
+          const brokeP=(hashi(ci,ri+(lower?0:50),o.brokeSeed)<P.broken*AB);
+          const pu=mx/cwid,pv=my/chei;
+          const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
+          glass(pu,pv,edgeD,gx,gy2,paneSeed,o.lit&&!brokeP);
+          let gr=Gr,gg2=Gg,gb=Gb;
+          rg=Grough;met=Gmet;emis=Gemis;
+          if(brokeP){
+            /* shards left at the edge, a hole in the middle: the void is not
+               glass at all, so it loses the reflection and the metallicity */
+            const jag=fbm(px*22,py*22,3,paneSeed+5)*0.16;
+            const keep=smoothstep(0.10+jag,0.02+jag,edgeD);
+            gr=lerp(10,gr,keep);gg2=lerp(11,gg2,keep);gb=lerp(13,gb,keep);
+            rg=lerp(0.92,rg,keep);
+            met=met*keep;
+            h-=(1-keep)*0.05;
+            if(keep>0.5&&keep<0.75){gr+=60;gg2+=64;gb+=70;}
+            emis=0;
+          }else{
+            const ck=1-smoothstep(0,0.012,Math.abs(fbm(px*9,py*9,2,paneSeed+9)-0.5)-0.20);
+            if(ck>0&&P.broken*AB>0.15){
+              gr=lerp(gr,190,ck*0.5);gg2=lerp(gg2,196,ck*0.5);gb=lerp(gb,206,ck*0.5);
+              rg=lerp(rg,0.55,ck*0.6);met=met*(1-ck*0.5);
+            }
+          }
+          r=gr;gg=gg2;b=gb;
+          continue;
+        }
+
+        /* ---- shutters ---- */
+        if(P.shutter!=="none"&&!inOpening){
+          for(let k=0;k<rowOps.length;k++){
+            const o=rowOps[k];
+            if(o.type!=="window")continue;
+            const sw=(o.x1-o.x0)*0.5,gap=casing+0.03;
+            const l0=o.x0-gap-sw,l1=o.x0-gap,r0=o.x1+gap,r1=o.x1+gap+sw;
+            const inL=wx>l0&&wx<l1,inR=wx>r0&&wx<r1;
+            if((inL||inR)&&wy>o.y0-0.02&&wy<o.y1+0.02){
+              const lx2=inL?wx-l0:wx-r0,ly2=wy-o.y0,hh2=o.y1-o.y0;
+              r=shutC[0];gg=shutC[1];b=shutC[2];rg=0.55;id=2;wood=1;h=0.13;
+              const fr=0.10;
+              if(lx2>fr&&lx2<sw-fr&&ly2>fr&&ly2<hh2-fr){
+                if(P.shutter==="louver"){
+                  const lp=0.085;
+                  const f=(ly2/lp)-Math.floor(ly2/lp);
+                  h=0.11-f*0.03;
+                  const sh5=0.72+f*0.5;
+                  r*=sh5;gg*=sh5;b*=sh5;
+                }else{
+                  const pd2=Math.min(Math.min(lx2-fr,sw-fr-lx2),Math.min(ly2-fr,hh2-fr-ly2));
+                  const bev=smoothstep(0,0.07,pd2);
+                  h=0.13-0.03*bev;
+                  const sh5=lerp(0.8,1,bev);
+                  r*=sh5;gg*=sh5;b*=sh5;
+                }
+              }
+              inOpening=1;
+              break;
+            }
+          }
+        }
+
+        /* ================= weathering ================= */
+        const isPaint=(id===1&&wood>0)||id===2||id===9;
+        const needAge=(P.fade>0&&isPaint)||P.mildew>0||P.rot>0||(P.peel>0&&isPaint);
+        const nAge=needAge?fbm(wx*1.1,wy*1.1,3,seed+101):0.5;
+        const nFine=(P.splash>0)?fbm(wx*9,wy*9,3,seed+103):0.5;
+
+        if(P.fade>0&&isPaint){
+          const up=smoothstep(0,g.wallTop,wy);
+          const f=P.fade*(0.35+up*0.65)*(0.4+nAge*0.9);
+          r=lerp(r,r*0.82+52,f*0.55);gg=lerp(gg,gg*0.82+52,f*0.55);b=lerp(b,b*0.82+50,f*0.55);
+          rg=lerp(rg,0.92,f*0.7);
+        }
+        if(P.peel>0&&isPaint&&wood>0){
+          /* paint fails first along the butt of each siding course, but that
+             rhythm belongs to the wall only — without the id test it prints
+             straight across the door, its casing and the corner boards */
+          const lapEdge=(id===1&&(P.clad==="clapboard"||P.clad==="vinyl"))
+            ?1-smoothstep(0,0.06,(wy/expo-Math.floor(wy/expo))*expo):0;
+          /* joinery peels at its own edges instead: panel bevels and board ends */
+          const jointEdge=(id===9||id===2)
+            ?smoothstep(0.55,0.85,fbm(wx*5.5,wy*5.5,2,seed+111))*0.30:0;
+          const wet=smoothstep(3.2,0,wy)*0.5;
+          const nPeel=fbm(wx*3.1,wy*3.1,3,seed+105);
+          const nEdge=fbm(wx*17,wy*17,2,seed+109);
+          const fieldP=nPeel*0.66+nAge*0.40+nEdge*0.16+lapEdge*0.40+jointEdge+wet;
+          const t1=1.00-P.peel*0.52,t2=1.13-P.peel*0.58*P.bare;
+          const toUnder=smoothstep(t1,t1+0.018,fieldP);
+          const toBare=smoothstep(t2,t2+0.018,fieldP)*P.bare;
+          const lip=smoothstep(t1-0.030,t1,fieldP)*(1-toUnder);   // paint curls at the break
+          if(lip>0){h+=lip*0.005;r=lerp(r,r*1.08+10,lip*0.5);gg=lerp(gg,gg*1.08+10,lip*0.5);b=lerp(b,b*1.08+10,lip*0.5);}
+          if(toUnder>0){
+            r=lerp(r,under[0],toUnder);gg=lerp(gg,under[1],toUnder);b=lerp(b,under[2],toUnder);
+            rg=lerp(rg,0.88,toUnder);
+            h-=toUnder*0.004;
+          }
+          if(toBare>0){
+            const wg=fbm(wx*60,wy*7,4,seed+107);
+            const bw2=118+wg*54,bg=100+wg*46,bb=82+wg*38;
+            r=lerp(r,bw2,toBare);gg=lerp(gg,bg,toBare);b=lerp(b,bb,toBare);
+            rg=lerp(rg,0.95,toBare);
+            h-=toBare*0.006;
+            id=(id===2)?6:id;
+          }
+        }
+        if(P.rust>0&&wood>0&&(P.clad==="clapboard"||P.clad==="shingle")&&id===1){
+          const nsp=1.33;                              // nails every 16 in
+          const nx=Math.round(wx/nsp)*nsp;
+          const ny=Math.floor(wy/expo)*expo+expo*0.22;
+          const dnx=wx-nx,dny=wy-ny,dn=Math.sqrt(dnx*dnx+dny*dny);
+          const nm=1-smoothstep(0.012,0.026,dn);
+          const run=(wy<ny)?Math.exp(-(ny-wy)/0.5)*(1-smoothstep(0.03,0.09,Math.abs(wx-nx))):0;
+          const rustA=clamp(nm*0.9+run*0.55,0,1)*P.rust;
+          if(rustA>0){
+            r=lerp(r,132,rustA);gg=lerp(gg,74,rustA);b=lerp(b,44,rustA);
+            rg=lerp(rg,0.94,rustA);
+            h-=nm*0.006;
+          }
+        }
+        /* drip streaks below sills, bands and the gutter */
+        if(P.streak>0){
+          let src=-1;
+          for(let k=0;k<sillAbove.length;k++){
+            const o=sillAbove[k];
+            if(wx>o.x0-casing&&wx<o.x1+casing&&o.y0>src)src=o.y0;
+          }
+          const gutY=g.wallTop+g.eaveBand*0.35;
+          if(P.gutter&&gutY>wy&&gutY>src&&hashi(Math.floor(wx*3),1,seed+109)<0.35)src=gutY;
+          if(src>0){
+            const d=src-wy;
+            const col=fbm(wx*7.5,src*0.5,3,seed+113);
+            const run=Math.exp(-d/(1.2+col*3.4))*smoothstep(0,0.15,d);
+            const s=clamp(run*(col*1.5-0.25),0,1)*P.streak;
+            if(s>0){
+              r=lerp(r,r*0.62+6,s);gg=lerp(gg,gg*0.63+6,s);b=lerp(b,b*0.60+5,s);
+              rg=lerp(rg,0.94,s*0.6);
+            }
+          }
+        }
+        if(P.splash>0&&wy<2.4){
+          const sp=smoothstep(2.4,0.1,wy)*P.splash*(0.5+nFine*0.8);
+          r=lerp(r,r*0.60+16,sp*0.8);gg=lerp(gg,gg*0.60+14,sp*0.8);b=lerp(b,b*0.58+11,sp*0.8);
+          rg=lerp(rg,0.95,sp*0.6);
+        }
+        if(P.mildew>0&&isPaint){
+          const shade=smoothstep(g.wallTop-2.2,g.wallTop,wy)*0.7+smoothstep(1.8,0,wy)*0.5;
+          const m=clamp(shade*smoothstep(0.45,0.78,nAge),0,1)*P.mildew;
+          r=lerp(r,52,m*0.7);gg=lerp(gg,58,m*0.7);b=lerp(b,44,m*0.7);
+          rg=lerp(rg,0.97,m*0.6);
+        }
+        if(P.rot>0&&wood>0&&wy<1.6){
+          const rt=smoothstep(1.6,0.05,wy)*P.rot*smoothstep(0.4,0.75,nAge);
+          if(rt>0){
+            const fib=fbm(wx*46,wy*11,3,seed+117);
+            r=lerp(r,58+fib*32,rt);gg=lerp(gg,48+fib*26,rt);b=lerp(b,38+fib*20,rt);
+            rg=lerp(rg,0.98,rt);
+            h-=rt*0.02*(0.4+fib);
+          }
+        }
+        /* siding fails a board at a time, so pick whole boards and tear their ends */
+        if(AB>0&&P.missing>0&&id===1){
+          let ms=0;
+          if(wood>0&&(P.clad!=="stucco")){
+            const flagged=hashi(Mboard,Mcourse*7+3,seed+121)<P.missing*AB*0.55;
+            if(flagged){
+              const frag=fbm(wx*2.2,wy*5.5,3,seed+122);
+              ms=smoothstep(0.40,0.52,frag);            // ragged remains of the board
+            }
+          }else{
+            ms=smoothstep(0.80-P.missing*AB*0.2,0.88-P.missing*AB*0.2,fbm(wx*1.1,wy*1.1,4,seed+121));
+          }
+          if(ms>0){
+            const felt=fbm(wx*30,wy*30,3,seed+123);
+            const lap=1-smoothstep(0,0.03,edgeDist(wy,1.5));
+            let fr=42+felt*24,fg2=39+felt*21,fb=37+felt*19;
+            const stud=1-smoothstep(0.05,0.09,Math.abs(((wx/1.333)-Math.floor(wx/1.333))-0.5)*1.333);
+            fr*=1-stud*0.30;fg2*=1-stud*0.30;fb*=1-stud*0.30;   // studs read through the felt
+            fr*=1-lap*0.2;fg2*=1-lap*0.2;fb*=1-lap*0.2;
+            r=lerp(r,fr,ms);gg=lerp(gg,fg2,ms);b=lerp(b,fb,ms);
+            rg=lerp(rg,0.96,ms);
+            h=lerp(h,-0.07,ms);
+            if(ms>0.5){id=6;wood=0;}
+          }
+        }
+        /* graffiti and vines */
+        if(AB>0){
+          const su=wx/FW,sv=1-wy/FH;
+          const gcov=sample(su,sv,0)*P.graffiti*AB;
+          if(gcov>0.02){
+            const hue=sample(su,sv,1);
+            const pal=[[188,44,52],[30,32,38],[228,224,214],[46,86,168],[196,168,52],[150,150,158]];
+            const pc=pal[Math.min(pal.length-1,Math.floor(hue*pal.length))];
+            const pr=pc[0],pg=pc[1],pb=pc[2];
+            const cov=clamp(gcov*1.9,0,1);
+            r=lerp(r,pr,cov);gg=lerp(gg,pg,cov);b=lerp(b,pb,cov);
+            rg=lerp(rg,0.7,cov*0.6);
+          }
+          const vcov=sample(su,sv,2)*P.vines*AB;
+          if(vcov>0.02){
+            const cov=clamp(vcov*2.2,0,1);
+            const vn=fbm(wx*30,wy*30,3,seed+127);
+            r=lerp(r,44+vn*40,cov);gg=lerp(gg,62+vn*52,cov);b=lerp(b,34+vn*28,cov);
+            rg=lerp(rg,0.92,cov);
+            h=lerp(h,h+0.05,cov);
+          }
+        }
+        if(P.grunge>0){
+          const gA=fbm(wx*0.55,wy*0.55,3,seed+131);
+          const gB=fbm(wx*4.5,wy*4.5,3,seed+133);
+          let filth=clamp((gA*0.6+gB*0.4-0.40)*2.2,0,1)*P.grunge*(0.65+(1-smoothstep(0,6,wy))*0.6);
+          filth=clamp(filth,0,0.85);
+          r=r*lerp(1,0.52,filth)+filth*6;
+          gg=gg*lerp(1,0.53,filth)+filth*6;
+          b=b*lerp(1,0.50,filth)+filth*5;
+          rg=lerp(rg,0.95,filth*0.6);
+        }
+
+        HGT[i]=h;
+        A[i*3]=r;A[i*3+1]=gg;A[i*3+2]=b;
+        RGH[i]=clamp(rg,0.03,1)*255;
+        MET[i]=clamp(met,0,1)*255;
+        IDm[i]=id;
+        EMI[i]=clamp(emis,0,1)*255;
+        ALP[i]=clamp(alpha,0,1)*255;
+        AOc[i]=255;
+      }
+    }
+    if(yy<TH){io.progress(yy/TH*0.62);setTimeout(pass1,0);}
+    else{io.progress(0.68);setTimeout(pass2,0);}
+  }
+
+  function pass2(){
+    const pxPerFt=TW/FW;
+    const r1=clamp(Math.round(pxPerFt*0.06),1,10);     // ~0.7 in
+    const r2=clamp(Math.round(pxPerFt*0.5),3,64);      // 6 in
+    const b1=boxBlur(HGT,TW,TH,r1),b2=boxBlur(HGT,TW,TH,r2);
+    const sc=1/0.28;                                   // a 3-4 in recess reads as full occlusion
+    for(let i=0;i<TW*TH;i++){
+      if(!ALP[i]){AOc[i]=255;continue;}
+      const c1=clamp((b1[i]-HGT[i])*sc*2.2,0,1);
+      const c2=clamp((b2[i]-HGT[i])*sc*1.6,0,1);
+      const occ=clamp(c1*0.5+c2*0.85,0,1)*P.aoStr;
+      AOc[i]=clamp(1-occ,0,1)*255;
+    }
+    io.progress(0.85);
+    hMin=Infinity;hMax=-Infinity;
+    for(let i=0;i<TW*TH;i++){if(!ALP[i])continue;const h=HGT[i];if(h<hMin)hMin=h;if(h>hMax)hMax=h;}
+    if(!isFinite(hMin)){hMin=0;hMax=1;}
+    if(hMax-hMin<1e-9)hMax=hMin+1e-9;
+    const gy=P.flipG?-1:1;
+    const ftPerTexel=FW/TW;
+    for(let y=0;y<TH;y++){
+      const yp=Math.min(TH-1,y+1)*TW,ym=Math.max(0,y-1)*TW,y0=y*TW;
+      for(let x=0;x<TW;x++){
+        const xp=Math.min(TW-1,x+1),xm=Math.max(0,x-1);
+        const sx=(HGT[y0+xp]-HGT[y0+xm])/(2*ftPerTexel)*P.normalStr;
+        const sy=(HGT[yp+x]-HGT[ym+x])/(2*ftPerTexel)*P.normalStr;
+        let nx=-sx,ny=-sy*gy;
+        const inv=1/Math.sqrt(nx*nx+ny*ny+1);
+        nx*=inv;ny*=inv;
+        const i=(y0+x)*3;
+        NRM[i]=(nx*0.5+0.5)*255;NRM[i+1]=(ny*0.5+0.5)*255;NRM[i+2]=(inv*0.5+0.5)*255;
+      }
+    }
+    io.progress(1);
+    io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,ID:IDm,hMin:hMin,hMax:hMax});
+  }
+  io.progress(0.02);setTimeout(pass1,0);
+}
+
+/* ============================ mode definition ============================ */
+
+const LAPPY={clapboard:1,vinyl:1,shingle:1};
+const MASONRY={brick:1,stone:1};
+const PREVIEW_W=200;
+
+/* flat material ID colours */
+const IDCOL=[[0,0,0],[178,150,96],[236,236,228],[70,120,168],[186,186,196],
+             [150,120,100],[140,104,64],[90,86,82],[196,140,70],[120,70,50]];
+
+Forge.register({
+  id:"house",
+  label:"House",
+  blurb:"American house front elevation",
+  title:'Front <em>Elevation</em>',
+  tagline:"American house facade · PBR · PNG",
+  actionLabel:"Build elevation",
+  busyLabel:"Building…",
+  seamless:false,
+  backdrops:true,
+  flipPreviewY:true,
+  previewSize:PREVIEW_W,
+  chipSource:120,                    // a facade chip does not need 176 px of source
+  preview:{gain:3.0,amb:1.2,specK:0.5,skyLo:[0.20,0.22,0.26],skyHi:[0.42,0.47,0.55]},
+
+  channels:[
+    {key:"basecolor",label:"Base + α"},{key:"normal",label:"Normal"},
+    {key:"roughness",label:"Rough"},{key:"metallic",label:"Metal"},
+    {key:"ao",label:"AO"},{key:"height",label:"Height"},{key:"orm",label:"ORM"},
+    {key:"id",label:"Mat ID"},{key:"emissive",label:"Emissive"},{key:"opacity",label:"Opacity"}
+  ],
+
+  presets:[
+    {id:"colonial",label:"Colonial",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.30,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,
+      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p6",
+      cWall:"#c8cabc",cTrim:"#f4f1e6",cDoor:"#5c3a2e",cShut:"#2f4438",cornerW:4,friezeH:7,waterT:5,
+      fade:0.35,peel:0.2,bare:0.3,streak:0.4,splash:0.4,mildew:0.3,rust:0.3,rot:0.15,grunge:0.35,aband:0}},
+    {id:"bungalow",label:"Bungalow",set:{glassRough:0.07,glassMetal:0.85,glassGrime:0.40,facadeW:30,storeys:1,storeyH:10,foundH:2.2,roof:"gable",pitch:5,clad:"shingle",exposure:6,
+      bays:3,winW:3.2,winH:4.4,sillH:2.8,liteC:3,liteR:1,shutter:"none",doorBay:2,doorStyle:"half",
+      cWall:"#9a8f74",cTrim:"#e8e2d0",cDoor:"#4a3b2a",cRoof:"#43403c",cornerW:5,friezeH:9,waterT:6,
+      fade:0.45,peel:0.35,bare:0.4,streak:0.45,splash:0.5,mildew:0.4,rust:0.35,rot:0.25,grunge:0.45,aband:0}},
+    {id:"rowhouse",label:"Brick rowhouse",set:{glassRough:0.05,glassMetal:0.9,glassGrime:0.45,bandBoard:false,gutter:false,facadeW:20,storeys:3,storeyH:9.5,foundH:2.4,roof:"flat",clad:"brick",courseH:2.67,unitLen:8,
+      mortarW:0.38,bays:2,winW:3.2,winH:5.4,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:1,doorStyle:"half",
+      cWall:"#8d5a44",cTrim:"#e6e2d8",cDoor:"#3d4f3a",found:"stone",cornerW:0,friezeH:10,waterT:4,
+      fade:0.3,peel:0.15,bare:0.2,streak:0.55,splash:0.5,mildew:0.4,rust:0.2,rot:0.1,grunge:0.5,aband:0}},
+    {id:"vinyl",label:"Vinyl tract",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.18,facadeW:32,storeys:2,storeyH:8.5,foundH:1.4,roof:"eave",clad:"vinyl",exposure:8,
+      bays:4,winW:2.8,winH:4.4,sillH:2.8,liteC:1,liteR:1,shutter:"panel",doorBay:2,doorStyle:"p6",
+      cWall:"#d6d3c4",cTrim:"#ffffff",cDoor:"#7a3b32",cShut:"#3a3f4a",cornerW:3,friezeH:5,waterT:3,
+      fade:0.25,peel:0.05,bare:0.05,streak:0.3,splash:0.35,mildew:0.3,rust:0.05,rot:0.05,grunge:0.3,aband:0}},
+    {id:"abandoned",label:"Abandoned",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.8,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,
+      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p4",
+      cWall:"#a8a893",cTrim:"#ddd8c8",cDoor:"#4a3226",cShut:"#3a4438",cUnder:"#8f7f63",
+      fade:0.7,peel:0.75,bare:0.65,streak:0.75,splash:0.7,mildew:0.7,rust:0.6,rot:0.6,grunge:0.7,
+      aband:0.8,boardUp:0.7,boardMat:"osb",broken:0.6,graffiti:0.45,vines:0.5,missing:0.35}},
+    {id:"burned",label:"Derelict shell",set:{glassRough:0.14,glassMetal:0.75,glassGrime:1.0,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"flat",clad:"clapboard",exposure:5,
+      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:2,shutter:"none",doorBay:2,doorStyle:"flush",
+      cWall:"#6b6559",cTrim:"#9a958a",cDoor:"#33291f",cUnder:"#5a4a38",
+      fade:0.9,peel:0.9,bare:0.85,streak:0.85,splash:0.8,mildew:0.8,rust:0.8,rot:0.85,grunge:0.9,
+      aband:1,boardUp:0.45,boardMat:"planks",broken:0.95,graffiti:0.7,vines:0.8,missing:0.7}}
+  ],
+
+  controls:[
+    {title:"Building",open:true,rows:[
+      {id:"size",type:"select",label:"Texture width",value:1024,showValue:true,options:[
+        [512,"512"],[1024,"1024"],[2048,"2048"],[4096,"4096 — slow, heavy"]]},
+      {type:"readout"},
+      {id:"facadeW",label:"Facade width",unit:"ft",min:12,max:60,step:0.5,value:26},
+      {id:"storeys",label:"Storeys",min:1,max:3,step:1,value:2},
+      {id:"storeyH",label:"Storey height",unit:"ft",min:7,max:13,step:0.25,value:9},
+      {id:"foundH",label:"Foundation",unit:"ft",min:0,max:5,step:0.1,value:1.8},
+      {id:"roof",type:"select",label:"Roof facing the street",value:"eave",options:[
+        ["eave","Eave front — soffit and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
+      {id:"pitch",label:"Roof pitch",unit:":12",min:2,max:14,step:0.5,value:6},
+      {id:"seed",type:"seed",value:1912}
+    ]},
+    {title:"Cladding",open:true,rows:[
+      {id:"clad",type:"select",label:"Material",value:"clapboard",options:[
+        ["clapboard","Clapboard / lap siding"],["vinyl","Vinyl siding"],["batten","Board and batten"],
+        ["shingle","Wood shingle"],["brick","Brick"],["stucco","Stucco"],["stone","Stone veneer"]]},
+      {id:"exposure",need:"lap",label:"Exposure",unit:"in",min:2,max:12,step:0.25,value:5},
+      {id:"boardLen",need:"lap",label:"Board length",unit:"ft",min:4,max:16,step:0.5,value:12},
+      {id:"battenSpace",need:"batten",label:"Batten spacing",unit:"in",min:8,max:32,step:1,value:16},
+      {id:"courseH",need:"masonry",label:"Course height",unit:"in",min:1.5,max:8,step:0.05,value:2.67},
+      {id:"unitLen",need:"masonry",label:"Unit length",unit:"in",min:4,max:24,step:0.25,value:8},
+      {id:"mortarW",need:"masonry",label:"Mortar joint",unit:"in",min:0.12,max:1.2,step:0.02,value:0.38},
+      {id:"cladRelief",label:"Relief depth",min:0,max:2.5,step:0.05,value:1},
+      {id:"cladIrreg",label:"Irregularity",min:0,max:1,step:0.01,value:0.45},
+      {type:"colors",label:"Wall · trim · undercoat",items:[
+        {id:"cWall",value:"#b9bcae"},{id:"cTrim",value:"#efece1"},{id:"cUnder",value:"#8f7f63"}]}
+    ]},
+    {title:"Openings",open:true,rows:[
+      {id:"bays",label:"Bays across",min:1,max:7,step:1,value:3},
+      {id:"winW",label:"Window width",unit:"ft",min:1.5,max:8,step:0.1,value:3},
+      {id:"winH",label:"Window height",unit:"ft",min:2,max:8,step:0.1,value:4.8},
+      {id:"sillH",label:"Sill above floor",unit:"ft",min:0.5,max:5,step:0.1,value:2.6},
+      {id:"liteC",label:"Lites across",min:1,max:6,step:1,value:2},
+      {id:"liteR",label:"Lites down (per sash)",min:1,max:6,step:1,value:1},
+      {id:"casingW",label:"Casing width",unit:"in",min:1,max:10,step:0.25,value:3.5},
+      {id:"shutter",type:"select",label:"Shutters",value:"none",options:[
+        ["none","None"],["louver","Louvered"],["panel","Panelled"]]},
+      {id:"doorBay",label:"Door in bay",min:1,max:7,step:1,value:2},
+      {id:"doorW",label:"Door width",unit:"ft",min:2.2,max:6,step:0.1,value:3},
+      {id:"doorStyle",type:"select",label:"Door style",value:"p6",options:[
+        ["p6","Six panel"],["p4","Four panel"],["half","Half light"],["flush","Flush"]]},
+      {type:"colors",label:"Door · shutter · roof",items:[
+        {id:"cDoor",value:"#5c3a2e"},{id:"cShut",value:"#2f4438"},{id:"cRoof",value:"#4a4642"}]},
+      {type:"checks",items:[
+        {id:"transom",label:"Transom over door",value:false},
+        {id:"doorHood",label:"Hood over door",value:true},
+        {id:"steps",label:"Steps at the door",value:true},
+        {id:"litWin",label:"Lights on inside",value:false}]}
+    ]},
+    {title:"Glass",open:true,rows:[
+      {id:"glassRough",label:"Roughness",min:0.01,max:0.6,step:0.01,value:0.06},
+      {id:"glassMetal",label:"Metallicity",min:0,max:1,step:0.01,value:0.85},
+      {id:"glassGrime",label:"Grime & film",min:0,max:1,step:0.01,value:0.35},
+      {type:"note",html:"Glass is a dielectric, so metallicity is a <b>deliberate cheat</b>: on an opaque "+
+        "facade plane a metallic pane picks up the environment and reads like glass, "+
+        "where metallic&nbsp;0 just looks like flat dark paint. If your engine does real "+
+        "transparent glass, set this to 0 and drive it from the material ID map instead. "+
+        "Grime is dirt, so it raises roughness and pulls metallicity back down."}
+    ]},
+    {title:"Trim & roofline",rows:[
+      {id:"cornerW",label:"Corner boards",unit:"in",min:0,max:12,step:0.25,value:4},
+      {id:"friezeH",label:"Frieze board",unit:"in",min:0,max:20,step:0.5,value:7},
+      {id:"waterT",label:"Water table",unit:"in",min:0,max:14,step:0.5,value:5},
+      {id:"soffitD",label:"Soffit depth",unit:"in",min:0,max:40,step:1,value:14},
+      {id:"found",type:"select",label:"Foundation material",value:"poured",options:[
+        ["poured","Poured concrete"],["cmu","Concrete block"],["brick","Brick"],["stone","Stone"]]},
+      {id:"soffitVent",type:"select",label:"Soffit venting",value:"panels",options:[
+        ["panels","Rectangular vents"],["strip","Continuous strip"],["none","None"]]},
+      {type:"colors",label:"Gutter colour",items:[{id:"cGutter",value:"#e8e5da"}]},
+      {type:"checks",items:[
+        {id:"gutter",label:"Gutter and downspout",value:true},
+        {id:"bandBoard",label:"Band board between storeys",value:true},
+        {id:"gableVent",label:"Gable vent",value:true}]}
+    ]},
+    {title:"Weathering",open:true,rows:[
+      {id:"fade",label:"Sun fade & chalking",min:0,max:1,step:0.01,value:0.4},
+      {id:"peel",label:"Peeling paint",min:0,max:1,step:0.01,value:0.3},
+      {id:"bare",label:"Bare wood showing",min:0,max:1,step:0.01,value:0.35},
+      {id:"streak",label:"Drip streaks",min:0,max:1,step:0.01,value:0.45},
+      {id:"splash",label:"Splash-back at grade",min:0,max:1,step:0.01,value:0.45},
+      {id:"mildew",label:"Mildew in the shade",min:0,max:1,step:0.01,value:0.35},
+      {id:"rust",label:"Nail rust",min:0,max:1,step:0.01,value:0.35},
+      {id:"rot",label:"Rot at the base",min:0,max:1,step:0.01,value:0.25},
+      {id:"grunge",label:"Overall grunge",min:0,max:1,step:0.01,value:0.4}
+    ]},
+    {title:"Abandonment",open:true,rows:[
+      {id:"aband",label:"Derelict",min:0,max:1,step:0.01,value:0},
+      {id:"boardUp",need:"ab",label:"Windows boarded",min:0,max:1,step:0.01,value:0.6},
+      {id:"boardMat",need:"ab",type:"select",label:"Board material",value:"osb",options:[
+        ["osb","OSB"],["ply","Plywood"],["planks","Salvaged planks"]]},
+      {id:"broken",need:"ab",label:"Broken glass",min:0,max:1,step:0.01,value:0.55},
+      {id:"graffiti",need:"ab",label:"Graffiti",min:0,max:1,step:0.01,value:0.4},
+      {id:"vines",need:"ab",label:"Vines and weeds",min:0,max:1,step:0.01,value:0.4},
+      {id:"missing",need:"ab",label:"Missing siding",min:0,max:1,step:0.01,value:0.3}
+    ]},
+    {title:"Maps",rows:[
+      {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},
+      {id:"aoStr",label:"Ambient occlusion",min:0,max:1,step:0.01,value:0.85},
+      {type:"checks",items:[{id:"flipG",label:"Flip green (DirectX)",value:false}]}
+    ]}
+  ],
+
+  needs:function(params){
+    use(params);
+    const need=[];
+    if(LAPPY[P.clad])need.push("lap");
+    if(P.clad==="batten")need.push("batten");
+    if(MASONRY[P.clad])need.push("masonry");
+    if(P.aband>0)need.push("ab");
+    return need;
+  },
+
+  readout:function(params){
+    use(params);
+    const g=geometry();
+    const pxPerFt=(P.size|0)/P.facadeW;
+    let m="<b>"+g.FW.toFixed(1)+" × "+g.FH.toFixed(1)+" ft</b> · "+(P.size|0)+" × "+g.TH+" px<br>"+
+      Math.round(pxPerFt)+" px/ft · "+(12/pxPerFt).toFixed(2)+" in per texel";
+    if(pxPerFt<28)m+=' <span class="warn">— muntins and joints will be soft</span>';
+    m+="<br>eaves at <b>"+g.wallTop.toFixed(1)+" ft</b>"+(g.gableH>0?", ridge at "+g.FH.toFixed(1)+" ft":"");
+    return m;
+  },
+
+  /* non-square at uniform texel density; the drag preview keeps the aspect */
+  size:function(params,preview){
+    use(params);
+    const g=geometry();
+    if(!preview)return {w:g.TW,h:g.TH};
+    const fullW=P.size|0,k=Math.min(1,PREVIEW_W/fullW);
+    return {w:Math.max(64,Math.round(fullW*k/4)*4),h:Math.max(64,Math.round(g.TH*k/4)*4)};
+  },
+  build:build,
+
+  writers:function(B){
+    const ID=B.ID;
+    return {id:function(i,o,k){
+      const c=IDCOL[ID[i]]||IDCOL[0];
+      o[k]=c[0];o[k+1]=c[1];o[k+2]=c[2];
+      return 255;
+    }};
+  },
+
+  fileBase:function(P,W,H){return "house_"+(P.seed|0)+"_"+W+"x"+H;},
+
+  readme:function(params,info){
+    use(params);
+    const g=GEO||geometry();
+    return ["Texture Forge · house — American house front elevation",
+      "",
+      "Seed "+(P.seed|0)+"   Texture "+info.W+" x "+info.H+" px",
+      "Facade "+g.FW.toFixed(2)+" ft wide x "+g.FH.toFixed(2)+" ft tall  ("+(info.W/g.FW).toFixed(1)+" px per foot)",
+      "Scale your plane to that footprint and the trim, siding and openings sit at true size.",
+      "",
+      "This is a single elevation, not a tiling texture. It has an alpha channel: the sky",
+      "above the roofline is transparent, so map it onto a plane and it cuts out cleanly.",
+      "",
+      "basecolor.png  sRGB albedo, alpha = facade silhouette. Import as sRGB.",
+      "normal.png     Tangent space, "+info.normalNote+". Non-colour.",
+      "roughness.png  Linear grey.",
+      "metallic.png   Linear grey. Hardware (gutter, downspout, knob, fasteners) plus the",
+      "               glass, which is set metallic on purpose: on an opaque facade plane a",
+      "               metallic pane picks up the environment and reads as glass, where a",
+      "               physically-correct dielectric pane just looks like flat dark paint.",
+      "               Doing real transparent glass instead? Set glass metallicity to 0 and",
+      "               isolate the panes with the blue channel of id.png.",
+      "ao.png         Linear grey; window reveals and the soffit carry most of it.",
+      "height.png     8-bit displacement spanning "+((info.hMax-info.hMin)*12).toFixed(2)+" in of relief",
+      "               ("+(info.hMin*12).toFixed(2)+" in to "+(info.hMax*12).toFixed(2)+" in). Deep window reveals eat most of the",
+      "               range, so prefer height16.png for displacement.",
+      "height16.png   The same field at 16 bits.",
+      "orm.png        R = AO, G = roughness, B = metallic.",
+      "emissive.png   Warm glow in lit window panes; black elsewhere.",
+      "opacity.png    The silhouette on its own.",
+      "id.png         Flat material ID colours:",
+      "               cladding tan · trim white · glass blue · metal silver · masonry grey",
+      "               bare wood brown · roof dark · board-up orange · door red-brown",
+      "",
+      "Normal strength baked at "+P.normalStr.toFixed(2)+"x."].join("\n");
+  }
+});
+
+})();

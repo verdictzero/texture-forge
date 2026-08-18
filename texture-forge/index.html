@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Texture Forge — procedural PBR surfaces</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --tar:#191a1c;--tar-hi:#26282b;--tar-lo:#0f1012;--bay:#131416;
+  --ink:#dcd9d3;--ink-soft:#8b8880;--paint:#ecebe6;--accent:#e6b32a;--orange:#d1500f;
+  --rule:rgba(255,255,255,.09);
+}
+/* each mode carries its own accent so the tab you are on is unmistakable */
+body[data-mode=street]{--accent:#e6b32a}
+body[data-mode=plating]{--accent:#8fb8d8}
+body[data-mode=house]{--accent:#d9a066}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bay);color:var(--ink);font-family:Overpass,system-ui,sans-serif;
+  font-size:13px;-webkit-font-smoothing:antialiased}
+.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ============ mode bar ============ */
+.modebar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:0 18px;height:46px;flex:0 0 46px;
+  background:linear-gradient(180deg,#232528,#17181a);
+  border-bottom:1px solid #000;box-shadow:0 3px 14px rgba(0,0,0,.55);position:relative;z-index:2}
+.brand{font-weight:800;font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:var(--paint);white-space:nowrap}
+.brand em{font-style:normal;color:var(--accent)}
+.modetabs{display:flex;gap:4px;flex-wrap:wrap}
+.modetab{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+  padding:7px 14px;background:#1e2023;color:#8b9098;border:1px solid #33373c;border-bottom-width:2px;
+  border-radius:2px;cursor:pointer}
+.modetab:hover{color:var(--paint)}
+.modetab[aria-pressed=true]{background:#2a2d31;color:var(--paint);border-color:#3d4146;
+  border-bottom-color:var(--accent);font-weight:600}
+.modebar .hintline{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.05em;
+  text-transform:uppercase;color:#6b7078;margin-left:auto}
+
+.app{display:flex;flex:1;min-height:0;overflow:hidden}
+
+/* ============ control panel ============ */
+.panel{
+  width:352px;flex:0 0 352px;height:100%;overflow-y:auto;position:relative;
+  background:
+    radial-gradient(circle at 20% 10%,rgba(255,255,255,.055) 0 1px,rgba(0,0,0,0) 1.4px),
+    radial-gradient(circle at 70% 40%,rgba(255,255,255,.04) 0 1.2px,rgba(0,0,0,0) 1.6px),
+    radial-gradient(circle at 40% 75%,rgba(255,255,255,.05) 0 1px,rgba(0,0,0,0) 1.4px),
+    linear-gradient(170deg,var(--tar-hi),var(--tar) 45%,var(--tar-lo));
+  background-size:23px 23px,37px 31px,29px 41px,100% 100%;
+  border-right:1px solid #000;box-shadow:8px 0 26px rgba(0,0,0,.6);
+}
+.panel[hidden]{display:none}
+.panel::after{content:"";position:absolute;top:0;right:7px;width:5px;height:100%;pointer-events:none;
+  background:repeating-linear-gradient(180deg,var(--accent) 0 26px,rgba(0,0,0,0) 26px 46px);opacity:.8}
+.panel-head{padding:18px 22px 15px;border-bottom:1px solid var(--rule)}
+.panel-head h1{margin:0;font-weight:800;font-size:25px;line-height:1;text-transform:uppercase;color:var(--paint)}
+.panel-head h1 em{font-style:normal;color:var(--accent)}
+.panel-head p{margin:9px 0 0;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.06em;
+  color:var(--ink-soft);text-transform:uppercase}
+.presets{display:flex;flex-wrap:wrap;gap:5px;padding:13px 22px;border-bottom:1px solid var(--rule)}
+.preset{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+  padding:5px 9px;border:1px solid #3a3d41;background:#212327;color:var(--ink);cursor:pointer;border-radius:2px}
+.preset:hover{border-color:var(--accent);color:var(--accent)}
+.group{border-bottom:1px solid var(--rule)}
+.group[hidden]{display:none}
+.group > summary{list-style:none;cursor:pointer;padding:12px 22px;display:flex;align-items:center;gap:10px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.11em;font-size:12.5px;color:var(--paint)}
+.group > summary::-webkit-details-marker{display:none}
+.group > summary::before{content:"";width:8px;height:8px;border-right:2px solid var(--accent);
+  border-bottom:2px solid var(--accent);transform:rotate(-45deg);transition:transform .18s ease;margin-top:-3px}
+.group[open] > summary::before{transform:rotate(45deg);margin-top:-6px}
+.group > summary:hover{background:rgba(255,255,255,.04)}
+.group-body{padding:2px 22px 16px}
+.row{margin:0 0 11px}
+.row[hidden]{display:none}
+.row label{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--ink-soft);margin-bottom:5px}
+.row .val{color:var(--accent);font-weight:600;font-size:10.5px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:#3d4045;border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-5px;
+  border-radius:1px;background:var(--paint);border:1px solid #000}
+input[type=range]::-moz-range-track{height:3px;background:#3d4045;border-radius:2px}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:1px;background:var(--paint);border:1px solid #000}
+input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+select,input[type=number]{width:100%;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink);
+  background:#212327;border:1px solid #3a3d41;border-radius:2px;padding:6px}
+.swatches{display:flex;gap:8px}.swatch{flex:1}
+.swatch input[type=color]{width:100%;height:30px;padding:0;border:1px solid #3a3d41;border-radius:2px;background:none;cursor:pointer}
+.checks{display:flex;flex-direction:column;gap:7px}
+.check{display:flex;align-items:center;gap:8px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);cursor:pointer}
+.check input{accent-color:var(--accent);width:14px;height:14px}
+.seedrow{display:flex;gap:6px}.seedrow input{flex:1}
+.mini{font-family:"IBM Plex Mono",monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;
+  border:1px solid #3a3d41;background:#212327;color:var(--ink);padding:0 11px;border-radius:2px;cursor:pointer}
+.mini:hover{border-color:var(--accent);color:var(--accent)}
+.readout{
+  font-family:"IBM Plex Mono",monospace;font-size:10px;line-height:1.55;color:var(--ink-soft);
+  background:#1c1e21;border:1px solid #2c2f33;border-left:2px solid var(--accent);
+  padding:8px 10px;border-radius:2px;margin:2px 0 12px;
+}
+.readout[hidden]{display:none}
+.readout b{color:var(--paint);font-weight:600}
+.readout .warn{color:var(--orange)}
+.actions{position:sticky;bottom:0;padding:14px 22px 18px;
+  background:linear-gradient(180deg,rgba(25,26,28,0),rgba(25,26,28,.97) 24%);border-top:1px solid var(--rule)}
+.forge{width:100%;padding:13px;cursor:pointer;border:0;border-radius:2px;color:#1a0e05;
+  background:repeating-linear-gradient(115deg,var(--orange) 0 16px,#e8691f 16px 32px);
+  font-family:Overpass,sans-serif;font-weight:800;text-transform:uppercase;letter-spacing:.16em;font-size:15px}
+.forge:hover{filter:brightness(1.1)}
+.forge:disabled{opacity:.5;cursor:progress}
+.autonote{margin:9px 0 0;font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-soft);
+  text-transform:uppercase;letter-spacing:.04em;text-align:center}
+
+/* ============ preview bay ============ */
+.bay{flex:1;min-width:0;display:flex;flex-direction:column;background:radial-gradient(120% 90% at 50% 0%,#1b1d1f,#0e0f11 72%)}
+.bay-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 18px;border-bottom:1px solid var(--rule)}
+.tabs,.tilebtns,.bgs{display:flex;gap:2px;flex-wrap:wrap}
+.tabs[hidden],.tilebtns[hidden],.bgs[hidden]{display:none}
+.tab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+  padding:6px 10px;background:#1e2023;color:#8b9098;border:1px solid #2e3237;border-radius:2px;cursor:pointer}
+.tab:hover{color:var(--paint)}
+.tab[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#1a1405;font-weight:600}
+.tab:disabled{opacity:.45;cursor:not-allowed}
+.spacer{flex:1}
+.status{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:#8b9098;letter-spacing:.04em;text-transform:uppercase}
+.stage{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:18px;overflow:hidden}
+.stage canvas{max-width:100%;max-height:100%;display:none;background:#000;touch-action:none;
+  box-shadow:0 14px 44px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.07)}
+.stage canvas.on{display:block}
+.hint{position:absolute;left:20px;bottom:14px;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  color:#6b7078;letter-spacing:.05em;text-transform:uppercase;pointer-events:none}
+.tiletag{position:absolute;right:20px;bottom:14px;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--accent);pointer-events:none}
+.fatal{position:absolute;inset:auto 24px 24px 24px;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  line-height:1.6;color:var(--orange);background:#1c1e21;border:1px solid var(--orange);padding:12px 14px}
+.progress{position:absolute;inset:auto 0 0 0;height:2px}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .12s linear}
+.tray{border-top:1px solid var(--rule);padding:12px 18px 14px;background:#161719}
+.tray-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.tray-head h2{margin:0;font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.13em;color:#9aa0a7}
+.zip{font-family:"IBM Plex Mono",monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+  padding:6px 12px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:2px;cursor:pointer}
+.zip:hover{background:var(--accent);color:#1a1405}
+.zip:disabled{opacity:.5;cursor:progress}
+.zip[hidden]{display:none}
+.zipsave{text-decoration:none;border-color:var(--orange);color:var(--orange);display:inline-block;line-height:1.35}
+.zipsave:hover{background:var(--orange);color:#fff}
+.chips{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px;align-items:flex-end}
+.chip{flex:0 0 auto;width:88px;text-align:center}
+.chip canvas{width:88px;display:block;border:1px solid #2e3237;background:#0a0b0c}
+.chip button{width:100%;margin-top:4px;font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.03em;
+  text-transform:uppercase;padding:4px 2px;border:1px solid #2e3237;background:#1e2023;color:#8b9098;
+  border-radius:2px;cursor:pointer}
+.chip button:hover{background:var(--accent);color:#1a1405;border-color:var(--accent)}
+
+@media (max-width:900px){
+  .shell{height:auto;overflow:visible}
+  .app{flex-direction:column;overflow:visible}
+  .panel{width:100%;flex:none;height:auto;overflow:visible;border-right:0;border-bottom:1px solid #000}
+  .panel::after{display:none}
+  .actions{position:static}
+  .stage{height:52vh}
+  .modebar{height:auto;flex:none;padding:10px 14px;gap:10px}
+  .modebar .hintline{display:none}
+  html,body{height:auto}body{overflow-y:auto}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="modebar">
+    <div class="brand">Texture <em>Forge</em></div>
+    <div class="modetabs" id="modebar-tabs"></div>
+    <div class="hintline">One tool · one mode per surface · PBR PNG out</div>
+  </header>
+
+  <div class="app" id="app">
+    <!-- mode panels are inserted here by forge-core.js -->
+
+    <div class="bay" id="bay">
+      <div class="bay-head">
+        <div class="tabs" id="tabs"></div>
+        <div class="spacer"></div>
+        <div class="tilebtns" id="tiles">
+          <button class="tab" data-tile="1" aria-pressed="true">1×1</button>
+          <button class="tab" data-tile="2" aria-pressed="false">2×2</button>
+          <button class="tab" data-tile="4" aria-pressed="false">4×4</button>
+        </div>
+        <div class="bgs" id="bgs" hidden>
+          <button class="tab" data-bg="dark" aria-pressed="true">Dark</button>
+          <button class="tab" data-bg="sky" aria-pressed="false">Sky</button>
+          <button class="tab" data-bg="check" aria-pressed="false">Checker</button>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </div>
+
+      <div class="stage" id="stage">
+        <canvas id="gl" class="on" width="900" height="900"></canvas>
+        <canvas id="flat" width="900" height="900"></canvas>
+        <div class="hint" id="hint">Drag the preview to move the light</div>
+        <div class="tiletag" id="tiletag"></div>
+        <div class="progress"><i id="bar"></i></div>
+      </div>
+
+      <div class="tray">
+        <div class="tray-head">
+          <h2>Channels</h2>
+          <button type="button" class="zip" id="zipall">Download all as .zip</button>
+          <button type="button" class="zip" id="h16">Height 16-bit</button>
+          <a class="zip zipsave" id="zipsave" hidden></a>
+        </div>
+        <div class="chips" id="chips"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- The runtime first, then one file per mode. Adding a mode is a new file
+     here plus modes/<name>.js — nothing else in the app needs to change. -->
+<script src="forge-core.js"></script>
+<script src="modes/street.js"></script>
+<script src="modes/plating.js"></script>
+<script src="modes/house.js"></script>
+<!-- <script src="modes/_template.js"></script>  uncomment for the worked example -->
+</body>
+</html>
