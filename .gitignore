@@ -1,0 +1,8 @@
+# playwright is a dev dependency of tools/smoke-test.mjs, not of the app —
+# the app itself has no build step and no dependencies at all
+node_modules/
+package.json
+package-lock.json
+
+# screenshots the smoke test drops beside itself
+texture-forge/tools/shots/
