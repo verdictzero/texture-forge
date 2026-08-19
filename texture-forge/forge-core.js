@@ -595,9 +595,12 @@ function drawFlat(){
   fctx.fillRect(0,0,flat.width,flat.height);
   fctx.imageSmoothingEnabled=true;
   if(seamless){
-    const cell=flat.width/tileN,rows=flat.height/ (flat.width/tileN);
-    for(let ty=0;ty<Math.ceil(rows);ty++)
-      for(let tx=0;tx<tileN;tx++)fctx.drawImage(src,tx*cell,ty*cell,cell,cell);
+    /* repeat at the texture's own aspect: a tile that is not square (a fence
+       bay, say) would otherwise be squashed into square cells here and read
+       as a different texture from the lit view */
+    const cw=flat.width/tileN,ch=cw*(active.B.H/active.B.W);
+    for(let ty=0;ty*ch<flat.height;ty++)
+      for(let tx=0;tx<tileN;tx++)fctx.drawImage(src,tx*cw,ty*ch,cw,ch);
   }else{
     fctx.drawImage(src,0,0,flat.width,flat.height);
   }
