@@ -70,10 +70,24 @@ backdrops:P=>P.face!=="roof",
 They are resolved once per build and read back from the build, never from the
 live form, so the chrome always describes the texture actually on screen.
 
+`seamless` and `backdrops` are independent, and both may be true at once — a
+fence tiles along the run *and* is a cut-out, so it wants the tile buttons and
+the backdrop buttons together.
+
 One caveat if your mode tiles: WebGL1 cannot repeat or mipmap a
 non-power-of-two texture. The runtime falls back to clamping rather than
 rendering black, but the 2×/4× preview then shows a single tile — so keep
 `previewSize` and every `size()` result a power of two in a seamless mode.
+
+A seamless tile does **not** have to be square, only power-of-two on both
+axes, which is what lets the fence mode hold a whole number of bays across
+while reserving whatever height the fence needs: its tile height is
+`k × width` with `k` a power of two, and the leftover is sky at unchanged
+density rather than a stretched fence. The flat channel views repeat at the
+texture's own aspect, so they agree with the lit view at every `k`. If you do
+this, remember that both edges of the long axis have to wrap too — the fence
+does it by making the top and bottom rows of the tile guaranteed-empty air and
+writing the same constants into every fully transparent texel.
 
 ### Channels
 

@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Texture Forge — procedural PBR surfaces</title>
+<meta name="description" content="Procedural PBR texture generator: asphalt and street layout, riveted plating, house elevations, roofing, fencing, hazard striping and ruins — built in the browser, exported as a full channel set.">
+<!-- inline so the tab has an icon without a request; served over http, an
+     undeclared icon means a 404 on /favicon.ico for every visitor -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23191a1c'/%3E%3Ccircle cx='16' cy='16' r='9.5' fill='%23e6b32a'/%3E%3Ccircle cx='12.5' cy='12.5' r='3' fill='%23f6e6b0'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -19,6 +23,7 @@ body[data-mode=plating]{--accent:#8fb8d8}
 body[data-mode=house]{--accent:#d9a066}
 body[data-mode=envelope]{--accent:#9db8a6}
 body[data-mode=roof]{--accent:#b98f7a}
+body[data-mode=fence]{--accent:#a5b56a}
 body[data-mode=hazard]{--accent:#ff8c1a}
 body[data-mode=ruins]{--accent:#57e6c9}
 
@@ -240,6 +245,7 @@ select,input[type=number]{width:100%;font-family:"IBM Plex Mono",monospace;font-
 <script src="modes/lib/roof.js"></script>
 <script src="modes/envelope.js"></script>
 <script src="modes/roof.js"></script>
+<script src="modes/fence.js"></script>
 <script src="modes/hazard.js"></script>
 <script src="modes/ruins.js"></script>
 <!-- <script src="modes/_template.js"></script>  uncomment for the worked example -->

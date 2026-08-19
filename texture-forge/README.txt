@@ -3,7 +3,8 @@ TEXTURE FORGE
 
 One procedural PBR texture tool, one tab per surface. Open index.html in a
 browser — no install, no build step, no network needed. Everything runs
-locally in the page.
+locally in the page. The same files are also live at
+https://verdictzero.github.io/texture-forge/ — see ON THE WEB below.
 
 Keep the folder together: index.html loads forge-core.js and the files in
 modes/. Opening index.html on its own gives you an empty app.
@@ -18,12 +19,14 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/house.js        American house front elevation
   modes/envelope.js     the side and back of that same house
   modes/roof.js         seamless roofing over it
+  modes/fence.js        fencing: board, picket, rail, chain link, mesh, iron
   modes/hazard.js       caution striping and industrial floor marking
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
+  .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
 MODES
@@ -121,6 +124,54 @@ Roof — seamless roofing
   Presets: three-tab, architectural, algae belt, storm-worn, cedar shake, Welsh
   slate, mission tile, standing seam, corrugated barn, gravel ballast.
 
+Fence — a run of fencing, seamless along the run
+  Seven types, all dimensioned in real inches because fencing is sold in
+  inches: board privacy, picket, split rail and ranch rail, chain link,
+  welded wire site panel, ornamental iron and palisade, corrugated hoarding.
+  Output carries alpha, so it is a cut-out you drop on a plane — and it
+  repeats along the run, so one tile is a whole fence.
+
+  The tile edge falls on a post CENTRELINE. That post is drawn once, its left
+  half in the last texels and its right half in the first, so repeating gives
+  neither a doubled post nor a halved one, and every per-post and per-board
+  random is hashed on the piece index modulo the count per tile.
+
+  The aspect ratio is the mode's other problem. A fence run is long and short,
+  and WebGL will not repeat a texture whose axes are not powers of two, so the
+  tile height is a power-of-two multiple of its width — the smallest one that
+  clears the fence plus a hard four inches of ground and four of air — and the
+  leftover is spent on ground and sky at unchanged density. Nothing is
+  stretched: a circle stays a circle, which is what keeps the chain-link weave
+  at 45 degrees. The readout says how much of the tile is sky and gives you the
+  V range to crop if you do not want it; only U has to wrap for a fence run.
+
+  The ground is a band of clutter that fades out before the bottom edge rather
+  than an opaque ground plane, so the tile wraps vertically too and the card
+  sits in terrain instead of on a hard line of dirt.
+
+  Chain link gets the detail it deserves: the diamond period is snapped so a
+  whole number fits the tile (2 in mesh on a 10 ft bay comes out at 1.973 in,
+  and two bays per tile snaps it to 2.000), the wire is round with a real
+  over-under weave carried in the normal map, the fabric height lands the
+  selvage on a knuckle at both ends, and there are tension bars, tie wires,
+  privacy slats and barbed extension arms. A 9-gauge wire is 1.3 texels at
+  1024, so alpha is the exact area of the wire inside each texel — never a
+  threshold — and below two texels a feature keeps its opacity and loses its
+  shape rather than aliasing. The readout names everything it dropped.
+
+  Weathering in causal order: for timber, mill marks, raised grain, UV
+  silvering, cupping, splits, knots (some of which fall out), nail stain and
+  tannate halos, paint that fails a whole flake at a time, missing and broken
+  boards, and sag; for steel, galvanising spangle, white rust where water
+  sits, red rust only where the coating has actually gone — cut ends, welds,
+  abraded contacts, fixings — dents, and chalking. Then ground splash, moss
+  and dirt in the low spots.
+
+  Presets: suburban privacy, weathered grey board, board-on-board cedar, white
+  picket, split rail, industrial chain link, chain link with barbed arms,
+  slatted chain link, temporary site mesh, steel palisade, ornamental iron,
+  corrugated hoarding.
+
 Hazard — caution striping and floor marking
   Painted safety marking on a real floor, dimensioned in millimetres: diagonal
   hazard stripes, chevrons, zebra edging, chequer, keep-clear crosshatch, solid
@@ -188,13 +239,15 @@ EXPORTED MAPS
 Base colour, normal, roughness, metallic, AO, height, ORM (packed), plus
 per-mode extras: a markings alpha decal (street), a paint alpha decal and
 material ID (hazard), material ID / emissive / opacity (house and envelope),
-and a pre-lit bake (ruins). Each zip also contains a 16-bit height PNG and
+material ID / opacity / an infill mask (fence), and a pre-lit bake (ruins).
+Each zip also contains a 16-bit height PNG and
 a readme giving the real-world size of the tile so displacement comes out true
 to life.
 
 File names carry the mode, seed and size, so exports from different sessions
 never collide: street_cross_1963_2048_normal.png, panel_1947_1024_orm.png,
-house_1912_1024x1300_basecolor.png.
+house_1912_1024x1300_basecolor.png. The fence carries both axes in its name
+because its aspect changes with the fence: fence_chain_1948_2048x1024_orm.png.
 
 Notes worth knowing:
 
@@ -229,6 +282,28 @@ USING IT
   set the backdrop behind a cut-out — house only.
 
 
+ON THE WEB
+----------
+Every push to main publishes this directory at
+
+  https://verdictzero.github.io/texture-forge/
+
+.github/workflows/static.yml does it. There is nothing to build, so the deploy
+is a straight copy: the workflow uploads texture-forge/ and GitHub Pages serves
+it. The publish root is this directory rather than the repository root, which
+is why index.html is the landing page, and why fonts/ — third-party font files
+the app never loads — stays out of the published site.
+
+The mode is in the URL there too, so
+https://verdictzero.github.io/texture-forge/#fence opens straight into fencing.
+
+Pages is configured with GitHub Actions as its source, so the workflow is the
+whole configuration; nothing is served from a branch. Deploying through Actions
+does not run Jekyll, so .nojekyll changes nothing today. It is there so that
+switching Pages to "deploy from a branch" later cannot silently swallow
+modes/_template.js and any other underscore-prefixed file.
+
+
 CHECKING IT
 -----------
 tools/smoke-test.mjs builds every registered mode in a headless browser and
@@ -253,6 +328,7 @@ their generators are unchanged, so the same seed and settings give the same
 pixels as before, and exported file names are unchanged. asphalt-forge was
 already superseded by street-forge and has not been carried over.
 
-The envelope, hazard and ruins modes came later: envelope shares the house
-generator so the faces of one building agree, hazard is new, and ruins is
-the separate Plating Fabricator tool brought in as a mode.
+The envelope, roof, hazard, fence and ruins modes came later: envelope shares
+the house generator so the faces of one building agree, roof and fence are new
+and belong beside it, hazard is new, and ruins is the separate Plating
+Fabricator tool brought in as a mode.
