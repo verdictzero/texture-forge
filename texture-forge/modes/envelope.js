@@ -112,7 +112,7 @@ Forge.register({
         ["right","Right — front corner at the left edge"],
         ["left","Left — back corner at the left edge"]]},
       {id:"sideBays",label:"Bays along the side",min:1,max:6,step:1,value:3},
-      {id:"sideBlank",label:"Blank bays",min:0,max:0.8,step:0.05,value:0.3},
+      {id:"sideBlank",label:"Blank bays",min:0,max:0.8,step:0.05,value:0.2},
       {type:"checks",items:[
         {id:"stairWin",label:"Stair landing window",value:true},
         {id:"sideDoor",label:"Service door",value:false}]}

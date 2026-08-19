@@ -1,5 +1,5 @@
 /* =====================================================================
-   MODE: circuitry — seamless ruin-stone plating with etched circuitry
+   MODE: ruins — seamless ruin-stone plating with etched circuitry
    =====================================================================
    Rectilinear and L-shaped plates on a wrapping grid, seam gaps, junction
    bores wherever three or more plates meet, and one of eight routing
@@ -1098,8 +1098,8 @@ function build(params,io){
 /* ============================ mode definition ============================ */
 
 Forge.register({
-  id:"circuitry",
-  label:"Circuitry",
+  id:"ruins",
+  label:"Ruins",
   blurb:"Ruin-stone plating with etched circuit traces",
   title:'Plating <em>Fabricator</em>',
   tagline:"The Plating Fabricator tool · stone plates & etched traces · seamless · PBR + pre-lit",
@@ -1260,11 +1260,11 @@ Forge.register({
     return {prelit:function(i,o,k){ o[k]=PRE[i*3];o[k+1]=PRE[i*3+1];o[k+2]=PRE[i*3+2];return 255; }};
   },
 
-  fileBase:function(P,W){ return "circuitplate_"+P.theme+"_"+P.pattern+"_"+(P.seed|0)+"_"+W; },
+  fileBase:function(P,W){ return "ruinplate_"+P.theme+"_"+P.pattern+"_"+(P.seed|0)+"_"+W; },
 
   readme:function(P,info){
     const range=(info.hMax-info.hMin).toFixed(5);
-    return ["Texture Forge · circuitry — ruin-stone plating with etched circuitry",
+    return ["Texture Forge · ruins — ruin-stone plating with etched circuitry",
       "(the Plating Fabricator tool, ported)",
       "",
       "Seed: "+(P.seed|0)+"   Resolution: "+info.W+"x"+info.H+"   Tiling: seamless in both axes",

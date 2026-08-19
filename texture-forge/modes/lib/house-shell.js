@@ -101,37 +101,89 @@ function geometry(){
 /* Meters, vent stacks, hose bibs, a back light, a chimney — the things that
    only ever hang on the faces nobody photographs. Laid out in feet like
    everything else so they land at the same size as the trim around them. */
-function buildFurniture(g){
-  const rng=mulberry32((P.seed|0)*77003+31+faceSalt());
+/* Everything hung on a plain wall has to miss the openings, the chimney and
+   the other fittings — a vent stack routed straight through two windows is
+   the giveaway that nothing was checked. So each fitting names where it would
+   LIKE to be, and then takes the nearest position across the wall that is
+   actually clear. A fitting that finds nowhere clear is simply not fitted,
+   which is also what happens on a real building. */
+function buildFurniture(g,ops){
   const F=[];
   if(isFront())return F;
   const grade=P.foundH;
-  const box=(kind,cx,y,w,h)=>F.push({kind:kind,x0:cx-w/2,x1:cx+w/2,y0:y,y1:y+h});
-  if(P.meter)box("meter",g.FW*(isSide()?0.16:0.13)+(rng()-0.5)*0.6,grade+3.3,1.05,1.35);
+  const chim=g.chimW>0
+    ? {kind:"chimney",x0:g.chimX-g.chimW/2,x1:g.chimX+g.chimW/2,
+       y0:P.chimney==="gable"?g.roofTop-1.2:0,y1:g.chimTop,
+       wide:P.chimney==="gable"?0:0.7}
+    : null;
+  if(chim)F.push(chim);
+
+  const clear=(x0,y0,x1,y1,pad)=>{
+    if(x0<0.5||x1>g.FW-0.5)return false;
+    for(const o of ops)
+      if(x1+pad>o.x0&&x0-pad<o.x1&&y1+pad>o.y0&&y0-pad<o.y1)return false;
+    for(const f of F)
+      if(x1+pad>f.x0&&x0-pad<f.x1&&y1+pad>f.y0&&y0-pad<f.y1)return false;
+    return true;
+  };
+  /* positions across the wall, nearest to the preferred one first */
+  const candidates=(pref,w)=>{
+    const out=[],n=28,lo=0.6+w*0.5,hi=g.FW-0.6-w*0.5;
+    if(hi<=lo)return [g.FW*0.5];
+    for(let i=0;i<=n;i++)out.push(lo+(hi-lo)*i/n);
+    return out.sort((a,b)=>Math.abs(a-pref)-Math.abs(b-pref));
+  };
+  const fit=(kind,prefX,y,w,h,pad,extra)=>{
+    for(const x of candidates(prefX,w)){
+      if(clear(x-w/2,y,x+w/2,y+h,pad==null?0.35:pad)){
+        const f={kind:kind,x0:x-w/2,x1:x+w/2,y0:y,y1:y+h};
+        if(extra)for(const k in extra)f[k]=extra[k];
+        F.push(f);
+        return f;
+      }
+    }
+    return null;
+  };
+  /* the side you would walk down: services stay on the same real wall when
+     the layout mirrors for the other end of the house */
+  const side=x=>isLeft()?g.FW-x:x;
+
+  if(P.meter)fit("meter",side(g.FW*(isSide()?0.16:0.13)),grade+3.3,1.05,1.35,0.45);
   if(P.ventStack){
-    const x=g.FW*(isSide()?0.72:0.66)+(rng()-0.5)*0.8;
-    F.push({kind:"stack",x0:x-0.17,x1:x+0.17,y0:grade+1.1,y1:Math.max(grade+2,g.wallTop-0.15)});
+    /* A soil stack is a full-height vertical run, so it needs a clear COLUMN
+       of wall — and merely legal is not enough: a pipe half an inch off a
+       window casing looks like a mistake. Take the roomiest column instead of
+       the first one that fits, with a mild pull toward where it belongs. */
+    const top=Math.max(grade+2.4,g.wallTop-0.15),y0=grade+1.1,w=0.34,h=top-y0;
+    const pref=side(g.FW*(isSide()?0.72:0.66));
+    let best=null,bestScore=-1e9;
+    for(const x of candidates(pref,w)){
+      if(!clear(x-w/2,y0,x+w/2,y0+h,0.5))continue;
+      let room=1e9;
+      for(const o of ops){
+        if(o.y1<y0||o.y0>y0+h)continue;                  // only what the run passes
+        room=Math.min(room,Math.max(o.x0-(x+w/2),(x-w/2)-o.x1));
+      }
+      const sc=Math.min(room,3.5)-Math.abs(x-pref)*0.10;
+      if(sc>bestScore){bestScore=sc;best=x;}
+    }
+    if(best!=null)F.push({kind:"stack",x0:best-w/2,x1:best+w/2,y0:y0,y1:y0+h});
   }
-  if(P.hoseBib)box("bib",g.FW*(isSide()?0.31:0.8),grade+1.5,0.5,0.5);
-  if(isLeft())mirror(F,g.FW);                 // services follow the wall they hang on
-  for(const f of F)if(!clearOfChimney(g,f.x0,f.x1)){
-    const w=f.x1-f.x0,shift=(f.x0<g.chimX?-1:1)*(g.chimW*0.5+w*0.5+0.9);
-    f.x0=clamp(g.chimX+shift-w*0.5,0.2,g.FW-w-0.2);f.x1=f.x0+w;
-  }
-  /* the chimney is placed by geometry() because it is part of the silhouette,
-     so it is already on the right end — mirroring it here would move it off
-     the hole the silhouette left for it */
-  if(g.chimW>0)
-    F.unshift({kind:"chimney",x0:g.chimX-g.chimW/2,x1:g.chimX+g.chimW/2,
-      y0:P.chimney==="gable"?g.roofTop-1.2:0,y1:g.chimTop,
-      wide:P.chimney==="gable"?0:0.7});
+  if(P.hoseBib)fit("bib",side(g.FW*(isSide()?0.31:0.8)),grade+1.5,0.5,0.5,0.3);
+
   if(isBack()){
-    if(P.dryerVent)box("dryer",g.FW*0.33+(rng()-0.5)*0.8,grade+2.1,0.8,0.62);
+    if(P.dryerVent)fit("dryer",side(g.FW*0.33),grade+2.1,0.8,0.62,0.35);
     if(P.backLight){
-      const bays=Math.max(1,P.bays|0),margin=Math.max(1.2,g.FW*0.06);
-      const span=(g.FW-2*margin)/bays;
-      const cx=margin+span*(clamp((P.backDoorBay|0)-1,0,bays-1)+0.5);
-      box("light",cx+P.doorW*0.5+0.75,grade+6.0,0.85,1.1);
+      /* a wall lantern belongs beside its door, not on a free patch of wall:
+         anchor it to the door and skip it if there is no room */
+      const door=ops.filter(o=>o.type==="door")[0];
+      if(door){
+        const yl=door.y0+5.5;
+        const gapR=g.FW-0.6-door.x1,gapL=door.x0-0.6;
+        const x=(gapR>=gapL?door.x1+0.85:door.x0-0.85);
+        if(clear(x-0.42,yl,x+0.42,yl+1.1,0.15))
+          F.push({kind:"light",x0:x-0.42,x1:x+0.42,y0:yl,y1:yl+1.1});
+      }
     }
   }
   return F;
@@ -180,11 +232,16 @@ function buildOpenings(g){
     const bays=Math.max(1,P.sideBays|0);
     const margin=Math.max(1.2,g.FW*0.10);
     const span=(g.FW-2*margin)/bays;
+    /* A blank bay is blank all the way up — that is a stair, a chimney breast
+       or a utility run behind it. Scattering the blanks per floor instead just
+       reads as holes punched at random. */
+    const blankBay=[];
+    for(let bi=0;bi<bays;bi++)blankBay.push(rng()<P.sideBlank);
     for(let s=0;s<P.storeys;s++){
       const floor=P.foundH+s*P.storeyH;
       for(let bi=0;bi<bays;bi++){
         const cx=margin+span*(bi+0.5);
-        if(rng()<P.sideBlank){continue;}                 // blank wall — a party or utility bay
+        if(blankBay[bi]){continue;}
         if(s>0&&rng()<0.35){                             // bathroom: small, high, obscured
           const w=Math.max(1.4,P.winW*0.55),h=Math.max(1.6,P.winH*0.45);
           const o=win(cx,floor,w,h,P.sillH+P.winH-h+0.35);
@@ -195,10 +252,23 @@ function buildOpenings(g){
         ops.push(win(cx,floor,P.winW*0.9,P.winH,P.sillH));
       }
     }
-    if(P.storeys>1&&P.stairWin){                          // stair landing, between floors
-      const cx=g.FW*(0.5+(rng()-0.5)*0.18);
-      const h=P.storeyH*0.85;
-      ops.push(win(cx,P.foundH+P.storeyH-h*0.45,Math.max(1.6,P.winW*0.7),h,0));
+    if(P.storeys>1&&P.stairWin){
+      /* A stair window lights the half-landing, so it sits BETWEEN two floors
+         and, on a bayed wall, between two bays — dropping it at a random x
+         put it through whatever was already there. */
+      const w=Math.max(1.6,P.winW*0.7),h=P.storeyH*0.85;
+      const y0=P.foundH+P.storeyH-h*0.45;
+      const gaps=[];
+      for(let bi=0;bi<bays-1;bi++)gaps.push(margin+span*(bi+1));   // between bays
+      gaps.push(margin*0.5,g.FW-margin*0.5);                        // the end margins
+      const free=x=>{
+        if(x-w/2<0.6||x+w/2>g.FW-0.6)return false;
+        for(const o of ops)
+          if(x+w/2+0.5>o.x0&&x-w/2-0.5<o.x1&&y0+h+0.4>o.y0&&y0-0.4<o.y1)return false;
+        return true;
+      };
+      const x=gaps.filter(free)[0];
+      if(x!=null)ops.push(win(x,y0,w,h,0));
     }
     if(P.sideDoor){                                       // service door onto the side path
       const cx=margin+span*0.5;
@@ -372,7 +442,7 @@ function build(params,io){
   const FW=g.FW,FH=g.FH;
   const ftPerPx=FW/TW;
   const ops=buildOpenings(g);
-  const FURN=buildFurniture(g);
+  const FURN=buildFurniture(g,ops);
   const SW=Math.min(TW,1024),SH=Math.max(8,Math.round(SW*FH/FW));
   const sten=buildStencil(g,SW,SH);
 
@@ -1103,30 +1173,49 @@ function build(params,io){
               r=52+18*round;gg=50+17*round;b=49+16*round;
               h=0.16*round+0.04;rg=0.62;id=7;met=0.1;wood=0;
               if(ly>fh-0.35){r*=0.8;gg*=0.8;b*=0.8;}   // the collar at the eave
-            }else if(f.kind==="dryer"){                // hooded dryer vent
-              const d=Math.hypot((lx-fw*0.5)/(fw*0.5),(ly-fh*0.45)/(fh*0.5));
-              if(d<1){
-                const sh6=0.55+0.45*Math.sqrt(Math.max(0,1-d*d));
-                r=214*sh6;gg=210*sh6;b=200*sh6;h=0.14*(1-d*0.4);rg=0.5;id=2;met=0.15;wood=0;
-              }
-            }else if(f.kind==="bib"){                  // hose bib and its escutcheon
-              const d=Math.hypot(lx-fw*0.5,ly-fh*0.5);
-              if(d<fh*0.5){
-                const sh7=0.6+0.4*(1-d/(fh*0.5));
-                r=150*sh7;gg=140*sh7;b=120*sh7;h=0.13;rg=0.35;id=4;met=0.85;wood=0;
-              }
-            }else if(f.kind==="light"){                // wall lantern beside the door
-              const d=Math.hypot((lx-fw*0.5)/(fw*0.5),(ly-fh*0.55)/(fh*0.5));
-              if(d<1.02){
-                if(d<0.58){                            // the lens
-                  const c=1-d*0.5;
-                  r=214*c;gg=204*c;b=168*c;rg=0.12;met=0.35;id=3;
-                  if(P.litWin){emis=0.9;r=255;gg=228;b=170;}
-                }else{                                 // cast housing and back plate
-                  const s8=0.5+0.5*(1-d);
-                  r=38*s8+10;gg=36*s8+9;b=34*s8+9;rg=0.44;met=0.55;id=4;
+            }else if(f.kind==="dryer"){
+              /* hood above, dark louvre slot below it — ly runs upward, so the
+                 slot is the BOTTOM of the box, and the hood needs to be darker
+                 than the siding or it vanishes into it */
+              const dx6=Math.abs(lx-fw*0.5)/(fw*0.5),t6=ly/fh;
+              if(dx6<0.92){
+                if(t6<0.30){                           // the louvre in shadow
+                  r=24;gg=23;b=22;h=-0.02;rg=0.92;id=2;met=0;wood=0;
+                }else{
+                  const dome=Math.sqrt(Math.max(0,1-dx6*dx6))*(0.4+0.6*(t6-0.3));
+                  const sh6=0.55+0.45*dome;
+                  r=168*sh6;gg=166*sh6;b=160*sh6;
+                  h=0.06+0.16*dome;rg=0.44;id=2;met=0.2;wood=0;
+                  if(t6<0.42){r*=0.6;gg*=0.6;b*=0.6;}  // the lip's own shadow
                 }
-                h=0.20*(1-d*0.55);wood=0;
+              }
+            }else if(f.kind==="bib"){
+              /* escutcheon with a spout dropping out of it, in weathered brass
+                 — a pale disc on pale siding is invisible from any distance */
+              const cxb=fw*0.5,cyb=fh*0.66;
+              const d=Math.hypot(lx-cxb,(ly-cyb)*1.15);
+              const spout=(Math.abs(lx-cxb)<fw*0.16&&ly<cyb&&ly>fh*0.05);
+              if(d<fh*0.42||spout){
+                const round=spout?(1-Math.abs(lx-cxb)/(fw*0.16)):(1-d/(fh*0.42));
+                const sh7=0.42+0.58*Math.sqrt(Math.max(0,round));
+                r=142*sh7;gg=112*sh7;b=62*sh7;
+                h=0.06+0.13*round;rg=0.30;id=4;met=0.85;wood=0;
+              }
+            }else if(f.kind==="light"){
+              /* a wall lantern reads by its silhouette: a back plate, a glass
+                 body that tapers, and a cap — a radial blob reads as a hole */
+              const t8=ly/fh,dx8=Math.abs(lx-fw*0.5)/(fw*0.5);
+              const taper=0.34+0.62*(1-Math.abs(t8-0.45)*1.5);
+              if(t8>0.86){                             // back plate at the top
+                if(dx8<0.5){r=34;gg=32;b=30;h=0.08;rg=0.5;met=0.5;id=4;wood=0;}
+              }else if(t8>0.70){                       // cap
+                if(dx8<0.78){r=40;gg=38;b=35;h=0.20;rg=0.45;met=0.55;id=4;wood=0;}
+              }else if(t8>0.14&&dx8<taper){            // glass body
+                const c=0.72+0.28*(1-dx8/Math.max(0.05,taper));
+                r=206*c;gg=196*c;b=158*c;rg=0.12;met=0.3;id=3;h=0.17;wood=0;
+                if(P.litWin){emis=0.92;r=255;gg=228;b=172;}
+              }else if(t8<=0.14&&dx8<0.34){            // finial under the glass
+                r=36;gg=34;b=32;h=0.12;rg=0.45;met=0.55;id=4;wood=0;
               }
             }else if(f.kind==="chimney"){              // brick stack running past the eave
               const bw=0.66,bh=0.24,mj=0.03;           // brick, course, joint (feet)

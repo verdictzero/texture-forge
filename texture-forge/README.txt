@@ -18,7 +18,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/house.js        American house front elevation
   modes/envelope.js     the side, the back and the roof of that same house
   modes/hazard.js       caution striping and industrial floor marking
-  modes/circuitry.js    ruin-stone plating with etched circuit traces
+  modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
@@ -134,7 +134,7 @@ Hazard — caution striping and floor marking
   Presets: loading bay, forklift aisle, fire door keep-clear, machine guard,
   radiation store, weathered dock plate, fresh repaint, chequer pad.
 
-Circuitry — ruin-stone plating with etched circuit traces
+Ruins — ruin-stone plating with etched circuit traces
   The Plating Fabricator tool, folded in: seamless stone plating cut into
   staggered rectangular and L-shaped plates, with circuit traces routed across
   each plate by one of eight generators — wandering routes, serpentine
@@ -157,7 +157,7 @@ EXPORTED MAPS
 Base colour, normal, roughness, metallic, AO, height, ORM (packed), plus
 per-mode extras: a markings alpha decal (street), a paint alpha decal and
 material ID (hazard), material ID / emissive / opacity (house and envelope),
-and a pre-lit bake (circuitry). Each zip also contains a 16-bit height PNG and
+and a pre-lit bake (ruins). Each zip also contains a 16-bit height PNG and
 a readme giving the real-world size of the tile so displacement comes out true
 to life.
 
@@ -222,6 +222,6 @@ their generators are unchanged, so the same seed and settings give the same
 pixels as before, and exported file names are unchanged. asphalt-forge was
 already superseded by street-forge and has not been carried over.
 
-The envelope, hazard and circuitry modes came later: envelope shares the house
-generator so the faces of one building agree, hazard is new, and circuitry is
+The envelope, hazard and ruins modes came later: envelope shares the house
+generator so the faces of one building agree, hazard is new, and ruins is
 the separate Plating Fabricator tool brought in as a mode.
