@@ -245,6 +245,27 @@ it. Two rules earn their keep:
 - **Key any cache by what varies.** One geometry slot shared by three faces
   means the front's readme prints the side's dimensions.
 
+## Talking to another mode
+
+Modes are otherwise sealed from each other, with one exception:
+
+```js
+Forge.setParam(modeId, id, value)   // -> true if it changed something
+```
+
+It writes a parameter into another mode's panel — the form and the parameter
+object — and marks that mode's last build stale so it rebuilds when you switch
+to it. It deliberately does **not** run the other mode's `derive`, so two modes
+can mirror each other without ping-ponging, and it returns `false` when the
+target mode is not loaded, has no such control, or already holds the value.
+
+The house family uses it from each mode's `derive` to keep the front, the side,
+the back and the roof describing one building (`HouseShell.coordinate`). If you
+build a family like that, two things are worth copying: mirror on the edit that
+switches the link *off* as well as while it is on — otherwise the other panels
+sit there still believing they are linked — and set the link flag on the
+targets as you go, so they do not each fire their own off-mirror later.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

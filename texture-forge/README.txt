@@ -16,7 +16,8 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/street.js       asphalt and street layout
   modes/plating.js      seamless riveted aircraft skin
   modes/house.js        American house front elevation
-  modes/envelope.js     the side, the back and the roof of that same house
+  modes/envelope.js     the side and back of that same house
+  modes/roof.js         seamless roofing over it
   modes/hazard.js       caution striping and industrial floor marking
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/lib/            generators shared by more than one mode
@@ -97,14 +98,28 @@ Envelope — the rest of the house
   photographs — meter and board, vent stack, dryer vent, hose bib, back light.
   A chimney can run up either plain face and is part of the cut-out silhouette.
 
-  Roof: a seamless tiling material rather than a cut-out — three-tab and
-  architectural asphalt shingle, wood shake, slate, clay barrel tile,
-  standing-seam and corrugated metal, rolled roofing with gravel ballast. Every
-  dimension is in inches and the courses and tabs are snapped so a whole number
-  fits the tile. Granule loss, algae streaking, moss in the laps, curling and
-  missing tabs, tar patches, nail pops, rust.
+  Presets: the same six the house mode offers, so the faces agree.
 
-  Presets: the six house presets, plus ten roofing ones.
+Roof — seamless roofing
+  Three-tab and architectural asphalt shingle, wood shake, slate, clay barrel
+  tile, standing-seam and corrugated metal, rolled roofing with gravel ballast.
+
+  Every dimension is in real inches, and the course, tab, pan and corrugation
+  counts are snapped so a whole number fits the tile — which is what lets it
+  repeat without a seam. The readout says how many inches the tile covers, what
+  exposure you actually got (not always the one you asked for), and warns when a
+  tab or a rib falls below a couple of texels.
+
+  Weathering: granule loss, algae streaking down-slope, moss and lichen in the
+  shaded laps, sun bleaching, cupping and curling butts, missing tabs showing
+  the deck, tar patches, nail pops, rust and chalking on metal.
+
+  There is deliberately no pitch control: this texture is the roof plane's own
+  surface unrolled, and a plane is not foreshortened by its own slope — the
+  camera does that when you tilt it into the scene.
+
+  Presets: three-tab, architectural, algae belt, storm-worn, cedar shake, Welsh
+  slate, mission tile, standing seam, corrugated barn, gravel ballast.
 
 Hazard — caution striping and floor marking
   Painted safety marking on a real floor, dimensioned in millimetres: diagonal
@@ -150,6 +165,22 @@ Ruins — ruin-stone plating with etched circuit traces
   It also exports a pre-lit channel — a baked diffuse for unlit or legacy
   shaders, lit from its own angle and elevation. Use it INSTEAD of the PBR set,
   never alongside it.
+
+
+COORDINATING ONE BUILDING
+-------------------------
+The front, the side, the back and the roof are four textures of one house, and
+dialling the same twenty settings into four panels by hand is how they end up
+not matching. Tick "Coordinate with..." in any of the house, envelope or roof
+panels and every setting those panels share — the seed, the cladding, the trim,
+the colours, the weathering, the storey heights — is mirrored across them the
+moment it changes, in whichever direction you edit.
+
+Resolution is deliberately left out of the link: how many texels you want of a
+given face is a property of the export, not of the house.
+
+Turning the link off in any one panel turns it off in all of them, and every
+panel keeps whatever it had at that moment.
 
 
 EXPORTED MAPS

@@ -53,9 +53,13 @@ Forge.register({
       {id:"roof",type:"select",label:"Roof facing the street",value:"eave",options:[
         ["eave","Eave front — soffit and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
       {id:"pitch",label:"Roof pitch",unit:":12",min:2,max:14,step:0.5,value:6},
-      {id:"seed",type:"seed",value:1912}
+      {id:"seed",type:"seed",value:1912},
+      {type:"checks",items:[{id:"linkHouse",label:"Coordinate with the envelope and roof",value:false}]}
     ]},
   ].concat(Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","maps"])),
+
+  /* keeps the side, the back and the roof describing this same house */
+  derive:function(P){Shell.coordinate("house",P);},
 
   needs:function(P){
     const need=["front"];              // the door-bay rows the other faces do not have

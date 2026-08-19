@@ -1604,7 +1604,51 @@ function sizeOf(params,face,preview){
   return {w:Math.max(64,Math.round(fullW*k/4)*4),h:Math.max(64,Math.round(g.TH*k/4)*4)};
 }
 
+/* ============================ coordination ============================
+   The front, the side, the back and the roof are four textures of ONE
+   building, and dialling the same twenty settings into four panels by hand
+   is how they end up not matching. With the link on, any parameter two of
+   those panels both declare is mirrored across them the moment it changes.
+
+   Resolution is deliberately left out: how many texels you want of a given
+   face is a property of the export, not of the house. */
+const FAMILY=["house","envelope","roof"];
+const NEVER={size:1};
+const XCACHE={},LINKED={};
+
+function sharedWith(fromId,toId,P){
+  const key=fromId+">"+toId;
+  if(XCACHE[key])return XCACHE[key];
+  const to=Forge.state(toId);
+  if(!to||!to.params)return null;                 // that mode is not loaded yet
+  const has={};
+  for(const d of to.params)has[d.id]=1;
+  const ids=[];
+  for(const id in P)if(has[id]&&!NEVER[id])ids.push(id);
+  XCACHE[key]=ids;
+  return ids;
+}
+
+/* Called from each family mode's derive(). Mirrors on the way out AND on the
+   edit that switches the link off, so the off state propagates too — otherwise
+   the other panels would sit there still believing they were linked. */
+function coordinate(fromId,P){
+  const on=!!P.linkHouse,was=LINKED[fromId];
+  LINKED[fromId]=on;
+  if(!on&&!was)return;
+  for(const to of FAMILY){
+    if(to===fromId)continue;
+    const ids=sharedWith(fromId,to,P);
+    if(!ids)continue;
+    for(const id of ids)Forge.setParam(to,id,P[id]);
+    /* the target now holds the link state too, so it must not later fire its
+       own "the link just went off" mirror and leak one more edit across */
+    LINKED[to]=on;
+  }
+}
+
 window.HouseShell={
+  coordinate:coordinate,
   IN:IN,edgeDist:edgeDist,CONTROLS:CONTROLS,PRESETS:PRESETS,
   controls:function(names){return names.map(function(n){return CONTROLS[n]();});},
   LAPPY:LAPPY,MASONRY:MASONRY,IDCOL:IDCOL,PREVIEW_W:PREVIEW_W,

@@ -12,41 +12,16 @@
    eave-front house is a gable end from the side), where the openings go,
    and what service clutter hangs on the wall.
 
-   The roof is a different animal: a seamless tiling material rather than
-   a cut-out elevation, so the mode switches its own tiling flag per build.
+   The roof over both is its own mode — it is a tiling material rather than
+   a cut-out piece, and it belongs beside the house rather than inside it.
    ===================================================================== */
 "use strict";
 
 (function(){
 const Shell=window.HouseShell;
-const Roof=window.RoofGen||null;
-
-const isRoof=P=>P.face==="roof";
 const wall=P=>P.face==="side"?"side":"back";
 
-/* the roof is opaque and unlit, but the channel list is shared with the
-   walls, so fill the wall-only channels flat rather than dropping them */
-function roofBuild(P,io){
-  Roof.build(P,{
-    W:io.W,H:io.H,preview:io.preview,progress:io.progress,
-    done:function(B){
-      const N=io.W*io.H;
-      if(!B.ALP){B.ALP=new Uint8ClampedArray(N);B.ALP.fill(255);}
-      if(!B.EMI)B.EMI=new Uint8ClampedArray(N);
-      if(!B.ID){B.ID=new Uint8ClampedArray(N);B.ID.fill(7);}   // 7 = roof, in the shared id table
-      io.done(B);
-    }
-  });
-}
-
 const FACES=[["side","Side elevation"],["back","Back elevation"]];
-if(Roof)FACES.push(["roof","Roof — seamless material"]);
-
-const roofGroups=Roof?Roof.controls.map(function(g){
-  const c={};for(const k in g)c[k]=g[k];
-  c.need="roof";                                  // the whole group belongs to one face
-  return c;
-}):[];
 
 const wallGroups=Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","maps"])
   .map(function(g){
@@ -54,11 +29,6 @@ const wallGroups=Shell.controls(["cladding","openings","glass","trim","weatherin
     c.need=["side","back"];
     return c;
   });
-
-const roofPresets=Roof?Object.keys(Roof.presets).map(function(k){
-  const set=Roof.presets[k];
-  return {id:"rf_"+k,label:set.label||k,set:set.set||set};
-}):[];
 
 Forge.register({
   id:"envelope",
@@ -69,9 +39,8 @@ Forge.register({
   actionLabel:"Build face",
   busyLabel:"Building…",
 
-  /* walls are cut-out pieces, the roof tiles — resolved per build */
-  seamless:isRoof,
-  backdrops:P=>!isRoof(P),
+  seamless:false,                    // one face of a house, not a repeating panel
+  backdrops:true,
   flipPreviewY:true,
   previewSize:Shell.PREVIEW_W,
   chipSource:150,
@@ -85,7 +54,7 @@ Forge.register({
     {key:"id",label:"Mat ID"},{key:"emissive",label:"Emissive"},{key:"opacity",label:"Opacity"}
   ],
 
-  presets:Shell.PRESETS.concat(roofPresets),
+  presets:Shell.PRESETS,
 
   controls:[
     {title:"Output",open:true,rows:[
@@ -93,7 +62,8 @@ Forge.register({
         [512,"512"],[1024,"1024"],[2048,"2048"],[4096,"4096 — slow, heavy"]]},
       {id:"face",type:"select",label:"Face",value:"side",options:FACES},
       {type:"readout"},
-      {id:"seed",type:"seed",value:1912}
+      {id:"seed",type:"seed",value:1912},
+      {type:"checks",items:[{id:"linkHouse",label:"Coordinate with the house modes",value:false}]}
     ]},
     {title:"Building",open:true,need:["side","back"],rows:[
       {id:"facadeW",label:"Facade width",unit:"ft",min:12,max:60,step:0.5,value:26},
@@ -136,11 +106,10 @@ Forge.register({
       {type:"note",html:"The plain faces are where the building's services land. "+
         "Nothing here appears on the front."}
     ]}
-  ].concat(wallGroups).concat(roofGroups),
+  ].concat(wallGroups),
 
   needs:function(P){
     const need=[P.face];
-    if(isRoof(P))return Roof?need.concat(Roof.needs(P)):need;
     if(Shell.LAPPY[P.clad])need.push("lap");
     if(P.clad==="batten")need.push("batten");
     if(Shell.MASONRY[P.clad])need.push("masonry");
@@ -148,8 +117,9 @@ Forge.register({
     return need;
   },
 
+  derive:function(P){Shell.coordinate("envelope",P);},
+
   readout:function(P){
-    if(isRoof(P))return Roof?Roof.readout(P):"—";
     const g=Shell.geometry(P,wall(P));
     const pxPerFt=(P.size|0)/g.FW;
     let m="<b>"+g.FW.toFixed(1)+" × "+g.FH.toFixed(1)+" ft</b> · "+(P.size|0)+" × "+g.TH+" px<br>"+
@@ -162,24 +132,10 @@ Forge.register({
     return m;
   },
 
-  tileTag:function(P){return isRoof(P)?"tiles ↔ and ↕":"single piece — one face of a house";},
+  tileTag:function(){return "single piece — one face of a house";},
 
-  /* the two kinds of output preview at different sizes, so say which */
-  autonote:function(P){
-    const size=P.size|0;
-    const pv=isRoof(P)?Roof.size(P,true).w:Shell.PREVIEW_W;
-    return size>1024
-      ?"Dragging previews at "+pv+" px · press build face for "+size
-      :"Dragging shows a "+pv+" px preview · release rebuilds at "+size;
-  },
-
-  size:function(P,preview){
-    return isRoof(P)?Roof.size(P,preview):Shell.size(P,wall(P),preview);
-  },
-  build:function(P,io){
-    if(isRoof(P))return roofBuild(P,io);
-    return Shell.build(P,io,wall(P));
-  },
+  size:function(P,preview){return Shell.size(P,wall(P),preview);},
+  build:function(P,io){return Shell.build(P,io,wall(P));},
 
   writers:function(B){
     const ID=B.ID,IDCOL=Shell.IDCOL;
@@ -194,7 +150,6 @@ Forge.register({
   fileBase:function(P,W,H){return "house_"+P.face+"_"+(P.seed|0)+"_"+W+"x"+H;},
 
   readme:function(P,info){
-    if(isRoof(P))return Roof.readme(P,info);
     const g=Shell.lastGeo(wall(P))||Shell.geometry(P,wall(P));
     const side=P.face==="side";
     return ["Texture Forge · envelope — "+(side?"side":"back")+" elevation",

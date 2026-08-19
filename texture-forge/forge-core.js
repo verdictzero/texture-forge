@@ -985,6 +985,33 @@ function boot(){
   activate(BY_ID[want]?want:MODES[0].id);
 }
 
+/* Write a parameter into ANOTHER mode's panel. This is the one facility a mode
+   has for coordinating with a sibling — the house family uses it to keep the
+   front, the side, the back and the roof describing one building. It writes
+   the form and the parameter object directly and marks that mode's last build
+   stale, but deliberately does NOT run the other mode's derive, so two modes
+   can mirror each other without ping-ponging. Returns false when the target
+   mode is not loaded, does not have that control, or already holds the value. */
+Forge.setParam=function(modeId,id,value){
+  const st=STATE[modeId];
+  if(!st||!st.params)return false;
+  let d=null;
+  for(const x of st.params)if(x.id===id){d=x;break;}
+  const n=d&&node(st,id);
+  if(!n)return false;
+  const v=(d.kind==="check")?!!value
+    :(d.kind==="color")?String(value)
+    :(d.kind==="select")?(d.numeric?+value:String(value))
+    :+value;
+  if(st.P[id]===v)return false;
+  if(d.kind==="check")n.checked=v;else n.value=v;
+  st.P[id]=v;
+  const span=el(pid(st,id)+"-val");
+  if(span)span.textContent=(d.kind==="range")?(+n.value).toFixed(d.dp):n.value;
+  st.built=false;                       // its last build no longer matches its parameters
+  return true;
+};
+
 /* exposed for modes and for the headless parity harness */
 Forge.makeMap=(key,maxW)=>makeMap(active,key,maxW);
 Forge.active=()=>active;
