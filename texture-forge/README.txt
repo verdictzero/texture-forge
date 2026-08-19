@@ -24,6 +24,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter
+  modes/factory.js      1940s brick factory wall with steel sash windows
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
@@ -289,6 +290,35 @@ Greeble — machined surface clutter
 
   Dimensioned in metres and millimetres. Presets: hull greeble (fine), machine
   bay (coarse), reactor face (lit), service panel (shallow).
+
+Factory — 1940s brick factory wall
+  A whole wall panel rather than a material: three storeys by four bays of steel
+  industrial sash set into brick, tiling in both axes so the panel repeats into
+  an elevation.
+
+  The window is the point. A factory sash of this period is a grid of small
+  panes in thin steel bars, split across the middle by a heavier transom into an
+  upper and a lower half, each half carrying its own pane grid, with the row of
+  panes against the transom being the operable hopper. Pane counts are not a
+  slider: you give a target pane size and the mode snaps the count so a whole
+  number fits each half, which is what real steel sash did and what keeps the
+  bars square. At the default 14 m tile that lands on six 433 mm panes across
+  and three above and below the transom, and the readout tells you so.
+
+  Brick courses and brick lengths are snapped the same way, which is what makes
+  it seamless — the readout gives you the course height it actually built, in
+  millimetres, rather than quietly stretching the bond. Common, running, English
+  and stack bonds, with flashed headers, spalled faces and lost pointing.
+
+  Around the openings: cast stone sills, a choice of soldier course, painted
+  steel angle or cast stone lintel, pilasters between bays, and a belt course at
+  every floor line — which is the one horizontal detail that can repeat
+  honestly, so there is no plinth and no parapet. Cap it with your own geometry.
+
+  Glass runs from filthy through painted out — the wartime habit — to broken and
+  gone, and any pane can be lit from inside, which drives the emissive map.
+
+  Presets: red brick works, sooted mill, whitewashed warehouse, derelict plant.
 
 
 COORDINATING ONE BUILDING
