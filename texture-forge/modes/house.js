@@ -51,7 +51,7 @@ Forge.register({
       {id:"storeyH",label:"Storey height",unit:"ft",min:7,max:13,step:0.25,value:9},
       {id:"foundH",label:"Foundation",unit:"ft",min:0,max:5,step:0.1,value:1.8},
       {id:"roof",type:"select",label:"Roof facing the street",value:"eave",options:[
-        ["eave","Eave front — soffit and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
+        ["eave","Eave front — fascia and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
       {id:"pitch",label:"Roof pitch",unit:":12",min:2,max:14,step:0.5,value:6},
       {id:"seed",type:"seed",value:1912},
       {type:"checks",items:[{id:"linkHouse",label:"Coordinate with the envelope and roof",value:false}]}
@@ -115,7 +115,7 @@ Forge.register({
       "               physically-correct dielectric pane just looks like flat dark paint.",
       "               Doing real transparent glass instead? Set glass metallicity to 0 and",
       "               isolate the panes with the blue channel of id.png.",
-      "ao.png         Linear grey; window reveals and the soffit carry most of it.",
+      "ao.png         Linear grey; window reveals carry most of it.",
       "height.png     8-bit displacement spanning "+((info.hMax-info.hMin)*12).toFixed(2)+" in of relief",
       "               ("+(info.hMin*12).toFixed(2)+" in to "+(info.hMax*12).toFixed(2)+" in). Deep window reveals eat most of the",
       "               range, so prefer height16.png for displacement.",

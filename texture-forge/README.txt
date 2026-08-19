@@ -29,6 +29,28 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
+BUILT FOR 3D
+------------
+
+Every map here is made to be applied to 3D geometry, and that geometry is seen
+from the side or from above. Never from below. Nothing here draws the underside
+of anything.
+
+That is a rule about content, not about rendering. A tiling material is a face
+you look at square on; an elevation is a wall you stand in front of; a roof is a
+plane you look down at. So the house family gives you a fascia board with a
+gutter hanging off it and stops there — no soffit, because the soffit is the
+underside of the eave overhang and no camera in that arrangement can see it. The
+overhang itself is roof geometry in your engine, and its underside is a face you
+either never build or never look at.
+
+The same test applies to anything new: if a detail would only be visible by
+looking up at the surface, it does not belong in the texture. Relief that reads
+in the height and normal maps is fine — a projecting sill, a door hood, a rivet
+head — because that is still the face you are looking at, standing proud of
+itself.
+
+
 MODES
 -----
 
@@ -73,8 +95,10 @@ House — American house front elevation
   Cladding: clapboard, vinyl, board and batten, wood shingle, brick, stucco,
   stone veneer. Openings: double-hung sashes with configurable lites, casing,
   projecting sills, shutters, and six-panel / four-panel / half-light / flush
-  doors with transoms, hoods and steps. Full eave assembly with a K-style
-  gutter, fascia, vented soffit and a connected downspout.
+  doors with transoms, hoods and steps. At the eave, a fascia board carrying a
+  K-style gutter and a connected downspout — and no soffit, for the reason in
+  BUILT FOR 3D above. Fascia depth sets the whole eave band, so it also sets
+  how much board shows below the gutter.
 
   Weathering: sun fade, peeling paint through undercoat to bare wood, drip
   streaks, splash-back, mildew, nail rust, rot and overall grunge.

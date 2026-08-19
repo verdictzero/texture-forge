@@ -312,6 +312,12 @@ rotation table — belongs in that mode's file.
   looks worse than absent noise.
 - **Keep metallic honest.** Flat black for dielectrics, and say so in the
   readme if you cheat (house does, for glass).
+- **Side or top, never underneath.** These maps go onto 3D geometry that is
+  seen from the side or from above, so never draw the underside of anything.
+  The house family carries a fascia and a gutter but no soffit for exactly
+  this reason: the soffit faces down and nothing looks up at it. Relief that
+  stands proud of the face you are looking at — a sill, a hood, a rivet — is
+  a different thing and is fine.
 
 ## Checking a mode
 

@@ -81,7 +81,7 @@ function faceWidth(){
 function geometry(){
   const FW=faceWidth(),roof=faceRoof();
   const wallTop=P.foundH+P.storeys*P.storeyH;
-  const eaveBand=(roof==="flat")?1.4:(roof==="gable"?0.30:(P.soffitD*IN+0.75));
+  const eaveBand=(roof==="flat")?1.4:(roof==="gable"?0.30:P.fasciaD*IN);
   const gableH=(roof==="gable")?(FW/2)*(P.pitch/12):0;
   const roofTop=wallTop+eaveBand+gableH;
   /* a chimney is part of the silhouette, so it sets the height of the image */
@@ -463,7 +463,7 @@ function build(params,io){
   const REL=P.cladRelief,IRR=P.cladIrreg;
   const expo=P.exposure*IN,mortar=P.mortarW*IN,cH=P.courseH*IN,uL=P.unitLen*IN;
   const casing=P.casingW*IN,cornerW=P.cornerW*IN,friezeH=P.friezeH*IN;
-  const waterT=P.waterT*IN,soffitD=P.soffitD*IN;
+  const waterT=P.waterT*IN;
   const AB=P.aband;
 
   const sample=(u,v,ch)=>{                          // stencil read, clamped
@@ -701,7 +701,6 @@ function build(params,io){
     Mh=h;Mr=r;Mg=gg;Mb=b;Mrg=rg;
   }
 
-  const pxPerFtL=TW/FW;
   const band=Math.max(2,Math.round(16384/TW));
   let yy=0;
 
@@ -745,57 +744,19 @@ function build(params,io){
         const inFound=wy<P.foundH;
         if(inFound){foundation(wx,wy);}
         else if(wy>g.wallTop&&g.roof==="eave"){
-          const d=wy-g.wallTop;
-          if(d<soffitD){                               // soffit, seen up under the overhang
-            const t=d/Math.max(0.01,soffitD);
-            Mh=-0.34-t*0.10;                           // recedes towards the fascia
-            let sh=0.60-t*0.10;
-            Mr=trim[0]*sh;Mg=trim[1]*sh;Mb=trim[2]*sh;Mrg=0.62;Mid=2;Mwood=1;
-            /* soffit panels butt every few feet */
-            const pj=1-smoothstep(0,0.025,edgeDist(wx,3.9));
-            if(pj>0){Mh-=pj*0.02;Mr*=1-pj*0.25;Mg*=1-pj*0.25;Mb*=1-pj*0.25;}
-            /* venting: without it this band is just a blank shadow */
-            if(P.soffitVent!=="none"){
-              let inVent=0,vt=0;
-              if(P.soffitVent==="strip"){
-                const vw=soffitD*0.34;
-                const vd=Math.abs(d-soffitD*0.5);
-                inVent=1-smoothstep(vw*0.5-ftPerPx,vw*0.5,vd);
-                vt=(d-(soffitD*0.5-vw*0.5))/vw;
-              }else{
-                const sp=7.5;                          // a vent every 7.5 ft
-                const cx2=(Math.floor(wx/sp)+0.5)*sp;
-                const hw=0.95,hh2=soffitD*0.42;
-                const dx2=Math.abs(wx-cx2),dy2=Math.abs(d-soffitD*0.5);
-                inVent=(1-smoothstep(hw-ftPerPx,hw,dx2))*(1-smoothstep(hh2-ftPerPx,hh2,dy2));
-                vt=(d-(soffitD*0.5-hh2))/(hh2*2);
-              }
-              if(inVent>0.02){
-                /* slots read only if they are a few texels apart, else a flat mesh */
-                const slotSp=0.075;
-                let mesh=0.5;
-                if(slotSp*pxPerFtL>=2.5){
-                  const f=(d/slotSp)-Math.floor(d/slotSp);
-                  mesh=Math.abs(f-0.5)*2;
-                }else{
-                  mesh=0.35+fbm(wx*90,d*90,2,seed+151)*0.4;
-                }
-                const vr=lerp(trim[0]*0.34,trim[0]*0.55,mesh);
-                const vg=lerp(trim[1]*0.34,trim[1]*0.55,mesh);
-                const vb=lerp(trim[2]*0.34,trim[2]*0.55,mesh);
-                Mr=lerp(Mr,vr,inVent);Mg=lerp(Mg,vg,inVent);Mb=lerp(Mb,vb,inVent);
-                Mh=lerp(Mh,Mh-0.022-mesh*0.008,inVent);
-                Mrg=lerp(Mrg,0.55,inVent);
-                Mmet=lerp(0,0.4,inVent);
-                if(inVent>0.5)Mid=4;
-                /* the pressed frame around the vent */
-                const fr=1-smoothstep(0.85,0.98,Math.abs(vt-0.5)*2);
-                Mh+=inVent*(1-fr)*0.02;
-              }
-            }
-          }else{                                       // fascia board, the frontmost trim
-            Mh=0.16;Mr=trim[0];Mg=trim[1];Mb=trim[2];Mrg=0.52;Mid=2;Mwood=1;
-          }
+          /* Fascia only, deliberately. A soffit is the underside of the eave
+             overhang: it faces straight down, and these maps only ever land on
+             a side or a top face of some 3D geometry, so nothing ever looks at
+             it. The overhang belongs to the roof in the engine. What belongs on
+             the wall plane is the board the gutter is nailed to, and the gutter
+             hanging off it — and then the wall stops. */
+          const d=wy-g.wallTop,t=d/Math.max(0.01,g.eaveBand);
+          Mh=0.16-(1-t)*0.03;                          // the bottom edge falls away
+          const sh=0.90+t*0.12;                        // and sits in the gutter's shade
+          Mr=trim[0]*sh;Mg=trim[1]*sh;Mb=trim[2]*sh;Mrg=0.52;Mid=2;Mwood=1;
+          /* fascia comes in lengths and is butted, same as any other trim run */
+          const bj=1-smoothstep(0,0.022,edgeDist(wx,12));
+          if(bj>0){Mh-=bj*0.02;Mr*=1-bj*0.20;Mg*=1-bj*0.20;Mb*=1-bj*0.20;}
         }else if(wy>g.wallTop&&g.roof==="flat"){
           const d=wy-g.wallTop;                        // parapet cap
           Mh=(d<g.eaveBand-0.35)?0.06:0.20;
@@ -863,7 +824,8 @@ function build(params,io){
         }
         /* gutter and downspout */
         if(P.gutter&&g.roof==="eave"){
-          const gTop=g.wallTop+g.eaveBand,gH=0.42,gBot=gTop-gH;
+          /* a 5 in K-style gutter, but never taller than the board it hangs on */
+          const gTop=g.wallTop+g.eaveBand,gH=Math.min(0.42,g.eaveBand),gBot=gTop-gH;
           if(wy>gBot&&wy<=gTop){
             const t=(wy-gBot)/gH;                       // 0 at the bottom lip, 1 at the bead
             /* K-style ogee: bead, hollow face, step, lower face, rolled underside */
@@ -1309,7 +1271,7 @@ function build(params,io){
             const o=sillAbove[k];
             if(wx>o.x0-casing&&wx<o.x1+casing&&o.y0>src)src=o.y0;
           }
-          const gutY=g.wallTop+g.eaveBand*0.35;
+          const gutY=g.wallTop+g.eaveBand-Math.min(0.42,g.eaveBand);   // the gutter's bottom lip
           if(P.gutter&&gutY>wy&&gutY>src&&hashi(Math.floor(wx*3),1,seed+109)<0.35)src=gutY;
           if(src>0){
             const d=src-wy;
@@ -1514,16 +1476,20 @@ const CONTROLS={
       {id:"cornerW",label:"Corner boards",unit:"in",min:0,max:12,step:0.25,value:4},
       {id:"friezeH",label:"Frieze board",unit:"in",min:0,max:20,step:0.5,value:7},
       {id:"waterT",label:"Water table",unit:"in",min:0,max:14,step:0.5,value:5},
-      {id:"soffitD",label:"Soffit depth",unit:"in",min:0,max:40,step:1,value:14},
+      {id:"fasciaD",label:"Fascia depth",unit:"in",min:6,max:16,step:0.5,value:8},
       {id:"found",type:"select",label:"Foundation material",value:"poured",options:[
         ["poured","Poured concrete"],["cmu","Concrete block"],["brick","Brick"],["stone","Stone"]]},
-      {id:"soffitVent",type:"select",label:"Soffit venting",value:"panels",options:[
-        ["panels","Rectangular vents"],["strip","Continuous strip"],["none","None"]]},
       {type:"colors",label:"Gutter colour",items:[{id:"cGutter",value:"#e8e5da"}]},
       {type:"checks",items:[
         {id:"gutter",label:"Gutter and downspout",value:true},
         {id:"bandBoard",label:"Band board between storeys",value:true},
-        {id:"gableVent",label:"Gable vent",value:true}]}
+        {id:"gableVent",label:"Gable vent",value:true}]},
+      {type:"note",html:"There is no soffit control because there is no soffit. A soffit is the "+
+        "<b>underside</b> of the eave overhang, and every map here is meant to be applied to 3D "+
+        "geometry that is only ever seen from the side or from above &mdash; nothing looks up. "+
+        "The overhang is roof geometry in your engine; the wall plane carries the fascia, the "+
+        "gutter hanging off it, and stops. Fascia depth therefore sets the whole eave band, so "+
+        "it also sets how much of the board shows below the gutter."}
     ]};},
   weathering:function(){return {title:"Weathering",open:true,rows:[
       {id:"fade",label:"Sun fade & chalking",min:0,max:1,step:0.01,value:0.4},

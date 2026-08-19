@@ -72,7 +72,7 @@ Forge.register({
       {id:"storeyH",label:"Storey height",unit:"ft",min:7,max:13,step:0.25,value:9},
       {id:"foundH",label:"Foundation",unit:"ft",min:0,max:5,step:0.1,value:1.8},
       {id:"roof",type:"select",label:"Roof facing the street",value:"eave",options:[
-        ["eave","Eave front — soffit and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
+        ["eave","Eave front — fascia and gutter"],["gable","Gable front — triangle"],["flat","Flat / parapet"]]},
       {id:"pitch",label:"Roof pitch",unit:":12",min:2,max:14,step:0.5,value:6},
       {type:"note",html:"Set these to match the <b>house</b> mode and the faces line up: "+
         "the side is the depth of the same building, and an eave front gives a gable end from the side."}
