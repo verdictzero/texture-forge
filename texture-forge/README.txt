@@ -25,6 +25,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter
   modes/factory.js      1940s brick factory wall with steel sash windows
+  modes/diner.js        chrome-and-neon diner, front, side and back
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
@@ -319,6 +320,37 @@ Factory — 1940s brick factory wall
   gone, and any pane can be lit from inside, which drives the emissive map.
 
   Presets: red brick works, sooted mill, whitewashed warehouse, derelict plant.
+
+Diner — American chrome and neon, every face
+  One prefabricated streamline diner drawn from the front, the long side or the
+  back, off the same body, so the three faces agree: the bands land at the same
+  heights and the neon runs round the corner. An elevation with an alpha cut-out
+  rather than a tiling material, with the top corners rounded the way a
+  streamline body is.
+
+  The vocabulary is the real one. From grade up: a glazed tile skirt, a band of
+  porcelain enamel on chrome battens, the window band in plate glass with chrome
+  mullions, another enamel band, and the eyebrow — the projecting cornice the
+  neon runs along. Horizontally fluted stainless can take any of the solid
+  bands; it is the signature material and the one that reads as a diner from
+  across the street. Bay spacing and enamel panel width are snapped so a whole
+  number fits the face, and the readout says what it landed on. The back swaps
+  the glass for solid panel and gains a kitchen exhaust duct, a steel service
+  door with a kick plate, and the bulkhead light over it.
+
+  THE NEON IS ENTIRELY EMISSIVE, and that is the point of the mode. The tube
+  itself stays pale glass in the base colour whether it is lit or not — which is
+  exactly what neon looks like in daylight and with the power off. Every bit of
+  the glow, in each run's own colour, is in emissive.png. Turn that map off in
+  your engine and you have a diner at noon; turn it on and you have one at
+  midnight, and the Lit slider is a dimmer rather than a repaint. Painting the
+  glow into the albedo is the usual mistake and it can never be switched off.
+
+  The sign is real tubing too: the word is stroked, not filled, with round
+  joins, so it is a bent tube following the letter outline rather than a glowing
+  solid — and its halo is the tube blurred, which is most of what sells neon.
+
+  Presets: chrome classic, turquoise & cream, night shift, closed up.
 
 
 COORDINATING ONE BUILDING

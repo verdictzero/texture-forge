@@ -102,8 +102,12 @@ for (const m of modes) {
   const chips = await page.$$eval("#chips canvas", ns => ns.length);
   ok(`one chip per channel (${m.channels.length})`, chips === m.channels.length, "got " + chips);
 
+  /* read the chip at its own size: a non-square mode comes back shorter than
+     it is wide, and asking for a square region pads the rest with transparent
+     black — which makes every channel look varied and hides a flat one */
   const flat = await page.evaluate(keys => keys.filter(k => {
-    const d = window.Forge.makeMap(k, 64).getContext("2d").getImageData(0, 0, 64, 64).data;
+    const cv = window.Forge.makeMap(k, 64);
+    const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
     let lo = 255, hi = 0;
     for (let i = 0; i < d.length; i += 4)
       for (let c = 0; c < 3; c++) { const v = d[i + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
