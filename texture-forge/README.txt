@@ -22,6 +22,8 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/fence.js        fencing: board, picket, rail, chain link, mesh, iron
   modes/hazard.js       caution striping and industrial floor marking
   modes/ruins.js        ruin-stone plating with etched circuit traces
+  modes/hull.js         starship aztec hull plating
+  modes/greeble.js      machined surface clutter
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
@@ -240,6 +242,53 @@ Ruins — ruin-stone plating with etched circuit traces
   It also exports a pre-lit channel — a baked diffuse for unlit or legacy
   shaders, lit from its own angle and elevation. Use it INSTEAD of the PBR set,
   never alongside it.
+
+Hull — starship aztec plating
+  The quilted hull skin of screen starships. The thing worth knowing about it
+  is that the quilt is a SPECULAR effect: the plates are very nearly the same
+  colour and very nearly coplanar, and what makes the pattern appear is that
+  each one takes the light slightly differently. Open the roughness tab and the
+  whole design is there; open the base colour tab and it is close to a flat
+  pale grey. That is the correct result, not a bug, and it is why the defaults
+  keep albedo variation down at a few per cent — push it past about 0.3 and the
+  hull stops reading as a starship and starts reading as a patchwork quilt.
+
+  Plates come off a wrapping quilt of rows and staggered columns that then
+  subdivides, so the sizes are a small family of related ones rather than
+  arbitrary. Over them sits a coarser grid of structural bays with a heavier
+  scribe line, access hatches with corner fasteners, trim panels in an accent
+  colour, and bands of windows that light up — unlit panes stay dark glass
+  rather than black holes, and lit ones drive the emissive map in the window
+  colour you pick.
+
+  Dimensioned in metres. The readout will tell you when the plates or the
+  scribe lines have got smaller than the resolution can hold.
+
+  Presets: refit (fine and cold), TV era (broad and warm), nacelle skin (no
+  windows), battle-scored.
+
+Greeble — machined surface clutter
+  The fine mechanical detail that makes a hull, a machine bay or a reactor face
+  read as built rather than moulded. A base plate carries a field of extruded
+  blocks at a small number of quantised heights, separated by a gap that shows
+  the plate underneath, with chamfered edges. Those three things together —
+  discrete levels, a real gap, a bevel — are the difference between greebling
+  and lumpy noise.
+
+  Each block then takes at most one piece of sub-detail: a louvred vent, a
+  round port, a recessed pocket or a stacked cap. Corner bolts and indicator
+  lamps are independent of that, and every one of them is skipped on a block
+  too small to hold it. Conduit runs on standoffs pass over the low blocks and
+  behind the tall ones, which is what stops the pipes reading as decals.
+
+  This one is the opposite of the hull mode next door: nearly all of its
+  character is in HEIGHT, and the colour map is mostly dirt. Blocks stand tens
+  of millimetres proud, which is more relief than a normal map carries
+  convincingly at a grazing angle — displace it if the surface is ever seen
+  from the side.
+
+  Dimensioned in metres and millimetres. Presets: hull greeble (fine), machine
+  bay (coarse), reactor face (lit), service panel (shallow).
 
 
 COORDINATING ONE BUILDING

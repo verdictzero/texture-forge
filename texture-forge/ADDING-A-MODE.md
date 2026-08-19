@@ -247,9 +247,17 @@ Forge.register({
 });
 ```
 
+A library does not have to be a whole generator. `modes/lib/quilt.js` is the
+other shape: one piece of geometry — a subdivision of the tile into rectangles
+that wraps — shared by two modes that look nothing alike, the hull mode drawing
+it as a sheen pattern a millimetre deep and the greeble mode extruding it into
+blocks. It is worth pulling out precisely because getting it to wrap is fiddly
+and getting it wrong is subtle: see the note in that file about why the carving
+is shifted off the tile edge.
+
 A library is a plain script that publishes one global (`window.HouseShell`,
-`window.RoofGen`) and is listed in `index.html` **before** the modes that use
-it. Two rules earn their keep:
+`window.RoofGen`, `window.Quilt`) and is listed in `index.html` **before** the
+modes that use it. Two rules earn their keep:
 
 - **Latch your state per build.** A library with module-level parameter state
   is re-entered by the other mode's readout on every keystroke, and builds run
