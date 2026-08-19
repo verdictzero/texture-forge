@@ -1,8 +1,8 @@
 /* =====================================================================
    MODE: envelope — the rest of the house
    =====================================================================
-   The house mode draws the street front. This one draws everything else:
-   the side, the back, and the roof over both.
+   The house mode draws the street front. This one draws the walls either
+   side of it: the side elevation and the back.
 
    Side and back come out of the same generator as the front
    (lib/house-shell.js), so the same seed and settings give one coherent
@@ -33,9 +33,9 @@ const wallGroups=Shell.controls(["cladding","openings","glass","trim","weatherin
 Forge.register({
   id:"envelope",
   label:"Envelope",
-  blurb:"Side and back elevations, and roofing — the rest of the house mode's house",
+  blurb:"Side and back elevations — the faces of the house nobody photographs",
   title:'Building <em>Envelope</em>',
-  tagline:"Side · back · roof · keyed to the house mode",
+  tagline:"Side & back elevations · keyed to the house mode",
   actionLabel:"Build face",
   busyLabel:"Building…",
 
