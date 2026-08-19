@@ -1,4 +1,6 @@
-# Simple workflow for deploying static content to GitHub Pages
+# Publishes the app to GitHub Pages. There is nothing to build — Texture Forge
+# is plain HTML, CSS and classic <script src> files — so the deploy is just a
+# copy of one directory onto the Pages CDN.
 name: Deploy static content to Pages
 
 on:
@@ -36,8 +38,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          # Only the app, so index.html sits at the root of the site rather
+          # than one directory down. This deliberately leaves fonts/ behind:
+          # those are third-party font files with their own licences, and the
+          # app never loads them.
+          path: './texture-forge'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

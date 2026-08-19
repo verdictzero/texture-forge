@@ -3,7 +3,8 @@ TEXTURE FORGE
 
 One procedural PBR texture tool, one tab per surface. Open index.html in a
 browser — no install, no build step, no network needed. Everything runs
-locally in the page.
+locally in the page. The same files are also live at
+https://verdictzero.github.io/texture-forge/ — see ON THE WEB below.
 
 Keep the folder together: index.html loads forge-core.js and the files in
 modes/. Opening index.html on its own gives you an empty app.
@@ -25,6 +26,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
+  .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
 MODES
@@ -278,6 +280,28 @@ USING IT
 - The tabs in the preview bar switch between the lit view and the individual
   channels. 1x/2x/4x repeats the tile — seamless modes only. Dark/sky/checker
   set the backdrop behind a cut-out — house only.
+
+
+ON THE WEB
+----------
+Every push to main publishes this directory at
+
+  https://verdictzero.github.io/texture-forge/
+
+.github/workflows/static.yml does it. There is nothing to build, so the deploy
+is a straight copy: the workflow uploads texture-forge/ and GitHub Pages serves
+it. The publish root is this directory rather than the repository root, which
+is why index.html is the landing page, and why fonts/ — third-party font files
+the app never loads — stays out of the published site.
+
+The mode is in the URL there too, so
+https://verdictzero.github.io/texture-forge/#fence opens straight into fencing.
+
+Pages is configured with GitHub Actions as its source, so the workflow is the
+whole configuration; nothing is served from a branch. Deploying through Actions
+does not run Jekyll, so .nojekyll changes nothing today. It is there so that
+switching Pages to "deploy from a branch" later cannot silently swallow
+modes/_template.js and any other underscore-prefixed file.
 
 
 CHECKING IT
