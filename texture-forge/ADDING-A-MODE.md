@@ -121,6 +121,23 @@ controls:[
 A group with `need` is hidden unless `needs(P)` returns one of those keys. Row
 types:
 
+The resolution row is the one control every mode has, so the ladder lives in
+one place rather than thirteen:
+
+```js
+{id:"size",type:"select",label:"Resolution",value:1024,showValue:true,
+ options:Forge.sizes("square")}     // "square" -> "512 × 512"
+                                    // "plain"  -> "512"        (height follows the content)
+                                    // "wide"   -> "512 px wide"(dimensioned by its width)
+                                    // Forge.sizes("square",2048) caps the ladder
+```
+
+It runs 64 to 4096. The small end is for pixel art, alongside the palette and
+nearest-neighbour controls in the preview bar — so a new mode should keep the
+house habit of snapping feature counts to whole numbers per tile and DROPPING a
+feature that falls under a couple of texels rather than aliasing it, and of
+naming what it dropped in `readout(P)`.
+
 ```js
 {id:"tileM",label:"Tile covers",unit:"m",min:0.5,max:24,step:0.5,value:2}   // range (default)
 {id:"piece",type:"select",label:"Piece",value:"none",options:[["none","Plain"],["cross","Cross-section"]]}
@@ -287,6 +304,44 @@ build a family like that, two things are worth copying: mirror on the edit that
 switches the link *off* as well as while it is on — otherwise the other panels
 sit there still believing they are linked — and set the link flag on the
 targets as you go, so they do not each fire their own off-mirror later.
+
+## Structures: several faces of one thing
+
+A house is four textures and a diner is three. `Forge.setParam` above is how two
+modes mirror each other once you already have a building; a **structure** is how
+you get one in the first place — a guided walk through the faces where each step
+opens with what the steps before it settled on.
+
+```js
+Forge.registerStructure({
+  id:"house",
+  label:"House",
+  blurb:"Front, side, back and roof of one building",
+  steps:[
+    {id:"front",label:"Front",mode:"house",   set:{},              note:"…"},
+    {id:"side", label:"Side", mode:"envelope",set:{face:"side"},   note:"…"},
+    {id:"back", label:"Back", mode:"envelope",set:{face:"back"},   note:"…"},
+    {id:"roof", label:"Roof", mode:"roof",    set:{},              note:"…"}
+  ]
+});
+```
+
+Each step names a mode and whatever that step pins down. On entering a step the
+runtime writes every parameter that step's mode declares **and** an earlier step
+also declared, then applies the step's own `set` over the top — so what the step
+pins always beats anything carried. Inherited rows are marked in the panel and
+un-mark themselves the moment you touch one, and what you put there is what the
+later steps inherit instead.
+
+Two ids are never carried: `size`, because how many texels a face needs is a
+property of the export rather than of the building, and `face`, because that is
+the one thing a step exists to pin.
+
+Steps may repeat a mode (`side` and `back` are both the envelope) — the runtime
+just re-enters it with different pinned values. The last button on the wizard bar
+builds every step at full size and packs them into one archive, a folder per
+step, so register a structure only when every one of its modes is loaded in
+`index.html`.
 
 ## Shared helpers
 

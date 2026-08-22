@@ -13,7 +13,8 @@ Every mode previews with a real-time GGX lit view (drag to move the light) and
 exports a full PBR set as PNG, individually or all at once as a .zip.
 
   index.html            the app
-  forge-core.js         shared runtime: panel, preview, export, zip
+  forge-core.js         shared runtime: panel, preview, export, zip, wizard
+  forge-palette.js      palette, dither and nearest-neighbour filtering
   modes/street.js       asphalt and street layout
   modes/plating.js      seamless riveted aircraft skin
   modes/house.js        American house front elevation
@@ -30,6 +31,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
+  tools/feature-test.mjs  the resolution ladder, the palette and the wizard
   .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
@@ -407,6 +409,26 @@ Diner — American chrome and neon, every face
   the glass for solid panel and gains a kitchen exhaust duct, a steel service
   door with a kick plate, and the bulkhead light over it.
 
+  The doors are doors. A door starts at the PAVEMENT, so the entrance runs floor
+  to head straight through the tile skirt and the enamel band the way an opening
+  does, and the shopfront glazing stops at its jamb instead of running behind
+  it. A leaf is a frame — two stiles, a top rail, a deeper bottom rail that
+  takes the kick — with glass in the hole, and over that a kick plate brushed
+  duller than the frame it is screwed to, a glazing bead round each pane, the
+  reveal shadow where the leaf sits back behind the jamb, a threshold plate, and
+  a pull held off the leaf on standoffs with its own shadow under it. Every
+  member is the same polished metal; what tells them apart is how much light
+  each one takes, which is why drawing them in one flat chrome gives you a white
+  rectangle instead of a door.
+
+  Single leaf, a double pair meeting in the middle with a pull on each leading
+  stile, or a single leaf with fixed sidelights. Full glass or half glass over a
+  solid panel. A tubular pull, a D-handle or a push bar across. Handing, and a
+  transom light that appears only when there is room for its rail, its cap and
+  some glass between them. The service door on the back does the same in steel:
+  single or double, three butt hinges down the hanging stile, a lever on a rose,
+  and an optional vision lite.
+
   THE NEON IS ENTIRELY EMISSIVE, and that is the point of the mode. The tube
   itself stays pale glass in the base colour whether it is lit or not — which is
   exactly what neon looks like in daylight and with the power off. Every bit of
@@ -426,16 +448,93 @@ COORDINATING ONE BUILDING
 -------------------------
 The front, the side, the back and the roof are four textures of one house, and
 dialling the same twenty settings into four panels by hand is how they end up
-not matching. Tick "Coordinate with..." in any of the house, envelope or roof
-panels and every setting those panels share — the seed, the cladding, the trim,
-the colours, the weathering, the storey heights — is mirrored across them the
-moment it changes, in whichever direction you edit.
+not matching. There are two ways round that, for the two situations you are
+actually in.
 
-Resolution is deliberately left out of the link: how many texels you want of a
-given face is a property of the export, not of the house.
+THE WIZARD, for when you do not yet know what the building is. The buttons
+beside the mode tabs — "Whole structure: House · Diner" — walk you through the
+faces in the order you would really decide them, and every step OPENS with what
+the steps before it settled on — every setting its mode declares that an earlier
+step also declared. The side elevation already knows the width, the storeys, the
+cladding, the trim and the weathering by the time you see it; the roof already
+knows the seed. What a step CANNOT inherit is anything no earlier face had a
+control for — the depth of the house is the side's own to set, because the front
+elevation never showed it — and the step notes say so as you go.
 
-Turning the link off in any one panel turns it off in all of them, and every
-panel keeps whatever it had at that moment.
+Inherited rows are marked with a rule down their left edge, and
+the moment you change one it stops being inherited and becomes what the faces
+after it inherit instead. You can step back and forward, and jump to any step
+you have reached.
+
+The last button on that bar packs the lot: every face built at full size, each
+in its own folder with its own maps and its own readme, plus a readme for the
+building. That is the point of it — the structure leaves as one object rather
+than as four exports you have to remember to line up afterwards.
+
+House walks front, side, back, roof. Diner walks front, side, back off one
+streamline body, so the bands land at the same heights on each face and the
+neon carries round the corner.
+
+THE LINK, for when you already have a house and want to change it. Tick
+"Coordinate with..." in any of the house, envelope or roof panels and every
+setting those panels share is mirrored across them the moment it changes, in
+whichever direction you edit. Turning the link off in any one panel turns it off
+in all of them, and every panel keeps whatever it had at that moment.
+
+Neither one carries resolution, and the wizard does not carry the face either:
+how many texels you want of a given face is a property of the export, not of the
+building, and which face a step is is the one thing that step exists to pin.
+
+
+PALETTE, DITHER AND NEAREST
+---------------------------
+The bar above the preview. Three controls that only matter once you are working
+small, and that are really one decision: I want this to read as pixel art rather
+than as a photograph.
+
+The palette snaps the base colour to a fixed set of colours. It is applied in
+ONE place — the runtime's makeMap(), which every chip, every preview upload,
+every single-channel download and every zip entry already goes through — so what
+you see on screen is exactly what lands in the file. There is no separate
+"export palettised" step to forget to tick.
+
+ONLY THE BASE COLOUR IS TOUCHED. Normal, roughness, metallic, AO, height and ORM
+are data, not pictures: a normal map snapped to sixteen colours is a broken
+normal map and a dithered height field is a field of noise. The readme in the
+zip records which palette and dither produced the base colour and says the rest
+is untouched.
+
+Dither is none, ordered 2x2 / 4x4 / 8x8, or Floyd-Steinberg, with an amount. The
+amplitude is scaled by the palette's own median nearest-neighbour distance
+rather than by a notional "levels" count, because a palette you loaded has no
+levels — too little and the ordered pattern does nothing, too much and the
+texture turns to static. Alpha is never quantised and never diffused into, so a
+cut-out silhouette does not fringe.
+
+Load your own palette with the button or by dropping it on the bar:
+
+  .hex .txt    one hex per line
+  .gpl         GIMP
+  .pal         JASC
+  .css .json   or anything else with hex colours in it
+  an image     a swatch sheet. Every distinct colour covering more than a token
+               area becomes an entry, in the sheet's own reading order, so a
+               sheet laid out as ramps comes back as ramps.
+
+Loaded palettes persist, so the one you work in is still there tomorrow. The
+built-ins are deliberately just generated ramps — a palette is somebody's work,
+and shipping a named one means shipping their name with it.
+
+Nearest keeps the texels square under magnification in the lit preview, the flat
+channel views and the chips. Minification still goes through mipmaps when the
+tile repeats, but the nearest level of them, so a 4x4 repeat stays blocky rather
+than shimmering into noise.
+
+Every mode offers the same resolution ladder — 64, 128, 256, 512, 1024, 2048,
+4096 — and the small end is what these three controls are for. Nothing in the
+generators changes to get there: every mode already snaps its feature counts to
+whole numbers per tile and drops anything falling under a couple of texels
+rather than aliasing it, and every readout already names what it had to let go.
 
 
 EXPORTED MAPS
@@ -520,7 +619,18 @@ survives a texture with hard edges in it.
   node tools/smoke-test.mjs                 # every mode
   node tools/smoke-test.mjs hazard          # one of them
 
-It needs playwright; PLAYWRIGHT= and CHROME= point it at an install if it is
+tools/feature-test.mjs covers the things that are not per-mode: that every mode
+survives the small end of the resolution ladder with all of its channels intact,
+that the palette parses hex lists, GIMP and JASC files, CSS and swatch sheets
+and then actually snaps the base colour while leaving the data channels alone,
+and that each structure wizard carries its settings forward, marks what it
+inherited, refuses to carry the resolution, and packs every face into one
+archive.
+
+  node tools/feature-test.mjs               # all three
+  node tools/feature-test.mjs palette       # one of them
+
+Both need playwright; PLAYWRIGHT= and CHROME= point them at an install if it is
 not sitting beside the repo.
 
 

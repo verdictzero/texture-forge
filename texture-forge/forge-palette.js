@@ -215,7 +215,9 @@ function quantise(data,w,h){
     for(let i=0,k=0;i<w*h;i++,k+=3){
       buf[k]=data[i*4];buf[k+1]=data[i*4+1];buf[k+2]=data[i*4+2];
     }
-    const k16=amt/ (C.step||1) / 16;             // strength scales the diffused share
+    /* the classic sixteenths, scaled by the amount: at 1 this is textbook
+       Floyd-Steinberg, below it the error is partly swallowed instead */
+    const k16=clamp(+state.strength||0,0,2)/16;
     for(let y=0;y<h;y++){
       const rev=(y&1)===1;
       for(let n=0;n<w;n++){
