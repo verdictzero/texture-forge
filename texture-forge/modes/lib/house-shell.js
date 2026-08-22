@@ -212,17 +212,69 @@ function mirror(list,FW){
 }
 
 /* the openings, laid out bay by bay, storey by storey */
+/* A window is a frame with SASHES in it, and which sashes it has is most of
+   what makes one window different from another. Every opening in this mode used
+   to be the same two-sash double-hung, which is why a facade came out as six
+   identical tall slabs: a real house does not glaze every hole the same way.
+
+   Worked out here rather than in the texel loop, so the loop is a walk over at
+   most three boxes. u and v are fractions of the glazed area; `back` is how far
+   that sash sits behind the one in front of it, which is the whole reason a
+   double-hung reads as two sashes and a slider reads as two panels. */
+function sashesFor(style,lc,lr){
+  switch(style){
+    case "pic":                                    // fixed centre light, operable flankers
+      return [{u0:0,u1:0.21,v0:0,v1:1,back:1,lc:1,lr:2},
+              {u0:0.21,u1:0.79,v0:0,v1:1,back:0,lc:1,lr:1},
+              {u0:0.79,u1:1,v0:0,v1:1,back:1,lc:1,lr:2}];
+    case "case":                                   // a pair of side-hung leaves
+      return [{u0:0,u1:0.5,v0:0,v1:1,back:0,lc:lc,lr:lr+1},
+              {u0:0.5,u1:1,v0:0,v1:1,back:0,lc:lc,lr:lr+1}];
+    case "slide":                                  // one panel passes behind the other
+      return [{u0:0,u1:0.52,v0:0,v1:1,back:0,lc:1,lr:1},
+              {u0:0.48,u1:1,v0:0,v1:1,back:1,lc:1,lr:1}];
+    case "awn":                                    // one short light, top-hung
+      return [{u0:0,u1:1,v0:0,v1:1,back:0,lc:Math.max(1,lc),lr:1}];
+    case "dh1":                                    // double-hung, unmuntined
+      return [{u0:0,u1:1,v0:0,v1:0.5,back:0,lc:1,lr:1},
+              {u0:0,u1:1,v0:0.5,v1:1,back:1,lc:1,lr:1}];
+    default:                                       // double-hung
+      return [{u0:0,u1:1,v0:0,v1:0.5,back:0,lc:lc,lr:lr},
+              {u0:0,u1:1,v0:0.5,v1:1,back:1,lc:lc,lr:lr}];
+  }
+}
+
 function buildOpenings(g){
   const rng=mulberry32((P.seed|0)*2654435761+7+faceSalt());
   const ops=[];
-  const win=(cx,floor,w,h,sill)=>{
+  const lc=Math.max(1,P.liteC|0),lr=Math.max(1,P.liteR|0);
+  const win=(cx,floor,w,h,sill,style)=>{
     const y0=floor+sill;
     const o={type:"window",x0:cx-w/2,x1:cx+w/2,y0:y0,y1:y0+h,
       lit:P.litWin&&rng()<0.55,rng:rng(),tilt:(rng()-0.5)*0.06};
+    o.style=style||"dh";
+    o.sash=sashesFor(o.style,lc,lr);
     o.boarded=rng()<P.boardUp*P.aband;
     o.brokeSeed=(rng()*1e6)|0;
     o.partial=rng()<0.35;
     return o;
+  };
+  /* "mixed" is the arrangement most American houses actually have: something
+     wide in the living room and ordinary double-hungs upstairs. */
+  const styleAt=s=>(P.winStyle==="mixed")?(s===0?"pic":"dh"):(P.winStyle||"dh");
+  /* a picture window is not a double-hung stretched — it is a WIDER, SHORTER
+     hole with a lower sill, and getting that proportion right is the difference
+     between a living-room window and a shop front */
+  const placeWin=(cx,floor,style,span)=>{
+    if(style==="pic"){
+      const w=Math.min(span*0.84,P.winW*2.25);
+      return win(cx,floor,w,P.winH*0.86,Math.max(1.3,P.sillH*0.72),"pic");
+    }
+    if(style==="slide"){
+      const w=Math.min(span*0.72,P.winW*1.5);
+      return win(cx,floor,w,P.winH*0.80,P.sillH+P.winH*0.10,"slide");
+    }
+    return win(cx,floor,P.winW,P.winH,P.sillH,style);
   };
 
   if(isSide()){
@@ -244,12 +296,13 @@ function buildOpenings(g){
         if(blankBay[bi]){continue;}
         if(s>0&&rng()<0.35){                             // bathroom: small, high, obscured
           const w=Math.max(1.4,P.winW*0.55),h=Math.max(1.6,P.winH*0.45);
-          const o=win(cx,floor,w,h,P.sillH+P.winH-h+0.35);
+          const o=win(cx,floor,w,h,P.sillH+P.winH-h+0.35,"awn");
           o.obscured=true;
           ops.push(o);
           continue;
         }
-        ops.push(win(cx,floor,P.winW*0.9,P.winH,P.sillH));
+        ops.push(win(cx,floor,P.winW*0.9,P.winH,P.sillH,
+                     P.winStyle==="pic"||P.winStyle==="mixed"?"dh":(P.winStyle||"dh")));
       }
     }
     if(P.storeys>1&&P.stairWin){
@@ -268,7 +321,7 @@ function buildOpenings(g){
         return true;
       };
       const x=gaps.filter(free)[0];
-      if(x!=null)ops.push(win(x,y0,w,h,0));
+      if(x!=null)ops.push(win(x,y0,w,h,0,"dh"));       // a stair light is always a tall pair
     }
     if(P.sideDoor){                                       // service door onto the side path
       const cx=margin+span*0.5;
@@ -306,11 +359,12 @@ function buildOpenings(g){
           continue;
         }
         if(s===0&&bi===kitchenIdx){                       // wide window over the sink
-          ops.push(win(cx,floor,Math.min(span*0.8,P.winW*1.45),P.winH*0.78,P.sillH+0.55));
+          ops.push(win(cx,floor,Math.min(span*0.8,P.winW*1.45),P.winH*0.78,P.sillH+0.55,
+                       P.winStyle==="dh"?"dh1":styleAt(s)));
           continue;
         }
         if(rng()<0.12){continue;}                         // the odd blank bay
-        ops.push(win(cx,floor,P.winW,P.winH,P.sillH));
+        ops.push(placeWin(cx,floor,styleAt(s)==="pic"?"dh":styleAt(s),span));
       }
     }
     return ops;
@@ -328,7 +382,7 @@ function buildOpenings(g){
           hood:P.doorHood,transomH:th,rng:rng()});
         continue;
       }
-      ops.push(win(cx,floor,P.winW,P.winH,P.sillH));
+      ops.push(placeWin(cx,floor,styleAt(s),span));
     }
   }
   return ops;
@@ -345,33 +399,91 @@ function buildStencil(g,SW,SH){
   const Y=(ft)=>SH-ft*fy;                          // world feet -> canvas y
 
   if(P.graffiti*P.aband>0){
-    const n=Math.round(2+P.graffiti*P.aband*7);
+    /* Graffiti is WRITING. Drawn as random curly strokes — which is what this
+       did — it comes out as a coloured smear that reads as a stain, and the
+       eye knows instantly that nobody wrote it. So: real letters in a real
+       graffiti face, at a size and a height a person could actually reach,
+       leaning the way an arm leans, with the paint running off the bottom of
+       the glyphs where the can was held too long.
+
+       The face comes from ForgeFonts, which never bundles one (see the note at
+       the top of forge-fonts.js — three of the six in this repository are
+       personal-use cuts and three came with no licence at all). If none is
+       registered we fall back to the old scrawl, which is at least honest
+       about being a scrawl. */
+    const face=window.ForgeFonts?ForgeFonts.resolve(P.graffFont):null;
+    const n=Math.round(1+P.graffiti*P.aband*4);
+    const pal=["#bc2c34","#1e2026","#e4e0d6","#2e56a8","#c4a834","#6a4a9a","#2f8a52"];
+    const words=String(P.graffText||"").split(/[,\n]/).map(w=>w.trim()).filter(Boolean);
     q.lineCap="round";q.lineJoin="round";
-    for(let i=0;i<n;i++){
-      const cx=rng()*g.FW,cy=0.9+rng()*Math.min(7,g.FH*0.35);
-      const sc=(0.7+rng()*1.9)*fx;
-      const hue=rng();
-      const strokes=2+Math.floor(rng()*4);
-      for(let s=0;s<strokes;s++){
-        const w=(0.12+rng()*0.22)*sc;
-        q.lineWidth=w;
-        q.strokeStyle="rgba(255,"+Math.round(hue*255)+",0,"+(0.55+rng()*0.45).toFixed(2)+")";
-        q.beginPath();
-        const px=cx*fx+(rng()-0.5)*sc,py=Y(cy)+(rng()-0.5)*sc*0.6;
-        const a0=rng()*Math.PI*2,len=(0.6+rng()*1.6)*sc,curl=(rng()-0.5)*4;
-        for(let t=0;t<=18;t++){
-          const u=t/18;
-          const a=a0+curl*u;
-          const X=px+Math.cos(a)*len*u+Math.sin(u*6.0)*sc*0.18;
-          const Yy=py+Math.sin(a)*len*u*0.6+Math.cos(u*4.0)*sc*0.14;
-          if(t===0)q.moveTo(X,Yy);else q.lineTo(X,Yy);
-        }
-        q.stroke();
-        if(rng()<0.5){                              // a drip off the stroke
-          q.lineWidth=w*0.22;
+    q.textBaseline="alphabetic";
+
+    if(face&&words.length){
+      for(let i=0;i<n;i++){
+        const word=words[Math.floor(rng()*words.length)%words.length];
+        /* Reachable: a tag goes on at arm's length from whatever the writer was
+           standing on, so between about a foot and eight feet up. Anything
+           higher wanted a ladder, and nobody brings a ladder. */
+        const capFt=Math.min(8.2,g.FH*0.55);
+        const cy=1.0+rng()*Math.max(0.6,capFt-1.0);
+        const size=(0.9+rng()*1.5)*fy;               // roughly 11 in to 2 ft of cap height
+        const tilt=(rng()-0.5)*0.30;                 // an arm swings, it does not rule
+        q.font=size+'px "'+face.css+'", sans-serif';
+        const wpx=q.measureText(word).width;
+        const cx=rng()*Math.max(1,g.FW*fx-wpx*0.6)+wpx*0.1;
+        const col=pal[Math.floor(rng()*pal.length)];
+        const hue=Math.floor(rng()*250);
+        q.save();
+        q.translate(cx,Y(cy));
+        q.rotate(tilt);
+        /* R is coverage and G picks the colour downstream, so the fill has to
+           carry both rather than being the paint colour itself */
+        const alpha=(0.72+rng()*0.28).toFixed(2);
+        q.fillStyle="rgba(255,"+hue+",0,"+alpha+")";
+        /* a fat outline under the fill is what a spray can actually leaves */
+        q.lineWidth=size*0.055;
+        q.strokeStyle="rgba(255,"+hue+",0,"+alpha+")";
+        q.strokeText(word,0,0);
+        q.fillText(word,0,0);
+        /* runs off the bottom of the letters */
+        const drips=1+Math.floor(rng()*3);
+        for(let d=0;d<drips;d++){
+          const dx=rng()*wpx;
+          q.lineWidth=size*(0.035+rng()*0.05);
           q.beginPath();
-          const dx=px+(rng()-0.5)*len,dy=py+(rng()-0.3)*len*0.4;
-          q.moveTo(dx,dy);q.lineTo(dx,dy+(0.3+rng()*1.2)*sc);q.stroke();
+          q.moveTo(dx,size*0.06);
+          q.lineTo(dx+(rng()-0.5)*size*0.06,size*(0.2+rng()*0.75));
+          q.stroke();
+        }
+        q.restore();
+      }
+    }else{
+      for(let i=0;i<n+1;i++){
+        const cx=rng()*g.FW,cy=0.9+rng()*Math.min(7,g.FH*0.35);
+        const sc=(0.7+rng()*1.9)*fx;
+        const hue=rng();
+        const strokes=2+Math.floor(rng()*4);
+        for(let s2=0;s2<strokes;s2++){
+          const w=(0.12+rng()*0.22)*sc;
+          q.lineWidth=w;
+          q.strokeStyle="rgba(255,"+Math.round(hue*255)+",0,"+(0.55+rng()*0.45).toFixed(2)+")";
+          q.beginPath();
+          const px=cx*fx+(rng()-0.5)*sc,py=Y(cy)+(rng()-0.5)*sc*0.6;
+          const a0=rng()*Math.PI*2,len=(0.6+rng()*1.6)*sc,curl=(rng()-0.5)*4;
+          for(let t=0;t<=18;t++){
+            const u=t/18;
+            const a=a0+curl*u;
+            const X=px+Math.cos(a)*len*u+Math.sin(u*6.0)*sc*0.18;
+            const Yy=py+Math.sin(a)*len*u*0.6+Math.cos(u*4.0)*sc*0.14;
+            if(t===0)q.moveTo(X,Yy);else q.lineTo(X,Yy);
+          }
+          q.stroke();
+          if(rng()<0.5){
+            q.lineWidth=w*0.22;
+            q.beginPath();
+            const dx=px+(rng()-0.5)*len,dy=py+(rng()-0.3)*len*0.4;
+            q.moveTo(dx,dy);q.lineTo(dx,dy+(0.3+rng()*1.2)*sc);q.stroke();
+          }
         }
       }
     }
@@ -423,7 +535,7 @@ function buildStencil(g,SW,SH){
 /* ============================ the generator ============================ */
 
 /* material scratch, written by the cladding routines */
-let Mh=0,Mr=0,Mg=0,Mb=0,Mrg=0.8,Mid=1,Mmet=0,Mwood=0,Mcourse=0,Mboard=0;
+let Mh=0,Mr=0,Mg=0,Mb=0,Mrg=0.8,Mid=1,Mmet=0,Mwood=0,Mcourse=0,Mboard=0,Mbu=0.5,Mbv=0.5;
 let Gr=0,Gg=0,Gb=0,Grough=0.08,Gmet=0,Gemis=0;
 
 function build(params,io){
@@ -476,8 +588,24 @@ function build(params,io){
   };
 
   /* ---------- cladding ---------- */
+  /* The strip of wall each course butt overhangs. On a real clapboard wall this
+     is the strongest thing on the elevation — it is what makes siding read as
+     siding from across the street — and until now it lived only in the height
+     map, so a flat-lit render or a base-colour export lost it entirely.
+
+     It belongs in the albedo as well, and honestly: that strip never sees sun,
+     so it never bleaches, and dirt washing down the wall stops under the lip
+     and stays there. It is a genuine material difference, not baked lighting,
+     which is why it does not fight the AO map that also carries it. */
+  const LAPSH=clamp(+P.lapShade,0,1);
+  function lapShade(f,r,gg,b){
+    if(LAPSH<=0)return 0;
+    const k=smoothstep(0.52,1.0,f)*LAPSH*0.52;
+    return k;
+  }
+
   function cladding(x,y){
-    Mid=1;Mmet=0;Mwood=1;Mrg=0.72;Mcourse=0;Mboard=0;
+    Mid=1;Mmet=0;Mwood=1;Mrg=0.72;Mcourse=0;Mboard=0;Mbu=0.5;Mbv=0.5;
     let r=wall[0],gg=wall[1],b=wall[2],h=0;
     if(P.clad==="clapboard"||P.clad==="vinyl"){
       const vin=P.clad==="vinyl";
@@ -494,12 +622,14 @@ function build(params,io){
       h-=jg*0.02*REL;
       const bh=hashi(bi,c,seed+11);
       h+=(bh-0.5)*0.010*REL*IRR;
-      Mcourse=c;Mboard=bi;
+      Mcourse=c;Mboard=bi;Mbu=(x+off)/L-bi;Mbv=f;
       const grain=fbm(x*26,y*3.5,3,seed+31);
       h+=(grain-0.5)*0.006*REL*(vin?0.15:1);
       const tone=1+(bh-0.5)*0.06*IRR+(grain-0.5)*0.05;
       r*=tone;gg*=tone;b*=tone;
-      Mrg=vin?0.55:0.68;
+      const k=lapShade(f)*(vin?0.72:1);                // vinyl laps shallower
+      if(k>0){r*=1-k;gg*=1-k*0.99;b*=1-k*0.96;}        // the shade is a touch cool
+      Mrg=(vin?0.55:0.68)+k*0.22;
       if(vin)Mwood=0;
     }else if(P.clad==="batten"){
       const sp=P.battenSpace*IN;
@@ -511,10 +641,13 @@ function build(params,io){
       const grain=fbm(x*3.5,y*26,3,seed+31);
       h+=(grain-0.5)*0.008*REL;
       const bh=hashi(bi,3,seed+11);
-      Mcourse=0;Mboard=bi;
+      Mcourse=Math.floor(y/8);Mboard=bi;Mbu=f;Mbv=y/8-Math.floor(y/8);
       const tone=1+(bh-0.5)*0.07*IRR+(grain-0.5)*0.06;
       r*=tone;gg*=tone;b*=tone;
-      Mrg=0.70;
+      /* a batten shades the board either side of it rather than below it */
+      const k=(1-smoothstep(bw*0.5,bw*0.5+0.055,dB))*(1-bat)*LAPSH*0.46;
+      if(k>0){r*=1-k;gg*=1-k*0.99;b*=1-k*0.96;}
+      Mrg=0.70+k*0.20;
     }else if(P.clad==="shingle"){
       const E=expo;
       const c=Math.floor(y/E),f=y/E-c;
@@ -529,14 +662,16 @@ function build(params,io){
         if(Math.abs(d)<Math.abs(dg)){dg=d;sid=(d>=0)?idx:idx-1;}
       }
       const sh=hashi(sid,c,seed+17);
-      Mcourse=c;Mboard=sid;
+      Mcourse=c;Mboard=sid;Mbu=clamp(0.5+dg/Math.max(0.05,w),0,1);Mbv=f;
       h=0.05*REL*(1-f*f*0.7)+(sh-0.5)*0.02*REL*IRR;
       h-=(1-smoothstep(0,0.018,Math.abs(dg)))*0.035*REL;
       const grain=fbm(x*30,y*6,3,seed+31);
       h+=(grain-0.5)*0.008*REL;
       const tone=1+(sh-0.5)*0.16*IRR+(grain-0.5)*0.08;
       r*=tone;gg*=tone;b*=tone;
-      Mrg=0.80;
+      const k=lapShade(f)*1.08;                        // a shingle butt is thicker still
+      if(k>0){r*=1-k;gg*=1-k*0.99;b*=1-k*0.96;}
+      Mrg=0.80+k*0.16;
     }else if(P.clad==="brick"){
       const row=Math.floor(y/cH);
       const off=(row&1)?uL*0.5:0;
@@ -631,10 +766,15 @@ function build(params,io){
      reflects sky up top and ground below, so it brightens upward. Grime is a
      dielectric film: it dulls the mirror and takes the metallicity with it. */
   function glass(pu,pv,edgeD,nx,ny,paneSeed,lit){
-    const sky=pv*pv;
-    let r=lerp(38,96,sky),g2=lerp(44,108,sky),b=lerp(52,126,sky);
-    const refl=fbm(nx*3.2,ny*1.4,2,paneSeed);
-    r+=refl*24;g2+=refl*26;b+=refl*28;
+    /* Glass from outside is a dark room with a bright sky reflected on it, and
+       the two do not meet in the middle: the reflection is strong at the top of
+       the pane where the sky is and dies away down it. Ramping the two linearly
+       gave every pane the same mid grey, which is why the windows read as flat
+       slabs cut in the wall rather than as glass. */
+    const sky=pv*pv*pv;
+    let r=lerp(14,104,sky),g2=lerp(18,116,sky),b=lerp(26,136,sky);
+    const refl=fbm(nx*3.2,ny*1.4,2,paneSeed)*(0.35+sky);
+    r+=refl*30;g2+=refl*32;b+=refl*34;
     Gemis=0;
     if(lit){r=lerp(r,236,0.74);g2=lerp(g2,208,0.74);b=lerp(b,150,0.74);Gemis=0.85;}
     let rough=P.glassRough,met=P.glassMetal;
@@ -1020,43 +1160,66 @@ function build(params,io){
           }
 
           /* window */
+          /* The jamb is the RETURN into the opening — a surface facing sideways
+             into a hole, which sees almost no sky. Drawing it at 88% of the
+             casing made the whole window one flat pale rectangle with a black
+             middle; at 58% the opening reads as a hole with a frame in it,
+             which is what a window is. */
           const jam=0.075;
           if(lx<jam||lx>w-jam||ly<jam*0.6||ly>hh-jam){
-            h=-0.08;r=trim[0]*0.88;gg=trim[1]*0.88;b=trim[2]*0.88;rg=0.55;id=2;wood=1;continue;
+            h=-0.16;r=trim[0]*0.58;gg=trim[1]*0.58;b=trim[2]*0.60;rg=0.62;id=2;wood=1;continue;
           }
           const gx=lx-jam,gy2=ly-jam*0.6,gw=w-2*jam,gh=hh-jam-jam*0.6;
-          const sashSplit=gh*0.5;
-          const lower=gy2<sashSplit;
-          const sy=lower?gy2:gy2-sashSplit,sh4=sashSplit;
+          /* which sash we are in. At most three, so the walk is cheaper than the
+             branch it replaced, and the front one wins where two overlap —
+             which is exactly how a slider's panels pass one another. */
+          const SS=o.sash||sashesFor("dh",P.liteC|0,P.liteR|0);
+          const su=clamp(gx/gw,0,1),sv=clamp(gy2/gh,0,1);
+          let S=SS[SS.length-1];
+          for(let q=0;q<SS.length;q++){
+            const c=SS[q];
+            if(su>=c.u0&&su<=c.u1&&sv>=c.v0&&sv<=c.v1){S=c;break;}
+          }
+          const sw=(S.u1-S.u0)*gw,shh=(S.v1-S.v0)*gh;
+          const sx2=gx-S.u0*gw,sy2=gy2-S.v0*gh;
+          const dz=S.back*0.12;                       // a sash behind sits 1.4 in back
           const st=0.14;                              // stile / rail width
-          const meet=Math.abs(gy2-sashSplit)<0.075;
-          if(gx<st||gx>gw-st||sy<st*0.8||sy>sh4-st*0.8||meet){
-            h=lower?-0.20:-0.28;
-            r=trim[0]*0.95;gg=trim[1]*0.95;b=trim[2]*0.95;rg=0.5;id=2;wood=1;continue;
+          if(sx2<st||sx2>sw-st||sy2<st*0.8||sy2>shh-st*0.8){
+            /* the sash face is painted trim and catches the light, but it sits
+               back behind the jamb — and the one behind sits back again, which
+               is what stops a pair of sashes reading as one grid */
+            h=-(0.30+dz);
+            const t=S.back?0.80:0.90;
+            r=trim[0]*t;gg=trim[1]*t;b=trim[2]*t;rg=0.5;id=2;wood=1;continue;
           }
           /* glass and muntins */
-          const px=gx-st,py=sy-st*0.8,pw=gw-2*st,ph=sh4-1.6*st;
-          const cols=Math.max(1,P.liteC|0),rows=Math.max(1,P.liteR|0);
+          const px=sx2-st,py=sy2-st*0.8,pw=sw-2*st,ph=shh-1.6*st;
+          const cols=Math.max(1,S.lc|0),rows=Math.max(1,S.lr|0);
           const cwid=pw/cols,chei=ph/rows;
           const ci=clamp(Math.floor(px/cwid),0,cols-1),ri=clamp(Math.floor(py/chei),0,rows-1);
           const mx=px-ci*cwid,my=py-ri*chei;
           const mw=0.055;
-          const dM=Math.min(Math.min(mx,cwid-mx),Math.min(my,chei-my));
           const isMuntin=(ci>0&&mx<mw)||(ci<cols-1&&cwid-mx<mw)||(ri>0&&my<mw)||(ri<rows-1&&chei-my<mw);
           if(isMuntin){
-            h=lower?-0.24:-0.32;
-            r=trim[0]*0.92;gg=trim[1]*0.92;b=trim[2]*0.92;rg=0.5;id=2;wood=1;continue;
+            h=-(0.34+dz);
+            const t=S.back?0.76:0.86;
+            r=trim[0]*t;gg=trim[1]*t;b=trim[2]*t;rg=0.5;id=2;wood=1;continue;
           }
-          /* the pane itself */
-          h=lower?-0.30:-0.38;
+          /* the pane itself, set back behind its own muntins */
+          h=-(0.40+dz);
           id=3;wood=0;
-          const paneSeed=(o.brokeSeed+ci*31+ri*7+(lower?0:911))|0;
-          const brokeP=(hashi(ci,ri+(lower?0:50),o.brokeSeed)<P.broken*AB);
+          const paneSeed=(o.brokeSeed+ci*31+ri*7+((S.u0*97+S.v0*211)|0)*911)|0;
+          const brokeP=(hashi(ci+((S.u0*13)|0),ri+((S.v0*29)|0)*50,o.brokeSeed)<P.broken*AB);
           const pu=mx/cwid,pv=my/chei;
           const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
           glass(pu,pv,edgeD,gx,gy2,paneSeed,o.lit&&!brokeP);
           let gr=Gr,gg2=Gg,gb=Gb;
           rg=Grough;met=Gmet;emis=Gemis;
+          if(o.obscured){                             // a bathroom light is not clear glass
+            const ob=fbm(gx*34,gy2*34,3,paneSeed+21);
+            gr=lerp(gr,150+ob*40,0.72);gg2=lerp(gg2,156+ob*40,0.72);gb=lerp(gb,152+ob*38,0.72);
+            rg=lerp(rg,0.42,0.7);met=met*0.35;
+          }
           if(brokeP){
             /* shards left at the edge, a hole in the middle: the void is not
                glass at all, so it loses the reflection and the metallicity */
@@ -1219,19 +1382,39 @@ function build(params,io){
           rg=lerp(rg,0.92,f*0.7);
         }
         if(P.peel>0&&isPaint&&wood>0){
-          /* paint fails first along the butt of each siding course, but that
-             rhythm belongs to the wall only — without the id test it prints
-             straight across the door, its casing and the corner boards */
-          const lapEdge=(id===1&&(P.clad==="clapboard"||P.clad==="vinyl"))
-            ?1-smoothstep(0,0.06,(wy/expo-Math.floor(wy/expo))*expo):0;
-          /* joinery peels at its own edges instead: panel bevels and board ends */
-          const jointEdge=(id===9||id===2)
-            ?smoothstep(0.55,0.85,fbm(wx*5.5,wy*5.5,2,seed+111))*0.30:0;
+          /* Paint fails a BOARD at a time.
+
+             A board is one piece of wood with one history: milled from one log,
+             hung on one day, given one coat. When the film lets go it lets go
+             from that board's own butt and its own ends inwards, and the board
+             beside it can still be sound. Driving the failure from isotropic
+             noise instead — which is what this did — puts camouflage blotches
+             across the elevation, and the give-away is that they run straight
+             over the course lines as if the siding underneath were not there.
+
+             So the field is mostly the BOARD's own luck, pushed up wherever
+             water gets at it: the butt it sheds onto, the cut ends, and the
+             bottom few feet that take the splash. The fine noise is only there
+             to keep the boundary off a clean rectangle. */
+          const onBoard=(id===1&&P.clad!=="stucco");
           const wet=smoothstep(3.2,0,wy)*0.5;
-          const nPeel=fbm(wx*3.1,wy*3.1,3,seed+105);
           const nEdge=fbm(wx*17,wy*17,2,seed+109);
-          const fieldP=nPeel*0.66+nAge*0.40+nEdge*0.16+lapEdge*0.40+jointEdge+wet;
-          const t1=1.00-P.peel*0.52,t2=1.13-P.peel*0.58*P.bare;
+          let fieldP;
+          if(onBoard){
+            const bAge=hashi(Mboard,Mcourse*31+5,seed+105);
+            const endIn=1-smoothstep(0,0.16,Math.min(Mbu,1-Mbu));   // in from the cut ends
+            const buttUp=1-smoothstep(0,0.34,Mbv);                  // up from the wet butt
+            fieldP=bAge*0.62+endIn*0.20+buttUp*0.24+nEdge*0.16+nAge*0.08+wet*0.8;
+          }else{
+            /* joinery peels at its own edges instead: panel bevels and board ends */
+            const jointEdge=(id===9||id===2)
+              ?smoothstep(0.55,0.85,fbm(wx*5.5,wy*5.5,2,seed+111))*0.34:0;
+            fieldP=fbm(wx*3.1,wy*3.1,3,seed+105)*0.62+nAge*0.42+nEdge*0.18+jointEdge+wet;
+          }
+          /* the field now centres near 0.5 with most of its spread coming from
+             the board's own draw, so the threshold is set to take roughly a
+             sixth of the boards at a quarter turn and about half at full */
+          const t1=1.00-P.peel*0.50,t2=1.14-P.peel*0.58*P.bare;
           const toUnder=smoothstep(t1,t1+0.018,fieldP);
           const toBare=smoothstep(t2,t2+0.018,fieldP)*P.bare;
           const lip=smoothstep(t1-0.030,t1,fieldP)*(1-toUnder);   // paint curls at the break
@@ -1379,15 +1562,37 @@ function build(params,io){
   function pass2(){
     use(par,face);
     const pxPerFt=TW/FW;
-    const r1=clamp(Math.round(pxPerFt*0.06),1,10);     // ~0.7 in
-    const r2=clamp(Math.round(pxPerFt*0.5),3,64);      // 6 in
-    const b1=boxBlur(HGT,TW,TH,r1),b2=boxBlur(HGT,TW,TH,r2);
+    /* THREE radii, each matched to a real feature, because one radius can only
+       ever see one size of thing — and the old pair could see neither of the
+       two that matter.
+
+       A blur radius says "how far away do I look for something taller than me".
+       The old first radius was 0.7 in: at 37 px/ft that is two texels, so under
+       a clapboard butt the blur was almost the butt itself and the difference
+       came out at a couple of per cent. The old second was 6 in, which inside a
+       three-foot window is all window — so a four-inch-deep opening went dark
+       in a thin line at its edge and nowhere else. The height map had the
+       relief in it the whole time; the AO pass was throwing it away.
+
+       So: half a siding course, which is what makes the lap read; a hand's
+       width, which is what makes a casing, a sill or a batten read; and most of
+       a window, which is what makes a recessed opening go dark across its whole
+       face the way a real one does. */
+    const r1=clamp(Math.round(pxPerFt*Math.max(expo,0.12)*0.55),2,26);
+    const r2=clamp(Math.round(pxPerFt*0.34),3,48);     // 4 in — casing, sill, batten
+    const r3=clamp(Math.round(pxPerFt*1.35),8,200);    // 16 in — the opening as a whole
+    const b1=boxBlur(HGT,TW,TH,r1),b2=boxBlur(HGT,TW,TH,r2),b3=boxBlur(HGT,TW,TH,r3);
     const sc=1/0.28;                                   // a 3-4 in recess reads as full occlusion
     for(let i=0;i<TW*TH;i++){
       if(!ALP[i]){AOc[i]=255;continue;}
-      const c1=clamp((b1[i]-HGT[i])*sc*2.2,0,1);
-      const c2=clamp((b2[i]-HGT[i])*sc*1.6,0,1);
-      const occ=clamp(c1*0.5+c2*0.85,0,1)*P.aoStr;
+      const h0=HGT[i];
+      const c1=clamp((b1[i]-h0)*sc*2.6,0,1);
+      const c2=clamp((b2[i]-h0)*sc*1.9,0,1);
+      const c3=clamp((b3[i]-h0)*sc*1.15,0,1);
+      /* the broad term is the one that says "you are inside a hole"; the tight
+         ones say "you are against something". Screening rather than adding them
+         keeps a texel that is both from going past black. */
+      const occ=(1-(1-c1*0.55)*(1-c2*0.70)*(1-c3*0.80))*P.aoStr;
       AOc[i]=clamp(1-occ,0,1)*255;
     }
     io.progress(0.85);
@@ -1435,6 +1640,7 @@ const CONTROLS={
       {id:"unitLen",need:"masonry",label:"Unit length",unit:"in",min:4,max:24,step:0.25,value:8},
       {id:"mortarW",need:"masonry",label:"Mortar joint",unit:"in",min:0.12,max:1.2,step:0.02,value:0.38},
       {id:"cladRelief",label:"Relief depth",min:0,max:2.5,step:0.05,value:1},
+      {id:"lapShade",label:"Course shadow line",min:0,max:1,step:0.01,value:0.6},
       {id:"cladIrreg",label:"Irregularity",min:0,max:1,step:0.01,value:0.45},
       {type:"colors",label:"Wall · trim · undercoat",items:[
         {id:"cWall",value:"#b9bcae"},{id:"cTrim",value:"#efece1"},{id:"cUnder",value:"#8f7f63"}]}
@@ -1444,6 +1650,11 @@ const CONTROLS={
       {id:"winW",label:"Window width",unit:"ft",min:1.5,max:8,step:0.1,value:3},
       {id:"winH",label:"Window height",unit:"ft",min:2,max:8,step:0.1,value:4.8},
       {id:"sillH",label:"Sill above floor",unit:"ft",min:0.5,max:5,step:0.1,value:2.6},
+      {id:"winStyle",type:"select",label:"Window type",value:"dh",options:[
+        ["dh","Double-hung"],["dh1","Double-hung, no muntins"],
+        ["case","Casement pair"],["slide","Horizontal slider"],
+        ["pic","Picture window with flankers"],
+        ["mixed","Picture below, double-hung above"]]},
       {id:"liteC",label:"Lites across",min:1,max:6,step:1,value:2},
       {id:"liteR",label:"Lites down (per sash)",min:1,max:6,step:1,value:1},
       {id:"casingW",label:"Casing width",unit:"in",min:1,max:10,step:0.25,value:3.5},
@@ -1509,12 +1720,23 @@ const CONTROLS={
         ["osb","OSB"],["ply","Plywood"],["planks","Salvaged planks"]]},
       {id:"broken",need:"ab",label:"Broken glass",min:0,max:1,step:0.01,value:0.55},
       {id:"graffiti",need:"ab",label:"Graffiti",min:0,max:1,step:0.01,value:0.4},
+      {id:"graffFont",need:"ab",type:"font",label:"Graffiti face",value:"none",
+       noneLabel:"None found — drop one in"},
+      {id:"graffText",need:"ab",type:"text",label:"Tags",value:"KRSN, VOID, 92, OBEY, RIP",
+       placeholder:"comma separated",maxlength:120},
+      {type:"note",need:"ab",html:"Graffiti is <b>writing</b>, so it is drawn with a typeface rather "+
+        "than as curly strokes. The app ships no font: three of the six graffiti faces in this "+
+        "repository's <code>fonts/</code> are personal-use cuts and three came with no licence at "+
+        "all, so publishing them would be redistributing them. <b>Load…</b> takes one straight from "+
+        "its bytes — nothing is fetched and nothing is published. Served over http from the "+
+        "repository root the six are found on their own; opened as a file they cannot be, and the "+
+        "mode falls back to a scrawl."},
       {id:"vines",need:"ab",label:"Vines and weeds",min:0,max:1,step:0.01,value:0.4},
       {id:"missing",need:"ab",label:"Missing siding",min:0,max:1,step:0.01,value:0.3}
     ]};},
   maps:function(){return {title:"Maps",rows:[
       {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},
-      {id:"aoStr",label:"Ambient occlusion",min:0,max:1,step:0.01,value:0.85},
+      {id:"aoStr",label:"Ambient occlusion",min:0,max:1,step:0.01,value:1},
       {type:"checks",items:[{id:"flipG",label:"Flip green (DirectX)",value:false}]}
     ]};},
 };
