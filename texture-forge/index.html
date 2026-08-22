@@ -132,6 +132,28 @@ select,input[type=number]{width:100%;font-family:"IBM Plex Mono",monospace;font-
 .autonote{margin:9px 0 0;font-family:"IBM Plex Mono",monospace;font-size:9.5px;color:var(--ink-soft);
   text-transform:uppercase;letter-spacing:.04em;text-align:center}
 
+/* ============ structures & the wizard ============ */
+.structs{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.structs[hidden]{display:none}
+.structlab{font-family:"IBM Plex Mono",monospace;font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.11em;color:var(--ink-soft)}
+.structbtn{font-family:"IBM Plex Mono",monospace;font-size:10px;text-transform:uppercase;
+  letter-spacing:.05em;padding:6px 10px;background:transparent;color:var(--accent);
+  border:1px dashed var(--accent);border-radius:2px;cursor:pointer}
+.structbtn:hover{background:var(--accent);color:#1a1405;border-style:solid}
+.wizbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 18px;
+  background:#1c1f22;border-bottom:1px solid var(--accent)}
+.wizbar[hidden]{display:none}
+.wizname{font-weight:800;font-size:12.5px;text-transform:uppercase;letter-spacing:.13em;
+  color:var(--paint)}
+.wizsteps{display:flex;gap:2px;flex-wrap:wrap}
+.wiznote{flex:1 0 100%;margin:2px 0 0;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  line-height:1.5;color:var(--ink-soft)}
+/* a value this face inherited from the one before it */
+.row.carried{border-left:2px solid var(--accent);margin-left:-12px;padding-left:10px}
+.row.carried > label{color:var(--accent)}
+body[data-wizard=on] #modebar-tabs{opacity:.35;pointer-events:none}
+
 /* ============ preview bay ============ */
 .bay{flex:1;min-width:0;display:flex;flex-direction:column;background:radial-gradient(120% 90% at 50% 0%,#1b1d1f,#0e0f11 72%)}
 .bay-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:11px 18px;border-bottom:1px solid var(--rule)}
@@ -197,6 +219,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
   .stage{height:52vh}
   .modebar{height:auto;flex:none;padding:10px 14px;gap:10px}
   .modebar .hintline{display:none}
+  .wizbar{padding:9px 14px}
   .palbar{padding:8px 14px}
   .palswatch{flex-basis:100%}
   html,body{height:auto}body{overflow-y:auto}
@@ -211,8 +234,19 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
   <header class="modebar">
     <div class="brand">Texture <em>Forge</em></div>
     <div class="modetabs" id="modebar-tabs"></div>
+    <div class="structs" id="structs"></div>
     <div class="hintline">One tool · one mode per surface · PBR PNG out</div>
   </header>
+
+  <div class="wizbar" id="wizbar" hidden>
+    <span class="wizname" id="wiz-name"></span>
+    <div class="wizsteps" id="wiz-steps"></div>
+    <button type="button" class="tab" id="wiz-back">Back</button>
+    <button type="button" class="tab" id="wiz-next">Next</button>
+    <button type="button" class="zip" id="wiz-all">Build &amp; zip every face</button>
+    <button type="button" class="tab" id="wiz-exit">Leave the wizard</button>
+    <p class="wiznote" id="wiz-note"></p>
+  </div>
 
   <div class="app" id="app">
     <!-- mode panels are inserted here by forge-core.js -->

@@ -1613,6 +1613,37 @@ function coordinate(fromId,P){
   }
 }
 
+/* The wizard's reading of the same idea the "coordinate" tick serves: walk the
+   four faces in the order you would actually decide them, each opening with
+   what the ones before it settled on. Front first because it is where the
+   building gets its width, its storeys and its roof; the roof last because it
+   only needs the pitch and the weathering by then. */
+Forge.registerStructure({
+  id:"house",
+  label:"House",
+  blurb:"Front, side, back and roof of one building",
+  steps:[
+    {id:"front",label:"Front",mode:"house",set:{},
+     note:"Start with the street front. Everything you set here — the width and depth, the "+
+          "storeys, the roof, the cladding, the trim, the weathering, the seed — is what the "+
+          "other three faces open with."},
+    {id:"side",label:"Side",mode:"envelope",set:{face:"side"},
+     note:"The side is the DEPTH of the same building, and the depth is the one dimension the "+
+          "front never showed — so it is yours to set here, and the back will take it from you. "+
+          "Everything else arrived already: the width, the storeys, the cladding, the trim, the "+
+          "weathering. An eave front presents a gable end here and a gable front presents an "+
+          "eave wall; the mode makes that substitution for you."},
+    {id:"back",label:"Back",mode:"envelope",set:{face:"back"},
+     note:"The back is the same wall stock as the side and inherits it. What is new is the "+
+          "service clutter that only ever lands on the face nobody photographs — the meter, "+
+          "the vent stack, the dryer vent, the hose bib."},
+    {id:"roof",label:"Roof",mode:"roof",set:{},
+     note:"Last, because by now it only needs the pitch, the weathering and the seed. This one "+
+          "is a tiling material rather than a cut-out face, so its resolution is about texel "+
+          "density over the roof plane rather than about the size of a wall."}
+  ]
+});
+
 window.HouseShell={
   coordinate:coordinate,
   IN:IN,edgeDist:edgeDist,CONTROLS:CONTROLS,PRESETS:PRESETS,

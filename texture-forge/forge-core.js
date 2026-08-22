@@ -852,7 +852,12 @@ function sizeTag(st){
   return B.W+"×"+B.H+(st.mode.sizeTag?" · "+st.mode.sizeTag(st.P):"")+" · seed "+(st.P.seed|0);
 }
 
-function run(st,preview){
+/* `then` fires once the build has SETTLED — after any queued rebuild this one
+   pulled in behind it, not after the first pass. Polling st.busy instead cannot
+   work: a pending rebuild flips it back to true inside the same callback that
+   cleared it, so an observer never sees the idle moment. */
+function run(st,preview,then){
+  if(then)(st.after||(st.after=[])).push(then);
   if(st.busy){st.pending=!!preview;return;}
   const m=st.mode;
   st.busy=true;
@@ -882,6 +887,7 @@ function run(st,preview){
         buildChips();renderView();
       }
       if(st.pending!==null){const p=st.pending;st.pending=null;run(st,p);}
+      else{const waiting=st.after;st.after=null;if(waiting)for(const f of waiting)f();}
     }
   });
 }
@@ -896,6 +902,252 @@ function queue(st,preview){
   }
   clearTimeout(st.qTimer);
   st.qTimer=setTimeout(()=>run(st,usePreview),usePreview?90:40);
+}
+
+/* ============================ structures ============================
+   A house is four textures and a diner is three, and the way they stop being
+   one building is that you dial twenty settings into the first panel and then
+   dial nineteen of them into the next. The "coordinate" tick in the house
+   family mirrors settings between panels once you know to look for it; this is
+   the other half of the same idea, for the case where you do not yet know what
+   the building IS.
+
+   A structure is a list of steps, each naming a mode and whatever that step
+   pins down (which face it is). Walking the list, every step OPENS with the
+   values the steps before it settled on — every parameter its mode declares
+   that an earlier one also declared — so the side elevation already knows the
+   depth, the cladding, the trim and the weathering by the time you see it, and
+   the roof already knows the seed. Those inherited rows are marked, and the
+   moment you change one it stops being inherited and becomes what the steps
+   after it inherit instead.
+
+   Resolution is never carried: how many texels you want of a given face is a
+   property of the export, not of the building. Nor is the face itself, which is
+   the one thing the step pins. */
+
+const STRUCTURES=[],STRUCT_BY={};
+Forge.registerStructure=function(s){
+  if(STRUCT_BY[s.id]){console.warn("Texture Forge: duplicate structure id "+s.id);return;}
+  STRUCT_BY[s.id]=s;STRUCTURES.push(s);
+};
+Forge.structures=STRUCTURES;
+
+const WIZ_NEVER={size:1,face:1};
+let wiz=null;                                    // {s, i, vals, reached}
+
+function wizSteps(){return wiz?wiz.s.steps:[];}
+
+/* everything the steps so far have settled on, ready for the next one to take
+   what it recognises */
+function wizRecord(){
+  if(!wiz)return;
+  const step=wiz.s.steps[wiz.i],st=STATE[step.mode];
+  if(!st||!st.params)return;
+  readParams(st);
+  for(const d of st.params){
+    if(WIZ_NEVER[d.id])continue;
+    wiz.vals[d.id]=st.P[d.id];
+  }
+}
+
+/* mark the rows this step did not choose for itself, so it is obvious which
+   numbers arrived from the face before and which ones you set */
+function wizMark(modeId,carried){
+  const st=STATE[modeId];
+  if(!st||!st.params)return;
+  for(const d of st.params){
+    const n=node(st,d.id);
+    if(!n)continue;
+    const row=n.closest(".row");
+    if(!row)continue;
+    const on=!!carried[d.id];
+    row.classList.toggle("carried",on);
+    if(on)row.title="Carried over from an earlier face — change it and the faces after this one take yours instead";
+    else row.removeAttribute("title");
+  }
+}
+
+function wizEnter(i){
+  const steps=wizSteps();
+  wiz.i=clamp(i,0,steps.length-1);
+  if(wiz.i>wiz.reached)wiz.reached=wiz.i;
+  const step=steps[wiz.i];
+  activate(step.mode);
+  const st=STATE[step.mode];
+  const carried={};
+  if(st&&st.params){
+    for(const d of st.params){
+      if(WIZ_NEVER[d.id])continue;
+      if(!(d.id in wiz.vals))continue;
+      Forge.setParam(step.mode,d.id,wiz.vals[d.id]);
+      carried[d.id]=1;
+    }
+    /* what the STEP pins beats anything carried: this is the side elevation
+       whatever the front thought the face was */
+    for(const k in (step.set||{})){
+      Forge.setParam(step.mode,k,step.set[k]);
+      delete carried[k];
+    }
+    readParams(st);
+  }
+  wizMark(step.mode,carried);
+  wizSync();
+  queue(st,false);
+}
+
+function wizGo(i){
+  if(!wiz)return;
+  wizRecord();
+  wizEnter(i);
+}
+
+function wizSync(){
+  const bar=el("wizbar");
+  if(!wiz){bar.hidden=true;document.body.dataset.wizard="off";return;}
+  bar.hidden=false;
+  document.body.dataset.wizard="on";
+  const steps=wizSteps();
+  el("wiz-name").textContent=wiz.s.label;
+  const rail=el("wiz-steps");
+  rail.innerHTML="";
+  for(let k=0;k<steps.length;k++){
+    const b=make("button","tab",(k+1)+". "+steps[k].label);
+    b.type="button";b.dataset.step=k;
+    b.setAttribute("aria-pressed",String(k===wiz.i));
+    if(k>wiz.reached+1)b.disabled=true;          // one step ahead is as far as you can jump
+    rail.appendChild(b);
+  }
+  el("wiz-note").innerHTML=steps[wiz.i].note||"";
+  el("wiz-back").disabled=wiz.i===0;
+  el("wiz-next").disabled=wiz.i>=steps.length-1;
+}
+
+function wizStart(id){
+  const s=STRUCT_BY[id];
+  if(!s)return;
+  /* every step's mode has to be loaded, or the walk would stop halfway */
+  for(const st of s.steps)if(!STATE[st.mode]){setStatus("The "+st.mode+" mode is not loaded");return;}
+  wiz={s:s,i:0,vals:{},reached:0};
+  wizEnter(0);
+}
+function wizExit(){
+  const steps=wizSteps();
+  for(const st of steps)wizMark(st.mode,{});
+  wiz=null;
+  wizSync();
+}
+
+/* Build every face at full size and pack the lot into one archive, each face in
+   its own folder with its own readme. This is the thing a wizard is actually
+   for: the building leaves as one object rather than as four exports you have
+   to remember to line up. */
+function runAsync(st){
+  return new Promise(res=>{
+    clearTimeout(st.qTimer);            // the step's own queued rebuild would only duplicate this
+    run(st,false,res);
+  });
+}
+async function wizBuildAll(){
+  if(!wiz)return;
+  const btn=el("wiz-all"),save=el("zipsave");
+  btn.disabled=true;save.hidden=true;
+  const steps=wizSteps(),start=wiz.i;
+  try{
+    wizRecord();
+    const files=[];
+    for(let k=0;k<steps.length;k++){
+      const step=steps[k];
+      setStatus("Building "+step.label+"…");
+      wizEnter(k);
+      const st=STATE[step.mode];
+      await runAsync(st);
+      if(!st.B)throw new Error(step.label+" did not build");
+      for(const ch of st.mode.channels){
+        setBar((k+ (st.mode.channels.indexOf(ch)+1)/(st.mode.channels.length+1))/steps.length);
+        await new Promise(r=>setTimeout(r,0));
+        const blob=await new Promise((res,rej)=>{
+          const cv=makeMap(st,ch.key);
+          if(!cv.toBlob){rej(new Error("this browser can't encode canvas PNGs"));return;}
+          cv.toBlob(b=>b?res(b):rej(new Error("PNG encode failed on "+ch.key)),"image/png");
+        });
+        files.push({name:step.id+"/"+fileName(st,ch.key),
+                    data:new Uint8Array(await blob.arrayBuffer())});
+      }
+      if(st.mode.height16!==false){
+        const h16=await png16Height();
+        if(h16)files.push({name:step.id+"/"+fileName(st,"height16"),data:h16});
+      }
+      files.push({name:step.id+"/"+fileBase(st)+"_readme.txt",
+                  data:new TextEncoder().encode(readmeText(st))});
+    }
+    files.push({name:"readme.txt",data:new TextEncoder().encode(wizReadme())});
+    const zip=makeZip(files),name=wiz.s.id+"_"+(wiz.vals.seed|0)+"_all.zip";
+    /* back to the step we were on FIRST, and let it finish rebuilding: both
+       activate() and the end of a build clear the save link as stale, so a link
+       put up before that lands is taken straight back down again */
+    wizEnter(start);
+    await runAsync(STATE[steps[start].mode]);
+    if(wiz.zipUrl)URL.revokeObjectURL(wiz.zipUrl);
+    wiz.zipUrl=saveBlob(zip,name);
+    save.href=wiz.zipUrl;save.download=name;
+    save.textContent="Save "+name+" ("+(zip.size/1048576).toFixed(1)+" MB)";
+    save.hidden=false;
+    setBar(0);
+    setStatus(steps.length+" faces packed · click save if nothing downloaded");
+  }catch(err){
+    setBar(0);
+    if(wiz)wizEnter(start);
+    setStatus("Could not pack the structure: "+(err&&err.message||err));
+  }finally{
+    btn.disabled=false;
+  }
+}
+function wizReadme(){
+  const steps=wizSteps();
+  const out=["Texture Forge · "+wiz.s.label,"",
+    wiz.s.blurb||"","",
+    "One folder per face, each with its own maps and its own readme:",""];
+  for(const st of steps)out.push("  "+st.id+"/   "+st.label+"  ("+st.mode+" mode)");
+  out.push("",
+    "These faces were built in one pass off shared settings, so they belong to",
+    "one building: the same seed, the same materials, the same weathering. Keep",
+    "them together and they line up; rebuild one on its own with different",
+    "settings and it stops matching the others.","",
+    "Resolution is deliberately per-face — how many texels a face needs is a",
+    "property of the export, not of the building.");
+  return out.join("\n");
+}
+
+function initWizard(){
+  const host=el("structs");
+  if(!STRUCTURES.length){host.hidden=true;}
+  else{
+    host.appendChild(make("span","structlab","Whole structure"));
+    for(const s of STRUCTURES){
+      const b=make("button","structbtn",s.label);
+      b.type="button";b.dataset.struct=s.id;
+      if(s.blurb)b.title=s.blurb;
+      host.appendChild(b);
+    }
+    host.addEventListener("click",e=>{
+      const b=e.target.closest("[data-struct]");
+      if(b)wizStart(b.dataset.struct);
+    });
+  }
+  el("wiz-steps").addEventListener("click",e=>{
+    const b=e.target.closest("[data-step]");
+    if(b&&!b.disabled)wizGo(+b.dataset.step);
+  });
+  el("wiz-back").addEventListener("click",()=>wizGo(wiz.i-1));
+  el("wiz-next").addEventListener("click",()=>wizGo(wiz.i+1));
+  el("wiz-all").addEventListener("click",wizBuildAll);
+  el("wiz-exit").addEventListener("click",wizExit);
+  /* an inherited value stops being inherited the moment you touch it */
+  el("app").addEventListener("input",e=>{
+    const row=e.target.closest&&e.target.closest(".row.carried");
+    if(row){row.classList.remove("carried");row.removeAttribute("title");}
+  },true);
+  wizSync();
 }
 
 /* ============================ the palette bar ============================
@@ -1073,6 +1325,7 @@ function boot(){
   });
 
   initPalette();
+  initWizard();
   noGL=!initGL();
 
   el("tabs").addEventListener("click",e=>{
