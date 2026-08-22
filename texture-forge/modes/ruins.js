@@ -1167,8 +1167,7 @@ Forge.register({
       /* 2048 is the ceiling on purpose: the geometry does not densify with
          resolution, only the sampling of it does, so 4096 buys nothing but
          four 67 MB canvases and an AO blur radius of 56 */
-      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:[
-        [512,"512 × 512"],[1024,"1024 × 1024"],[2048,"2048 × 2048"]]},
+      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:Forge.sizes("square",2048)},
       {id:"seed",type:"seed",value:4713},
       {type:"readout"}
     ]},

@@ -107,6 +107,19 @@ function blurClamp(src,w,h,r){
   return out;
 }
 
+/* ============================ resolution ladder ============================
+   Every mode offers the same ladder, so one list changes them all. `style` only
+   picks the wording: a square tiling map reads "512 × 512", a mode whose height
+   follows its own content reads "512", and one dimensioned by its width reads
+   "512 px wide". `max` caps a mode that cannot usefully go higher.
+
+   The small end of the ladder is there for pixel art. Below about 256 px most
+   modes are DROPPING detail rather than shrinking it — every mode's readout
+   already says which features it had to let go — and the palette, dither and
+   nearest-neighbour controls in the preview bar are what that end is for. */
+const SIZE_LADDER=[64,128,256,512,1024,2048,4096];
+const HEAVY=" — slow, heavy";
+
 /* ============================ registry ============================ */
 
 const MODES=[],BY_ID={};
@@ -114,6 +127,14 @@ const Forge={
   clamp:clamp,lerp:lerp,smoothstep:smoothstep,mulberry32:mulberry32,hashi:hashi,
   vnoise:vnoise,fbm:fbm,vnoise2:vnoise2,fbm2:fbm2,wrapDist:wrapDist,hex2rgb:hex2rgb,
   blurWrap:blurWrap,blurClamp:blurClamp,
+  sizes:function(style,max){
+    return SIZE_LADDER.filter(function(n){return !max||n<=max;}).map(function(n){
+      const h=(n>=4096)?HEAVY:"";
+      return [n, style==="wide"?(n+" px wide"+h)
+               : style==="plain"?(n+h)
+               : (n+" × "+n+h)];
+    });
+  },
   modes:MODES,
   register:function(mode){
     if(BY_ID[mode.id]){console.warn("Texture Forge: duplicate mode id "+mode.id);return;}
@@ -453,6 +474,11 @@ function makeMap(st,key,maxW){
       o[k+3]=write(sy*TW+sx,o,k);
     }
   }
+  /* The palette snaps here and only here: chips, the preview upload, a single
+     channel download and every zip entry all come through makeMap, so what is
+     on screen is exactly what lands in the file. Data channels are left alone —
+     see the note at the top of forge-palette.js. */
+  if(window.Palette&&Palette.affects(key))Palette.quantise(o,w,h);
   ctx.putImageData(img,0,0);
   return cv;
 }
@@ -542,8 +568,14 @@ function upload(unit,texture,canvas,seamless){
   const wrap=rep?gl.REPEAT:gl.CLAMP_TO_EDGE;
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,wrap);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,wrap);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,rep?gl.LINEAR_MIPMAP_LINEAR:gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  /* Nearest keeps the texels square under magnification, which is the whole
+     point of working at 64 px. Minification still goes through mipmaps when the
+     tile repeats — an unfiltered 4×4 repeat shimmers into noise — but through
+     the nearest level of them, so it stays blocky rather than turning soft. */
+  const near=!!(window.Palette&&Palette.state.nearest);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,
+    rep?(near?gl.NEAREST_MIPMAP_NEAREST:gl.LINEAR_MIPMAP_LINEAR):(near?gl.NEAREST:gl.LINEAR));
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,near?gl.NEAREST:gl.LINEAR);
   if(rep)gl.generateMipmap(gl.TEXTURE_2D);
   return rep;
 }
@@ -593,7 +625,7 @@ function drawFlat(){
   fitCanvas(flat);
   fctx.fillStyle=bg==="sky"?"#7f97b0":(bg==="check"?"#2b2b2b":"#141414");
   fctx.fillRect(0,0,flat.width,flat.height);
-  fctx.imageSmoothingEnabled=true;
+  fctx.imageSmoothingEnabled=!(window.Palette&&Palette.state.nearest);
   if(seamless){
     /* repeat at the texture's own aspect: a tile that is not square (a fence
        bay, say) would otherwise be squashed into square cells here and read
@@ -798,10 +830,17 @@ async function downloadZip(){
 }
 function readmeText(st){
   const B=st.B;
-  return st.mode.readme(st.P,{
+  let txt=st.mode.readme(st.P,{
     W:B.W,H:B.H,hMin:B.hMin,hMax:B.hMax,
     normalNote:st.P.flipG?"DirectX (green down)":"OpenGL (green up)"
   });
+  /* a palettised basecolor that does not say so is a file somebody re-exports
+     six months later wondering why the colours will not match */
+  const pal=window.Palette&&Palette.describe();
+  if(pal)txt+="\n\nPALETTE\nbasecolor.png was snapped to "+pal+".\n"+
+    "Every other channel is untouched full-range data — normal, roughness,\n"+
+    "metallic, AO, height and ORM are never quantised.";
+  return txt;
 }
 
 /* ============================ run loop ============================ */
@@ -857,6 +896,96 @@ function queue(st,preview){
   }
   clearTimeout(st.qTimer);
   st.qTimer=setTimeout(()=>run(st,usePreview),usePreview?90:40);
+}
+
+/* ============================ the palette bar ============================
+   Palette, dither and filtering are properties of how you are LOOKING at a
+   texture, not of any one mode, so they live above the preview rather than in
+   twelve panels. Changing any of them re-renders what is already built — none
+   of it touches the generators, so nothing has to be forged again. */
+
+function palRepaint(){
+  if(active&&active.built&&active.B){buildChips();renderView();}
+}
+function palSwatch(){
+  const box=el("pal-swatch"),cols=Palette.colors();
+  box.innerHTML="";
+  box.hidden=!cols;
+  if(!cols)return;
+  /* a 500-colour palette in a 260 px strip is one pixel a swatch and reads as
+     mud, so past a couple of hundred it shows an even sample of the ramp */
+  const cap=200,step=cols.length>cap?cols.length/cap:1;
+  for(let i=0;i<cols.length;i+=step){
+    const c=cols[Math.floor(i)],n=make("i");
+    n.style.background="rgb("+c[0]+","+c[1]+","+c[2]+")";
+    box.appendChild(n);
+  }
+  box.title=cols.length+" colours";
+}
+function palSync(){
+  const sel=el("pal-set");
+  sel.innerHTML="";
+  for(const p of Palette.list()){
+    const o=make("option",null,p.label);
+    o.value=p.id;
+    sel.appendChild(o);
+  }
+  sel.value=Palette.state.id;
+  el("pal-dither").value=Palette.state.dither;
+  el("pal-strength").value=Palette.state.strength;
+  const on=Palette.active();
+  el("pal-dither").disabled=!on;
+  el("pal-strength").disabled=!on||Palette.state.dither==="none";
+  el("pal-forget").hidden=!/^user/.test(Palette.state.id);
+  el("pal-near").setAttribute("aria-pressed",String(!!Palette.state.nearest));
+  document.body.dataset.nearest=Palette.state.nearest?"on":"off";
+  palSwatch();
+}
+function palLoad(file){
+  if(!file)return;
+  setStatus("Reading "+(file.name||"palette")+"…");
+  Palette.loadFile(file).then(id=>{
+    if(id)Palette.set("id",id);
+    setStatus((Palette.get(Palette.state.id).label)+" loaded");
+  },msg=>setStatus(String(msg)));
+}
+function initPalette(){
+  const dith=el("pal-dither");
+  for(const [v,label] of Palette.DITHERS){
+    const o=make("option",null,label);o.value=v;dith.appendChild(o);
+  }
+  el("pal-set").addEventListener("change",e=>Palette.set("id",e.target.value));
+  dith.addEventListener("change",e=>Palette.set("dither",e.target.value));
+  el("pal-strength").addEventListener("input",e=>Palette.set("strength",+e.target.value));
+  el("pal-near").addEventListener("click",()=>Palette.set("nearest",!Palette.state.nearest));
+  el("pal-forget").addEventListener("click",()=>Palette.remove(Palette.state.id));
+  el("pal-load").addEventListener("click",()=>el("pal-file").click());
+  el("pal-file").addEventListener("change",e=>{
+    palLoad(e.target.files&&e.target.files[0]);
+    e.target.value="";                                  // so the same file can be loaded twice
+  });
+
+  /* drag a swatch sheet or a .hex straight onto the bar */
+  const bar=el("palbar");
+  const stop=e=>{e.preventDefault();e.stopPropagation();};
+  bar.addEventListener("dragenter",e=>{stop(e);bar.classList.add("drop");});
+  bar.addEventListener("dragover",e=>{stop(e);e.dataTransfer.dropEffect="copy";});
+  bar.addEventListener("dragleave",e=>{stop(e);bar.classList.remove("drop");});
+  bar.addEventListener("drop",e=>{
+    stop(e);bar.classList.remove("drop");
+    const dt=e.dataTransfer;
+    if(dt.files&&dt.files.length)palLoad(dt.files[0]);
+    else{
+      /* a run of hexes pasted or dragged as plain text is a palette too */
+      const txt=dt.getData("text");
+      const cols=txt?Palette.parse(txt):[];
+      if(cols.length){const id=Palette.add("Dropped",cols);if(id)Palette.set("id",id);}
+      else setStatus("Nothing palette-shaped in that");
+    }
+  });
+
+  Palette.on(()=>{palSync();palRepaint();});
+  palSync();
 }
 
 /* ============================ mode switching ============================ */
@@ -943,6 +1072,7 @@ function boot(){
     if(b)activate(b.dataset.mode);
   });
 
+  initPalette();
   noGL=!initGL();
 
   el("tabs").addEventListener("click",e=>{

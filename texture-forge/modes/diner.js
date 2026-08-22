@@ -511,8 +511,7 @@ Forge.register({
     {title:"Face & size",open:true,rows:[
       {id:"face",type:"select",label:"Face",value:"front",options:[
         ["front","Front — entrance"],["side","Side — the long run"],["back","Back — service"]]},
-      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:[
-        [512,"512 px wide"],[1024,"1024 px wide"],[2048,"2048 px wide"],[4096,"4096 px — slow, heavy"]]},
+      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:Forge.sizes("wide")},
       {id:"bodyW",label:"Front & back width",unit:"ft",min:12,max:60,step:0.5,value:30},
       {id:"bodyL",label:"Side length",unit:"ft",min:16,max:120,step:1,value:52},
       {type:"readout"},

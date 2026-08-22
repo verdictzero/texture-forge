@@ -718,8 +718,7 @@ Forge.register({
 
   controls:[
     {title:"Scale & output",open:true,rows:[
-      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:[
-        [512,"512 × 512"],[1024,"1024 × 1024"],[2048,"2048 × 2048"],[4096,"4096 × 4096 — slow, heavy"]]},
+      {id:"size",type:"select",label:"Resolution",value:1024,showValue:true,options:Forge.sizes("square")},
       {id:"tileM",label:"Tile covers",unit:"m",min:0.4,max:8,step:0.1,value:2},
       {type:"readout"},
       {id:"seed",type:"seed",value:1974}

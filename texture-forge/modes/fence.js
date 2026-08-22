@@ -2014,8 +2014,7 @@ Forge.register({
 
   controls:[
     {title:"Fence & output",open:true,rows:[
-      {id:"size",type:"select",label:"Texture width",value:1024,showValue:true,options:[
-        [512,"512"],[1024,"1024"],[2048,"2048"],[4096,"4096 — slow, heavy"]]},
+      {id:"size",type:"select",label:"Texture width",value:1024,showValue:true,options:Forge.sizes("plain")},
       {id:"type",type:"select",label:"Fence",value:"board",options:[
         ["board","Board privacy"],["picket","Picket"],["rail","Split rail / ranch rail"],
         ["chain","Chain link"],["mesh","Welded wire site panel"],

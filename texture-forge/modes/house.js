@@ -43,8 +43,7 @@ Forge.register({
 
   controls:[
     {title:"Building",open:true,rows:[
-      {id:"size",type:"select",label:"Texture width",value:1024,showValue:true,options:[
-        [512,"512"],[1024,"1024"],[2048,"2048"],[4096,"4096 — slow, heavy"]]},
+      {id:"size",type:"select",label:"Texture width",value:1024,showValue:true,options:Forge.sizes("plain")},
       {type:"readout"},
       {id:"facadeW",label:"Facade width",unit:"ft",min:12,max:60,step:0.5,value:26},
       {id:"storeys",label:"Storeys",min:1,max:3,step:1,value:2},
