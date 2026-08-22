@@ -62,6 +62,11 @@ function worley(x,y,seed,jit){
   W_f1=Math.sqrt(d1);W_f2=Math.sqrt(d2);W_cx=bx;W_cy=by;W_dx=ex;W_dy=ey;
 }
 const IN=1/12;                                   // one inch, in feet
+
+/* The six cans anybody actually has: oxide red, flat black, off-white, a blue,
+   a yellow, and primer grey. Hoisted because it is read per texel wherever the
+   graffiti stencil covers, and a fresh nested literal there is pure garbage. */
+const GPAL=[[188,44,52],[30,32,38],[228,224,214],[46,86,168],[196,168,52],[150,150,158]];
 /* feet to the nearest boundary of a grid of period L — the basis for every
    seam, joint, strap and form line on the building */
 const edgeDist=(v,L)=>{const f=v/L-Math.floor(v/L);return (f<0.5?f:1-f)*L;};
@@ -222,6 +227,19 @@ function mirror(list,FW){
    that sash sits behind the one in front of it, which is the whole reason a
    double-hung reads as two sashes and a slider reads as two panels. */
 function sashesFor(style,lc,lr){
+  const a=sashBoxes(style,lc,lr);
+  /* the pane hashes want an integer per sash; derive it once here rather than
+     from the sash's fractions on every pane texel */
+  for(let i=0;i<a.length;i++){
+    const s=a[i];
+    s.s1=((s.u0*97+s.v0*211)|0)*911;
+    s.s2=(s.u0*13)|0;
+    s.s3=((s.v0*29)|0)*50;
+  }
+  return a;
+}
+
+function sashBoxes(style,lc,lr){
   switch(style){
     case "pic":                                    // fixed centre light, operable flankers
       return [{u0:0,u1:0.21,v0:0,v1:1,back:1,lc:1,lr:2},
@@ -581,6 +599,10 @@ function build(params,io){
   const FW=g.FW,FH=g.FH;
   const ftPerPx=FW/TW;
   const ops=buildOpenings(g);
+  /* Every opening carries its own sash layout; this is only the floor under a
+     malformed one, and it is a build-scope constant so that the per-texel read
+     of it can never become a per-texel allocation. */
+  const DEFSASH=sashesFor("dh",P.liteC|0,P.liteR|0);
   const FURN=buildFurniture(g,ops);
   const SW=Math.min(TW,1024),SH=Math.max(8,Math.round(SW*FH/FW));
   const sten=buildStencil(g,SW,SH);
@@ -831,17 +853,25 @@ function build(params,io){
 
      Returns false where there is no plank, so the caller falls through and
      draws what is behind — which, in a boarded house, is the dark of the room. */
+  /* The lean, the plank count and the panel centre are fixed for a given
+     opening, and an opening's texels arrive in runs, so a one-entry memo takes
+     the hash, both trig calls and the division off the per-texel path. */
+  let Bsd=NaN,Bw=-1,Bhg=-1,Bca=1,Bsa=0,Bcx=0,Bcy=0,Bn=2,Bph=1;
   function boardPanel(lx,ly,w,hgt,sd){
     Mid=8;Mmet=0;Mwood=1;
-    /* the whole set leans: one nail goes in first and the rest follow it */
-    const ang=(hashi(sd,1,seed+301)-0.5)*0.13;
-    const cx=w*0.5,cy=hgt*0.5;
-    const ca=Math.cos(ang),sa=Math.sin(ang);
-    const ux=(lx-cx)*ca+(ly-cy)*sa+cx;
-    const uy=-(lx-cx)*sa+(ly-cy)*ca+cy;
-    const pw=(P.boardMat==="planks")?0.72:0.98;      // salvaged stock is narrower
-    const n=Math.max(2,Math.round(hgt/pw));
-    const ph=hgt/n;
+    if(sd!==Bsd||w!==Bw||hgt!==Bhg){
+      Bsd=sd;Bw=w;Bhg=hgt;
+      /* the whole set leans: one nail goes in first and the rest follow it */
+      const ang=(hashi(sd,1,seed+301)-0.5)*0.13;
+      Bca=Math.cos(ang);Bsa=Math.sin(ang);
+      Bcx=w*0.5;Bcy=hgt*0.5;
+      const pw=(P.boardMat==="planks")?0.72:0.98;    // salvaged stock is narrower
+      Bn=Math.max(2,Math.round(hgt/pw));
+      Bph=hgt/Bn;
+    }
+    const ux=(lx-Bcx)*Bca+(ly-Bcy)*Bsa+Bcx;
+    const uy=-(lx-Bcx)*Bsa+(ly-Bcy)*Bca+Bcy;
+    const n=Bn,ph=Bph;
     const pi=Math.floor(uy/ph);
     if(pi<0||pi>=n)return false;
     const f=uy/ph-pi;
@@ -1250,7 +1280,7 @@ function build(params,io){
           /* which sash we are in. At most three, so the walk is cheaper than the
              branch it replaced, and the front one wins where two overlap —
              which is exactly how a slider's panels pass one another. */
-          const SS=o.sash||sashesFor("dh",P.liteC|0,P.liteR|0);
+          const SS=o.sash||DEFSASH;
           const su=clamp(gx/gw,0,1),sv=clamp(gy2/gh,0,1);
           let S=SS[SS.length-1];
           for(let q=0;q<SS.length;q++){
@@ -1285,8 +1315,8 @@ function build(params,io){
           /* the pane itself, set back behind its own muntins */
           h=-(0.40+dz);
           id=3;wood=0;
-          const paneSeed=(o.brokeSeed+ci*31+ri*7+((S.u0*97+S.v0*211)|0)*911)|0;
-          const brokeP=(hashi(ci+((S.u0*13)|0),ri+((S.v0*29)|0)*50,o.brokeSeed)<P.broken*AB);
+          const paneSeed=(o.brokeSeed+ci*31+ri*7+S.s1)|0;
+          const brokeP=(hashi(ci+S.s2,ri+S.s3,o.brokeSeed)<P.broken*AB);
           const pu=mx/cwid,pv=my/chei;
           const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
           glass(pu,pv,edgeD,gx,gy2,paneSeed,o.lit&&!brokeP);
@@ -1592,17 +1622,16 @@ function build(params,io){
         /* graffiti and vines */
         if(AB>0){
           const su=wx/FW,sv=1-wy/FH;
-          const gcov=sample(su,sv,0)*P.graffiti*AB;
+          const gcov=(P.graffiti>0)?sample(su,sv,0)*P.graffiti*AB:0;
           if(gcov>0.02){
             const hue=sample(su,sv,1);
-            const pal=[[188,44,52],[30,32,38],[228,224,214],[46,86,168],[196,168,52],[150,150,158]];
-            const pc=pal[Math.min(pal.length-1,Math.floor(hue*pal.length))];
+            const pc=GPAL[Math.min(GPAL.length-1,Math.floor(hue*GPAL.length))];
             const pr=pc[0],pg=pc[1],pb=pc[2];
             const cov=clamp(gcov*1.9,0,1);
             r=lerp(r,pr,cov);gg=lerp(gg,pg,cov);b=lerp(b,pb,cov);
             rg=lerp(rg,0.7,cov*0.6);
           }
-          const vcov=sample(su,sv,2)*P.vines*AB;
+          const vcov=(P.vines>0)?sample(su,sv,2)*P.vines*AB:0;
           if(vcov>0.02){
             const cov=clamp(vcov*2.2,0,1);
             const vn=fbm(wx*30,wy*30,3,seed+127);
@@ -1658,20 +1687,31 @@ function build(params,io){
     const r1=clamp(Math.round(pxPerFt*Math.max(expo,0.12)*0.55),2,26);
     const r2=clamp(Math.round(pxPerFt*0.34),3,48);     // 4 in — casing, sill, batten
     const r3=clamp(Math.round(pxPerFt*1.35),8,200);    // 16 in — the opening as a whole
-    const b1=boxBlur(HGT,TW,TH,r1),b2=boxBlur(HGT,TW,TH,r2),b3=boxBlur(HGT,TW,TH,r3);
     const sc=1/0.28;                                   // a 3-4 in recess reads as full occlusion
-    for(let i=0;i<TW*TH;i++){
+    const N=TW*TH;
+    /* The broad term is the one that says "you are inside a hole"; the tight
+       ones say "you are against something". Screening rather than adding them
+       keeps a texel that is both from going past black — and because screening
+       is a product, each radius can be folded in and thrown away before the
+       next one is taken. Holding all three blurs live costs 12 bytes a texel on
+       an image whose height is the facade's real aspect, not TW; folding costs
+       4, and the accumulator is released before the normal pass runs. */
+    let acc=new Float32Array(N);acc.fill(1);
+    const fold=(rad,gain,w)=>{
+      let b=boxBlur(HGT,TW,TH,rad);
+      for(let i=0;i<N;i++){
+        if(!ALP[i])continue;
+        const c=clamp((b[i]-HGT[i])*sc*gain,0,1);
+        acc[i]*=(1-c*w);
+      }
+      b=null;
+    };
+    fold(r1,2.6,0.55);fold(r2,1.9,0.70);fold(r3,1.15,0.80);
+    for(let i=0;i<N;i++){
       if(!ALP[i]){AOc[i]=255;continue;}
-      const h0=HGT[i];
-      const c1=clamp((b1[i]-h0)*sc*2.6,0,1);
-      const c2=clamp((b2[i]-h0)*sc*1.9,0,1);
-      const c3=clamp((b3[i]-h0)*sc*1.15,0,1);
-      /* the broad term is the one that says "you are inside a hole"; the tight
-         ones say "you are against something". Screening rather than adding them
-         keeps a texel that is both from going past black. */
-      const occ=(1-(1-c1*0.55)*(1-c2*0.70)*(1-c3*0.80))*P.aoStr;
-      AOc[i]=clamp(1-occ,0,1)*255;
+      AOc[i]=clamp(1-(1-acc[i])*P.aoStr,0,1)*255;
     }
+    acc=null;
     io.progress(0.85);
     hMin=Infinity;hMax=-Infinity;
     for(let i=0;i<TW*TH;i++){if(!ALP[i])continue;const h=HGT[i];if(h<hMin)hMin=h;if(h>hMax)hMax=h;}
