@@ -15,6 +15,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   index.html            the app
   forge-core.js         shared runtime: panel, preview, export, zip, wizard
   forge-palette.js      palette, dither and nearest-neighbour filtering
+  forge-fonts.js        typeface registry — loads one, bundles none
   modes/street.js       asphalt and street layout
   modes/plating.js      seamless riveted aircraft skin
   modes/house.js        American house front elevation
@@ -136,20 +137,55 @@ House — American house front elevation
   gable front gives you a real cut-out silhouette to drop onto a plane.
 
   Cladding: clapboard, vinyl, board and batten, wood shingle, brick, stucco,
-  stone veneer. Openings: double-hung sashes with configurable lites, casing,
-  projecting sills, shutters, and six-panel / four-panel / half-light / flush
-  doors with transoms, hoods and steps. At the eave, a fascia board carrying a
-  K-style gutter and a connected downspout — and no soffit, for the reason in
-  BUILT FOR 3D above. Fascia depth sets the whole eave band, so it also sets
-  how much board shows below the gutter.
+  stone veneer. At the eave, a fascia board carrying a K-style gutter and a
+  connected downspout — and no soffit, for the reason in BUILT FOR 3D above.
+  Fascia depth sets the whole eave band, so it also sets how much board shows
+  below the gutter.
+
+  Windows are not all the same window. An opening carries a sash layout worked
+  out once when the elevation is laid out, so the texel loop only walks it:
+  double-hung with or without muntins, a casement pair, a horizontal slider
+  whose panels pass one another, a picture window with operable flankers, and a
+  top-hung awning light where the bathroom is. A picture window is not a
+  double-hung stretched — it is wider, shorter and lower-silled, and it is sized
+  that way. "Picture below, double-hung above" is the arrangement most American
+  houses actually have. Doors are six-panel, four-panel, half-light or flush,
+  with transoms, hoods and steps.
+
+  A window is also a HOLE, and that is most of what makes one read. The jamb is
+  a surface facing sideways into a hole and sees no sky, so it is drawn much
+  darker than the casing around it; the sashes sit deeper, each behind the one
+  in front; and the glass is a dark room with the sky reflected on it rather
+  than a ramp to mid grey.
+
+  The other thing that makes a wall read is the shadow line each siding course
+  throws on the one below. That belongs in the base colour as well as the height
+  map — it is a real material difference, since the strip under a lap never sees
+  sun so it never bleaches, and dirt washing down the wall stops under the lip
+  and stays. "Course shadow line" is that, with the same treatment on shingle
+  butts and beside battens.
 
   Weathering: sun fade, peeling paint through undercoat to bare wood, drip
-  streaks, splash-back, mildew, nail rust, rot and overall grunge.
-  Abandonment: boarded windows (OSB, plywood or salvaged planks), broken
-  glass, graffiti, climbing vines, missing siding exposing felt and studs.
+  streaks, splash-back, mildew, nail rust, rot and overall grunge. Paint fails a
+  BOARD at a time — a board is one piece of wood with one history, and when the
+  film lets go it goes from that board's own butt and cut ends inwards while its
+  neighbour stays sound.
 
-  Presets: colonial, bungalow, brick rowhouse, vinyl tract, abandoned,
-  derelict shell.
+  Abandonment: boarding that went up in a hurry out of whatever was in the van,
+  planks not quite level with daylight between them and nails where they cross a
+  jamb, some of them prised off from the bottom because that is where a person
+  is — in OSB, plywood or salvaged planks, each failing in its own way. Broken
+  glass that reads as a hole with shards at the rim. Graffiti drawn as WRITING,
+  in a real graffiti face (see TYPEFACES below). Vines that are rooted at grade,
+  climb, branch and carry their leaves on the stem. Missing siding exposing felt
+  and studs.
+
+  Presets, fifteen of them: colonial, Cape Cod, white farmhouse, bungalow,
+  Craftsman, Queen Anne, mid-century ranch, vinyl tract, shotgun house, brick
+  rowhouse, stucco & parapet, and four derelicts that are derelict in different
+  ways — abandoned, long empty, condemned & boarded, derelict shell. What
+  separates the last four is which failure came first: nobody came back, or the
+  weather got in, or the city came and closed it up.
 
 Envelope — the rest of the house
   The house mode draws the street front; this one draws everything else, off
@@ -484,6 +520,39 @@ in all of them, and every panel keeps whatever it had at that moment.
 Neither one carries resolution, and the wizard does not carry the face either:
 how many texels you want of a given face is a property of the export, not of the
 building, and which face a step is is the one thing that step exists to pin.
+
+
+TYPEFACES
+---------
+Some things a texture needs are LETTERS — a tag sprayed on a derelict wall being
+the obvious one — and letters want a typeface. Drawn as curly strokes instead,
+graffiti comes out as a smear that reads as a stain: the eye knows at once that
+nobody wrote it.
+
+THE APP BUNDLES NO FONT, deliberately. This repository carries six graffiti
+faces in fonts/, and that directory is already outside the published site — the
+Pages workflow uploads texture-forge/ and nothing above it. Three of the six are
+personal-use or demo cuts whose terms do not cover redistribution, and three
+arrived with no licence file at all, which is unknown terms rather than free
+terms. fonts/README.txt quotes what each one actually ships with. Copying them
+in beside index.html would publish all six to a public URL.
+
+So a face arrives one of three ways instead:
+
+  dropped in     the reliable one. "Load…" beside the face picker takes a
+                 .ttf/.otf/.woff and registers it straight from its bytes.
+                 Nothing is fetched, nothing is published, and it works on the
+                 hosted copy exactly as it does locally.
+  found locally  served over http from the repository ROOT — say
+                 `python3 -m http.server` there, then open
+                 /texture-forge/index.html — the six in fonts/ are one
+                 directory up and load on their own.
+  not at all     opened as a plain file:// page the browser refuses the fetch,
+                 and on the hosted copy they are not there. Both fail quietly
+                 and the mode falls back to what it did before.
+
+A face registered there is available to every mode, so the next one that wants
+lettering does not have to solve this again.
 
 
 PALETTE, DITHER AND NEAREST

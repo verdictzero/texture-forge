@@ -144,6 +144,8 @@ naming what it dropped in `readout(P)`.
 {id:"seed",type:"seed",value:1963}                                          // number + Roll
 {type:"colors",label:"Bitumen · stone",items:[{id:"cBitumen",value:"#2b2b2c"}, …]}
 {type:"checks",items:[{id:"flipG",label:"Flip green (DirectX)",value:false}]}
+{id:"sign",type:"text",label:"Word",value:"OPEN",placeholder:"anything",maxlength:24}
+{id:"face",type:"font",label:"Typeface",value:"auto"}   // see Lettering below
 {type:"readout"}                                    // filled by readout(P)
 {type:"note",html:"Standing text."}
 ```
@@ -304,6 +306,33 @@ build a family like that, two things are worth copying: mirror on the edit that
 switches the link *off* as well as while it is on — otherwise the other panels
 sit there still believing they are linked — and set the link flag on the
 targets as you go, so they do not each fire their own off-mirror later.
+
+## Lettering
+
+Anything that has to draw WORDS — a tag on a wall, a sign, a stencil — needs a
+typeface, and the app deliberately bundles none: the six graffiti faces in this
+repository's `fonts/` are personal-use cuts or came with no licence at all, and
+publishing them beside `index.html` would be redistributing them. `forge-fonts.js`
+is the registry that gets round it.
+
+```js
+const face = window.ForgeFonts && ForgeFonts.resolve(P.myFontControl);
+if (face) {
+  ctx.font = size + 'px "' + face.css + '", sans-serif';
+  ctx.fillText(word, x, y);
+} else {
+  // draw whatever you did before — a face is never guaranteed
+}
+```
+
+`resolve()` takes what the control holds: a specific id, `"auto"` for whatever is
+registered, or `"none"` to ask for your fallback on purpose. It returns null when
+there is nothing, and **your mode must cope with that** — served as a plain
+file:// page there will usually be no face at all.
+
+A `type:"font"` control gives the user a picker plus a Load button that registers
+a file straight from its bytes, so it works on the hosted copy too. Faces are
+global: one registered for your mode is available to every other.
 
 ## Structures: several faces of one thing
 
