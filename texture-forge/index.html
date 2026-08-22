@@ -102,6 +102,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;heigh
 input[type=range]::-moz-range-track{height:3px;background:#3d4045;border-radius:2px}
 input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:1px;background:var(--paint);border:1px solid #000}
 input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+input[type=text]{width:100%;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink);
+  background:#141618;border:1px solid #34383d;border-radius:2px;padding:6px 8px}
+input[type=text]:focus{outline:none;border-color:var(--accent)}
 select,input[type=number]{width:100%;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink);
   background:#212327;border:1px solid #3a3d41;border-radius:2px;padding:6px}
 .swatches{display:flex;gap:8px}.swatch{flex:1}
@@ -310,6 +313,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <!-- The runtime first, then one file per mode. Adding a mode is a new file
      here plus modes/<name>.js — nothing else in the app needs to change. -->
 <script src="forge-palette.js"></script>
+<script src="forge-fonts.js"></script>
 <script src="forge-core.js"></script>
 <script src="modes/street.js"></script>
 <script src="modes/plating.js"></script>

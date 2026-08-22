@@ -299,6 +299,62 @@ function buildRow(st,row,params){
     return wrap;
   }
 
+  if(kind==="text"){
+    const lab=make("label",null,row.label);
+    lab.htmlFor=pid(st,row.id);
+    const inp=make("input");
+    inp.type="text";inp.id=pid(st,row.id);inp.value=row.value==null?"":row.value;
+    if(row.placeholder)inp.placeholder=row.placeholder;
+    if(row.maxlength)inp.maxLength=row.maxlength;
+    wrap.appendChild(lab);wrap.appendChild(inp);
+    params.push({id:row.id,kind:"text"});
+    return wrap;
+  }
+
+  /* A typeface is an asset the app deliberately does not ship — see the note at
+     the top of forge-fonts.js — so the picker has to be able to take one from
+     the user as well as list whatever was found. */
+  if(kind==="font"){
+    const lab=make("label",null,row.label||"Typeface");
+    lab.htmlFor=pid(st,row.id);
+    const line=make("div","seedrow");
+    const sel=make("select");
+    sel.id=pid(st,row.id);
+    const file=make("input");
+    file.type="file";file.hidden=true;
+    file.accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff";
+    const btn=make("button","mini","Load…");
+    btn.type="button";
+    const fill=()=>{
+      const keep=sel.value;
+      sel.innerHTML="";
+      const none=make("option",null,row.noneLabel||"None");
+      none.value="none";sel.appendChild(none);
+      for(const f of (window.ForgeFonts?ForgeFonts.list():[])){
+        const o=make("option",null,f.label+(f.from==="dropped"?" · loaded":""));
+        o.value=f.id;sel.appendChild(o);
+      }
+      sel.value=keep&&[...sel.options].some(o=>o.value===keep)?keep:(row.value||"none");
+    };
+    btn.addEventListener("click",()=>file.click());
+    file.addEventListener("change",e=>{
+      const f=e.target.files&&e.target.files[0];
+      e.target.value="";
+      if(!f||!window.ForgeFonts)return;
+      ForgeFonts.loadFile(f).then(id=>{
+        fill();sel.value=id;
+        readParams(st);queue(st,false);
+        setStatus(f.name+" loaded");
+      },msg=>setStatus(String(msg)));
+    });
+    line.appendChild(sel);line.appendChild(btn);
+    wrap.appendChild(lab);wrap.appendChild(line);
+    if(window.ForgeFonts)ForgeFonts.on(fill);
+    fill();
+    params.push({id:row.id,kind:"select",numeric:false});
+    return wrap;
+  }
+
   if(kind==="seed"){
     const lab=make("label",null,row.label||"Seed");
     lab.htmlFor=pid(st,row.id);
@@ -356,6 +412,10 @@ function wireInputs(st){
       /* dragging previews, releasing rebuilds at full size */
       n.addEventListener("input",()=>{readParams(st);queue(st,true);});
       n.addEventListener("change",()=>{readParams(st);queue(st,false);});
+    }else if(d.kind==="text"){
+      /* typing a word rebuilds on the pause, not on every keystroke */
+      n.addEventListener("input",()=>{readParams(st);queue(st,true);});
+      n.addEventListener("change",()=>{readParams(st);queue(st,false);});
     }else{
       n.addEventListener("change",()=>{readParams(st);queue(st,false);});
     }
@@ -370,6 +430,7 @@ function readParams(st){
     const n=node(st,d.id);
     if(!n)continue;
     if(d.kind==="check")P[d.id]=n.checked;
+    else if(d.kind==="text")P[d.id]=n.value;
     else if(d.kind==="color")P[d.id]=n.value;
     else if(d.kind==="select")P[d.id]=d.numeric?+n.value:n.value;
     else P[d.id]=+n.value;
@@ -1326,6 +1387,8 @@ function boot(){
 
   initPalette();
   initWizard();
+  /* best effort and silent: see the note at the top of forge-fonts.js */
+  if(window.ForgeFonts)ForgeFonts.scan().catch(()=>{});
   noGL=!initGL();
 
   el("tabs").addEventListener("click",e=>{
@@ -1386,6 +1449,7 @@ Forge.setParam=function(modeId,id,value){
   const n=d&&node(st,id);
   if(!n)return false;
   const v=(d.kind==="check")?!!value
+    :(d.kind==="text")?String(value)
     :(d.kind==="color")?String(value)
     :(d.kind==="select")?(d.numeric?+value:String(value))
     :+value;
