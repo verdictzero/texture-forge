@@ -393,6 +393,27 @@ function build(params,io){
   const NBu=Math.max(4,Math.round(TM/0.008));               // broom striations
   const useBroom=(S/NBu)>=2.5;
 
+  /* ---- edge decay: the surface eaten in from the tile's own edges ----
+     Layered twice over. The NOISE is layered — chunk, block and crumb bands of
+     it — and so is the ROAD: the wearing course goes first, the binder course
+     under it next, then the granular base, then subgrade, each eaten back a
+     little less far than the one above it. That is what gives a real broken
+     edge its concentric strata rather than one clean bite. Any combination of
+     the four sides can be on; whichever are, that axis stops tiling, and the
+     tag under the preview says which ones still do. */
+  const DECAY=(P.decT||P.decB||P.decL||P.decR)&&P.decay>0;
+  const decReach=Math.max(0.02,P.decReach);
+  const decDrive=0.45+P.decay*1.35;
+  const decD=P.decDeep/1000;                                // the whole stack, in metres
+  const NDa=Math.max(4,Math.round(TM/Math.max(0.05,P.decChunk)));
+  const NDb=NDa*3,NDc=NDa*9,NDcr=NDa*15;
+  const useDecC=(S/NDc)>=2.2,useDecCr=(S/NDcr)>=2.2;
+  const NDs=Math.max(4,Math.round(TM/0.03));                // 30 mm crushed base stone
+  const useDecS=(S/NDs)>=2.5;
+  const NDr=Math.max(4,Math.round(TM/Math.max(0.06,P.decChunk*0.55)));
+  const useDecR=(S/NDr)>=2.2;
+  const cBase=hex2rgb(P.cBase),cSub=hex2rgb(P.cSub);
+
   const band=Math.max(4,Math.round(24576/S));
   let y=0;
 
@@ -775,6 +796,104 @@ function build(params,io){
           MK[i]=paint*255;MKY[i]=yl*255;
         }
 
+        /* ---- edge decay: strata of the road eaten back from the chosen sides ---- */
+        let gone=0;
+        if(DECAY){
+          let dm=1e9;
+          if(P.decT)dm=v*TM;
+          if(P.decB&&(1-v)*TM<dm)dm=(1-v)*TM;
+          if(P.decL&&u*TM<dm)dm=u*TM;
+          if(P.decR&&(1-u)*TM<dm)dm=(1-u)*TM;
+          const et=1-dm/decReach;
+          if(et>0){
+            /* The edge pushes inward against the noise: where it wins, that
+               course is gone, and each course under it needs the edge to push
+               harder still. The push is LINEAR in the distance travelled, which
+               is what spreads the three strata evenly across the reach — raise
+               it to a power and they all bunch into the last few centimetres
+               and read as one ruled band. */
+            const drive=et*decDrive;
+            const nA=fbm(u,v,NDa,3,seed+2101);
+            const nB=fbm(u,v,NDb,3,seed+2103);
+            const nC=useDecC?fbm(u,v,NDc,2,seed+2107):0.5;
+            /* two readings of "broken", crossfaded by the chunkiness slider: a
+               smooth erosion field, and whole polygonal chunks lifting out
+               along the crack network. Bound asphalt does the second — it
+               fails in slabs with straight edges — and an unbound shoulder
+               does the first, so the slider is really asking what the edge is
+               made of. Each chunk's resistance is constant across it, so the
+               boundary lands on the chunk border rather than cutting it. */
+            worley(u*NDa+(nA-0.5)*0.9,v*NDa+(nB-0.5)*0.9,NDa,seed+2113,0.95);
+            const chunk=hashi(W_cx,W_cy,seed+2117);
+            let f1=lerp(nA*0.52+nB*0.30+nC*0.18,chunk*0.70+nB*0.19+nC*0.11,P.decRag);
+            f1=clamp((f1-0.5)*1.55+0.5,0,1);
+            const eW=0.022;
+            const g1=smoothstep(f1-eW,f1+eW,drive);
+            if(g1>0.002){
+              /* The courses under it erode rather than break, so their edges
+                 are smoother — but they must not simply PARALLEL the one above
+                 or the strata come out as ruled bands. Each takes its own share
+                 of a coarse field the top one never saw, so they wander in and
+                 out of each other the way a real section does. */
+              const nD=fbm(u,v,Math.max(4,Math.round(NDa*0.6)),2,seed+2131);
+              const f2=clamp(f1*0.52+nD*0.32+nB*0.16,0,1);
+              const f3=clamp(f1*0.34+(1-nD)*0.38+nC*0.28,0,1);
+              const g2b=smoothstep(f2-eW,f2+eW,drive-0.34);
+              const g3=smoothstep(f3-eW,f3+eW,drive-0.68);
+              const rim=smoothstep(f1-eW*3.5,f1-eW,drive)*(1-g1);   // the standing lip
+              h-=g1*decD*0.34+g2b*decD*0.34+g3*decD*0.32;
+              h-=rim*decD*0.10;                                     // undercut behind it
+              if(useDecCr)h+=(fbm(u,v,NDcr,2,seed+2111)-0.5)*aggM*1.5*g1;
+
+              /* binder course first: the same mix without the fines, so coarser
+                 and more open than the wearing course that was over it */
+              const bt=0.70+nC*0.62;
+              let lr=bit[0]*bt+10,lg=bit[1]*bt+10,lb=bit[2]*bt+9;
+              if(g2b>0.002){                                        // granular base
+                let br=cBase[0],bg=cBase[1],bb=cBase[2];
+                if(useDecS){
+                  worley(u*NDs,v*NDs,NDs,seed+2161,0.95);
+                  const sm=1-smoothstep(0.26,0.40,W_f1);
+                  const tone=lerp(0.84,0.80+hashi(W_cx,W_cy,seed+2163)*0.45,sm);
+                  br*=tone;bg*=tone;bb*=tone;
+                  h+=sm*g2b*aggM*0.30;
+                }
+                lr=lerp(lr,br,g2b);lg=lerp(lg,bg,g2b);lb=lerp(lb,bb,g2b);
+              }
+              if(g3>0.002){                                         // subgrade
+                const sd=0.80+nC*0.44;
+                lr=lerp(lr,cSub[0]*sd,g3);lg=lerp(lg,cSub[1]*sd,g3);lb=lerp(lb,cSub[2]*sd,g3);
+              }
+              r=lerp(r,lr,g1);g2=lerp(g2,lg,g1);b=lerp(b,lb,g1);
+              rough=lerp(rough,0.96,g1*0.9);
+
+              /* chunks of the old surface lying loose in the break */
+              if(P.decRubble>0&&useDecR){
+                worley(u*NDr+(fbm(u,v,40,2,seed+2141)-0.5)*0.8,
+                       v*NDr+(fbm(u,v,40,2,seed+2143)-0.5)*0.8,NDr,seed+2147,0.95);
+                if(hashi(W_cx,W_cy,seed+2149)<P.decRubble*0.45){
+                  const rr=0.20+hashi(W_cx,W_cy,seed+2153)*0.16;
+                  const cm=(1-smoothstep(rr*0.82,rr,W_f1))*g1*(1-g3*0.7);
+                  if(cm>0.002){
+                    h+=cm*decD*0.22;
+                    const ct=0.9+hashi(W_cx,W_cy,seed+2159)*0.5;
+                    r=lerp(r,bit[0]*ct+13,cm*0.95);g2=lerp(g2,bit[1]*ct+13,cm*0.95);
+                    b=lerp(b,bit[2]*ct+12,cm*0.95);
+                    rough=lerp(rough,0.92,cm*0.7);
+                  }
+                }
+              }
+
+              const rd=lerp(1,0.58,rim);
+              r*=rd;g2*=rd;b*=rd;
+              rough=lerp(rough,0.95,rim*0.6);
+              if(MK[i])MK[i]=MK[i]*(1-g1);                          // no decal over a hole
+              recess=clamp(recess+g1*0.55+rim*0.40,0,1);
+              gone=g1;
+            }
+          }
+        }
+
         /* ---- grunge: broad filth over every material, heaviest in the recesses ---- */
         if(P.grunge>0){
           const gA=fbm(u,v,5,4,seed+1801);
@@ -806,7 +925,7 @@ function build(params,io){
         A[i*3]=r;A[i*3+1]=g2;A[i*3+2]=b;
         RGH[i]=clamp(rough,0.02,1)*255;
         MET[i]=0;
-        AOc[i]=clamp(1-crack*0.35-hole*0.3,0,1)*255;
+        AOc[i]=clamp(1-crack*0.35-hole*0.3-gone*0.22,0,1)*255;
       }
     }
     if(y<S){io.progress(y/S*0.6);setTimeout(pass1,0);}
@@ -906,6 +1025,13 @@ Forge.register({
       coverage:0.75,protrude:0.65,angular:0.6,fines:0.35,
       alligator:0.6,crackCellM:0.3,crackWmm:20,crackD:0.75,longCrack:0.7,sealant:0.5,ravel:0.6,
       pothole:0.3,patches:4,joint:0.4,rut:0.45,polish:0.3,markWear:0.8,oil:0.45,dust:0.5,wet:0,puddles:0}},
+    {id:"broken",label:"Broken edge",set:{grunge:0.7,tileM:8,aggMm:14,size:2048,piece:"centre",lanes:2,laneW:3.2,shoulderW:0.3,lineW:0.1,
+      centreType:"dash_y",edgeType:"none",coverage:0.8,protrude:0.7,angular:0.65,fines:0.3,
+      alligator:0.65,crackCellM:0.3,crackWmm:24,crackD:0.8,longCrack:0.65,sealant:0.35,ravel:0.7,
+      pothole:0.35,patches:3,joint:0.2,rut:0.45,polish:0.15,markWear:0.75,oil:0.2,dust:0.55,wet:0,puddles:0,
+      kerb:"none",decT:true,decB:true,decL:false,decR:false,
+      decay:0.7,decReach:2.2,decChunk:0.4,decRag:0.7,decDeep:110,decRubble:0.6,
+      cBase:"#9a938a",cSub:"#6c5a45"}},
     {id:"junction",label:"Intersection",set:{grunge:0.4,tileM:20,aggMm:12,size:2048,piece:"inter",lanes:2,laneW:3.65,shoulderW:0.6,lineW:0.15,
       centreType:"double_y",edgeType:"w",laneDash:true,interRadius:6,interStop:true,interCross:true,
       cwStyle:"continental",cwDepth:3,cwBarW:0.5,cwGap:0.6,
@@ -997,6 +1123,28 @@ Forge.register({
       {id:"patches",label:"Patches",min:0,max:8,step:1,value:2},
       {id:"joint",label:"Paving joint",min:0,max:1,step:0.01,value:0.35}
     ]},
+    {title:"Edge decay",rows:[
+      {type:"checks",items:[
+        {id:"decT",label:"Eat in from the top edge",value:false},
+        {id:"decB",label:"Eat in from the bottom edge",value:false},
+        {id:"decL",label:"Eat in from the left edge",value:false},
+        {id:"decR",label:"Eat in from the right edge",value:false}]},
+      {id:"decay",label:"Break-up",min:0,max:1,step:0.01,value:0.55},
+      {id:"decReach",label:"Reach in from the edge",unit:"m",min:0.1,max:12,step:0.1,value:1.5},
+      {id:"decChunk",label:"Chunk size",unit:"m",min:0.05,max:2,step:0.01,value:0.35},
+      {id:"decRag",label:"Chunkiness",min:0,max:1,step:0.01,value:0.6},
+      {id:"decDeep",label:"Depth to subgrade",unit:"mm",min:10,max:300,step:5,value:90},
+      {id:"decRubble",label:"Loose rubble",min:0,max:1,step:0.01,value:0.45},
+      {type:"colors",label:"Granular base · subgrade",items:[
+        {id:"cBase",value:"#9a938a"},{id:"cSub",value:"#6c5a45"}]},
+      {type:"note",html:"Layered twice: the noise runs from chunk down to crumb, and so does the "+
+        "road — wearing course, binder course, granular base, subgrade, each eaten back a little "+
+        "less far than the one above, so the break shows its strata. <b>Chunkiness</b> decides "+
+        "whether the surfacing lifts out in slabs with straight edges, which is what bound "+
+        "asphalt does, or crumbles away, which is what an unbound shoulder does. Any combination "+
+        "of sides works, kerb and footway included. Turning a side on <b>stops that axis "+
+        "tiling</b>; the tag under the preview says which axes still repeat."}
+    ]},
     {title:"Traffic & weather",rows:[
       {id:"rut",label:"Wheel rutting",min:0,max:1,step:0.01,value:0.25},
       {id:"polish",label:"Wheel-path polish",min:0,max:1,step:0.01,value:0.3},
@@ -1025,10 +1173,18 @@ Forge.register({
     return need;
   },
 
+  /* a decayed side is a torn edge, so that axis stops repeating whatever the
+     piece would otherwise have done */
   tileTag:function(P){
     const t=PIECE_TILING[P.piece]||"both";
-    return t==="both"?"tiles ↔ and ↕"
-      :(t==="u"?"tiles ↔ along the road":"single piece — butts against neighbours");
+    let uT=(t==="both"||t==="u"),vT=(t==="both");
+    if(P.decay>0){
+      if(P.decL||P.decR)uT=false;
+      if(P.decT||P.decB)vT=false;
+    }
+    return (uT&&vT)?"tiles ↔ and ↕"
+      :(uT?"tiles ↔ along the road"
+      :(vT?"tiles ↕ only":"single piece — butts against neighbours"));
   },
 
   /* the numbers that decide whether this resolution can hold the detail */
@@ -1043,6 +1199,14 @@ Forge.register({
     if((PIECE_NEEDS[P.piece]||[]).includes("road")){
       msg+="<br>road <b>"+road.toFixed(2)+" m</b> wide in a "+P.tileM.toFixed(1)+" m tile";
       if(road>P.tileM)msg+=' <span class="warn">— wider than the tile</span>';
+    }
+    const sides=[P.decT&&"top",P.decB&&"bottom",P.decL&&"left",P.decR&&"right"].filter(Boolean);
+    if(P.decay>0&&sides.length){
+      msg+="<br>decayed "+sides.join(", ")+" · <b>"+(+P.decReach).toFixed(1)+" m</b> in, "+
+        (+P.decDeep).toFixed(0)+" mm down to subgrade";
+      const chunkPx=P.decChunk*pxPerM;
+      if(chunkPx<6)msg+=' <span class="warn">— chunks '+chunkPx.toFixed(1)+' px, too small to read</span>';
+      if(P.decReach>P.tileM*0.5)msg+=' <span class="warn">— reach is over half the tile; the sides meet in the middle</span>';
     }
     if(P.kerb!=="none"){
       const corridor=road+2*(P.gutterW+0.05+P.curbTop+P.walkW);
@@ -1090,6 +1254,14 @@ Forge.register({
           "The kerb face is baked as a steep ramp about 50 mm wide. That reads fine from\n"+
           "above, but a vertical face cannot be represented in a heightmap, so for close\n"+
           "work model the kerb as geometry and use these maps as its surface material.\n"
+        : ""),
+      "",
+      (P.decay>0&&(P.decT||P.decB||P.decL||P.decR)
+        ? "\nEdge decay is on for the "+[P.decT&&"top",P.decB&&"bottom",P.decL&&"left",P.decR&&"right"]
+            .filter(Boolean).join(", ")+" edge(s): "+(+P.decReach).toFixed(1)+" m in, down through the\n"+
+          "binder course and the granular base to subgrade at "+(+P.decDeep).toFixed(0)+" mm. A decayed edge is a\n"+
+          "TORN edge, so that axis no longer repeats — butt it against terrain, not against\n"+
+          "another tile.\n"
         : ""),
       "",
       "Scale everything in your engine from that metre figure and pieces from this",
