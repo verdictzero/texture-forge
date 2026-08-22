@@ -5,8 +5,12 @@
    from paint through zinc-chromate primer to bare aluminium, scratches,
    streaks and seam grime. Tiles seamlessly in both axes.
 
-   Was panel-forge.html; the generator below is unchanged, so seeds and
-   exports match the standalone tool. Exported files keep the panel_ prefix.
+   Was panel-forge.html. Exported files keep the panel_ prefix. The generator
+   is the standalone tool's, with one deliberate departure: rivet heads are now
+   sieved against each other as they are laid, so a panel corner cannot stack a
+   stringer rivet on a butt rivet, and a field patch either borrows a section of
+   an existing seam line or sits clear of every one of them. Seeds from before
+   that change give the same panels and the same wear, but not the same rivets.
    ===================================================================== */
 "use strict";
 
@@ -47,16 +51,52 @@ function buildRivets(L){
   const off=P.seamW*0.004*0.55+R*1.35;              // offset from the seam centreline
   const styleOf=()=>P.rivStyle==="mixed"?(rng()<0.5?1:0):(P.rivStyle==="dome"?1:0);
   const wob=P.rivWobble;
-  const push=(x,y,s)=>{
+
+  /* Heads are sieved as they go down: one that would land on a head already
+     placed is dropped instead of stacked on top of it. Only rivets from
+     DIFFERENT runs are tested against each other — the pitch inside a run is
+     deliberate, and a run whose heads are a whole pitch across would otherwise
+     cull every second rivet of its own. Both sides of one seam count as a
+     single run for the same reason. What the sieve is really there for is the
+     panel CORNER, where a stringer row crosses a butt row and the two lines
+     pile a head straight onto a head.
+     Buckets are at least three head radii across, so the three-by-three
+     neighbourhood always holds everything within touching distance. */
+  const SG=clamp(Math.floor(1/Math.max(R*3,1/256)),4,256);
+  const sieve=new Array(SG*SG);
+  let run=0;
+  function push(x,y,s){
     x-=Math.floor(x);y-=Math.floor(y);
-    out.push({x:x,y:y,r:R*(1+(rng()-0.5)*0.25*(1+wob)),s:s,h:1+(rng()-0.5)*0.4*wob});
-  };
-  // rivets tracking the horizontal (stringer) seams
+    const r=R*(1+(rng()-0.5)*0.25*(1+wob)),hh=1+(rng()-0.5)*0.4*wob;
+    const gx=clamp(Math.floor(x*SG),0,SG-1),gy=clamp(Math.floor(y*SG),0,SG-1);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const list=sieve[((gy+dy+SG)%SG)*SG+((gx+dx+SG)%SG)];
+      if(!list)continue;
+      for(let i=0;i<list.length;i++){
+        const o=list[i];
+        if(o.run===run)continue;
+        const ax=wrapDist(x,o.x),ay=wrapDist(y,o.y),sep=(r+o.r)*1.03;
+        if(ax*ax+ay*ay<sep*sep)return false;         // the two heads would touch
+      }
+    }
+    const riv={x:x,y:y,r:r,s:s,h:hh,run:run};
+    const k=gy*SG+gx;
+    (sieve[k]||(sieve[k]=[])).push(riv);
+    out.push(riv);
+    return true;
+  }
+
+  /* Rivets tracking the horizontal (stringer) seams. Each line's pitch and
+     phase are kept: a field patch that laps this seam borrows a section of the
+     line itself rather than laying a second one a fraction of a pitch away. */
+  const stringer=[];
   for(let i=0;i<L.N;i++){
     const y=L.bounds[i];
     const n=Math.max(6,Math.round(1/P.rivSpace));
     const phase=rng();
     const sides=P.rivDouble?[-1,1]:[rng()<0.5?-1:1];
+    stringer.push({n:n,phase:phase,below:sides.indexOf(1)>=0,above:sides.indexOf(-1)>=0});
+    run++;
     for(const sgn of sides){
       const st=styleOf();
       for(let k=0;k<n;k++){
@@ -68,9 +108,12 @@ function buildRivets(L){
   // rivets tracking the vertical (butt-joint) seams, contained within their row
   for(const row of L.rows){
     const h=row.y1-row.y0;
+    row.butt=[];
     for(const sx of row.seams){
       const n=Math.max(2,Math.round(h/P.rivSpace));
       const sides=P.rivDouble?[-1,1]:[rng()<0.5?-1:1];
+      row.butt.push({n:n,right:sides.indexOf(1)>=0,left:sides.indexOf(-1)>=0});
+      run++;
       for(const sgn of sides){
         const st=styleOf();
         for(let k=0;k<n;k++){
@@ -80,17 +123,86 @@ function buildRivets(L){
       }
     }
   }
-  // field rivets: doublers and inspection patches inside panels
+
+  /* Field rivets: doubler and inspection patches inside a panel. A patch
+     either LAPS a seam — and then the seam's own rivet line IS the patch's
+     edge row, borrowed at that line's pitch and phase, with nothing new laid
+     beside it — or it sits as an island in the middle of the panel with the
+     best part of a pitch of bare skin between it and every seam line. The one
+     thing a patch must not do is put a row a fraction of a pitch off an
+     existing one, which is what blind placement did every time a patch
+     happened to wander across a seam. */
   if(P.rivField){
+    const pitch=P.rivSpace;
+    const clear=off+pitch*0.9;                       // an island keeps this far off a seam
     const patches=Math.round(2+rng()*4);
     for(let p=0;p<patches;p++){
-      const cx=rng(),cy=rng(),st=styleOf();
-      const w=P.rivSpace*(3+Math.floor(rng()*5)),hh=P.rivSpace*(3+Math.floor(rng()*5));
-      const nx=Math.max(2,Math.round(w/P.rivSpace)),ny=Math.max(2,Math.round(hh/P.rivSpace));
-      for(let a=0;a<nx;a++)for(let b=0;b<ny;b++){
-        const edge=(a===0||b===0||a===nx-1||b===ny-1);
-        if(!edge)continue;
-        push(cx+a*P.rivSpace,cy+b*P.rivSpace,st);
+      const ri=Math.floor(rng()*L.N),row=L.rows[ri];
+      const ns=row.seams.length;
+      const cj=Math.floor(rng()*ns);
+      const x0=row.seams[cj],x1=(cj+1<ns)?row.seams[cj+1]:row.seams[0]+1;
+      const pw=x1-x0,ph=row.y1-row.y0;
+      const bot=stringer[ri],top=stringer[(ri+1)%L.N];
+      const lft=row.butt[cj],rgt=row.butt[(cj+1)%ns];
+
+      /* which of the four panel edges actually carries a line to borrow */
+      const anchors=[];
+      if(bot.below)anchors.push(0);
+      if(top.above)anchors.push(1);
+      if(lft.right)anchors.push(2);
+      if(rgt.left)anchors.push(3);
+
+      const A=[],B=[];
+      let share=0;                                   // 1 = B[0] borrowed, 2 = A[0] borrowed
+      if(anchors.length&&rng()<0.55){
+        const side=anchors[Math.floor(rng()*anchors.length)];
+        if(side<2){
+          /* lapping a stringer: the patch's columns land on that line's own
+             rivets, so the shared edge is those rivets and not a copy of them */
+          const ln=side===0?bot:top,dir=side===0?1:-1;
+          const yb=side===0?row.y0+off:row.y1-off;
+          const kA=Math.ceil((x0+off)*ln.n-ln.phase),kB=Math.floor((x1-off)*ln.n-ln.phase);
+          const avail=kB-kA+1,deep=Math.floor((ph-off-clear)/pitch)+1;
+          if(avail>=3&&deep>=2){
+            const nx=Math.min(avail,3+Math.floor(rng()*5));
+            const k0=kA+Math.floor(rng()*(avail-nx+1));
+            const ny=Math.min(deep,2+Math.floor(rng()*3));
+            for(let a=0;a<nx;a++)A.push((k0+a+ln.phase)/ln.n);
+            for(let b=0;b<ny;b++)B.push(yb+dir*b*pitch);
+            share=1;
+          }
+        }else{
+          const ln=side===2?lft:rgt,dir=side===2?1:-1;
+          const xb=side===2?x0+off:x1-off,step=ph/ln.n;
+          const kA=Math.max(0,Math.ceil(off/step-0.5)),kB=Math.min(ln.n-1,Math.floor((ph-off)/step-0.5));
+          const avail=kB-kA+1,deep=Math.floor((pw-off-clear)/pitch)+1;
+          if(avail>=3&&deep>=2){
+            const ny=Math.min(avail,3+Math.floor(rng()*5));
+            const k0=kA+Math.floor(rng()*(avail-ny+1));
+            const nx=Math.min(deep,2+Math.floor(rng()*3));
+            for(let a=0;a<nx;a++)A.push(xb+dir*a*pitch);
+            for(let b=0;b<ny;b++)B.push(row.y0+(k0+b+0.5)*step);
+            share=2;
+          }
+        }
+      }
+      if(!share){                                    // an island, clear of every seam
+        const availW=pw-2*clear,availH=ph-2*clear;
+        const maxNx=Math.floor(availW/pitch)+1,maxNy=Math.floor(availH/pitch)+1;
+        if(maxNx<3||maxNy<3)continue;                // this panel cannot hold one
+        const nx=Math.min(maxNx,3+Math.floor(rng()*5)),ny=Math.min(maxNy,3+Math.floor(rng()*5));
+        const ox=x0+clear+rng()*(availW-(nx-1)*pitch);
+        const oy=row.y0+clear+rng()*(availH-(ny-1)*pitch);
+        for(let a=0;a<nx;a++)A.push(ox+a*pitch);
+        for(let b=0;b<ny;b++)B.push(oy+b*pitch);
+      }
+
+      const st=styleOf();run++;
+      for(let a=0;a<A.length;a++)for(let b=0;b<B.length;b++){
+        if(a>0&&a<A.length-1&&b>0&&b<B.length-1)continue;   // the perimeter only
+        if(share===1&&b===0)continue;                       // that row is already down
+        if(share===2&&a===0)continue;
+        push(A[a],B[b],st);
       }
     }
   }
