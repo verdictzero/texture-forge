@@ -23,7 +23,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/hazard.js       caution striping and industrial floor marking
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
-  modes/greeble.js      machined surface clutter
+  modes/greeble.js      machined surface clutter, stacked and routed
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/lib/            generators shared by more than one mode
@@ -79,14 +79,51 @@ Street — asphalt and street layout
   a full concrete distress stack (spalling, crazing, cracked slabs, popouts,
   efflorescence, moss).
 
+  Edge decay: any combination of the four tile edges can be eaten inward, so a
+  piece ends in a torn edge rather than a ruled one. It is layered twice over.
+  The NOISE is layered — chunk, block and crumb bands of it — and so is the
+  ROAD: the wearing course goes first, the binder course under it next, then
+  the granular base, then subgrade, each eaten back a little less far than the
+  one above, which is what gives a real break its concentric strata instead of
+  one clean bite. The push inward is linear in the distance travelled, which is
+  what spreads those strata evenly across the reach rather than bunching all
+  three into the last few centimetres.
+
+  Chunkiness decides HOW it fails: bound asphalt lifts out in slabs with
+  straight edges, so a chunk's resistance is constant across it and the break
+  lands on the chunk boundary; an unbound shoulder crumbles instead. Loose
+  chunks of the old surface lie in the break, the standing lip is undercut and
+  shadowed, and no marking decal is drawn over a hole.
+
+  A decayed side is a torn side, so that axis stops repeating — the tag under
+  the preview and the readme in the zip both say which axes still do. Kerb and
+  footway decay with everything else; the decay is applied to the finished
+  surface, whatever material that surface turned out to be.
+
   Presets: close-up 1 m, highway 12 m, backroad, wet night, kerbside street,
-  kerbside wrecked, intersection.
+  kerbside wrecked, broken edge, intersection.
 
 Plating — seamless riveted aircraft skin
   Staggered panel bays with lap-joint steps, rivets (universal dome, flush
   countersunk or mixed, optional double rows and field doubler patches),
   three-layer chipping from paint through zinc-chromate primer to bare
   aluminium, scratches, streaks and seam grime.
+
+  The rivets are sieved as they are laid. A head that would land on a head
+  already down is dropped rather than stacked on it, which is what stops the
+  panel corner — where a stringer row crosses a butt row — growing a doubled,
+  lumpy fastener. Only rivets from different runs are tested against each
+  other: the pitch inside a run is deliberate, and both sides of one seam count
+  as a single run, so a double row never culls itself. Stringers go down first,
+  so it is the shorter butt row that stops short at a corner, which is what a
+  real airframe does.
+
+  A field patch is a doubler, and it is placed like one. It picks a panel and
+  either LAPS one of that panel's seams — borrowing the seam line's own rivets,
+  at that line's own pitch and phase, as the patch's edge row, and adding
+  nothing beside it — or it sits as an island in the middle of the panel with
+  the best part of a pitch of bare skin between it and every seam line. The one
+  thing it cannot do is lay a row a fraction of a pitch off an existing one.
 
   Tiles seamlessly in both axes.
   Presets: weathered warbird, clean airliner, bare aluminium, derelict hulk.
@@ -275,22 +312,54 @@ Greeble — machined surface clutter
   blocks at a small number of quantised heights, separated by a gap that shows
   the plate underneath, with chamfered edges. Those three things together —
   discrete levels, a real gap, a bevel — are the difference between greebling
-  and lumpy noise.
+  and lumpy noise. A block can also have one corner clipped at forty-five
+  degrees; that is a silhouette change, so it goes into the block's own edge
+  distance and every gap, bevel and inset downstream follows it for free.
 
-  Each block then takes at most one piece of sub-detail: a louvred vent, a
-  round port, a recessed pocket or a stacked cap. Corner bolts and indicator
-  lamps are independent of that, and every one of them is skipped on a block
-  too small to hold it. Conduit runs on standoffs pass over the low blocks and
-  behind the tall ones, which is what stops the pipes reading as decals.
+  Three things then stack on that, and the stacking is the point.
+
+  TIERS. A block can carry a smaller plate on top of it, and that plate another
+  one again, up to four deep. Each tier is clipped by its host's inner mask, so
+  a sub-plate can never overhang the thing it stands on, and each is a fraction
+  of the height of the one below. A tier can also go DOWN instead of up — a bay
+  machined into the block rather than a plate bolted onto it — as often as the
+  recessed-blocks slider says, which is what gives the shapes somewhere to sit
+  below the face around them. The topmost plate present is the one that takes
+  the shape, the bolts and the lamp, which is what makes a stack read as an
+  assembly rather than as a pile.
+
+  SHAPES. Each top face takes at most one, from eleven: louvred vent, round
+  port, recessed pocket, stacked cap, heat-sink fins, hex boss, perforated
+  grille, stepped pad, bolted hatch with its own ring of fasteners, drum, and
+  wedge. They are chosen by WEIGHT rather than down a chain, so no shape
+  starves the ones after it: a shape at zero never appears, doubling one makes
+  it twice as likely against the rest, and how many faces carry a shape at all
+  is a separate slider. Anything whose detail would fall below about three
+  texels — vent slots, grille holes — is dropped whole rather than aliased,
+  because a grey mush of half-texel slots is worse than none.
+
+  CONDUIT, routed rather than ruled. A walker starts at a node of a coarse
+  lattice, lays a random number of cells in one direction, turns ninety degrees
+  and goes again, until its length is spent. Several walkers share the lattice,
+  so where two runs meet at a node the meeting is a real tee or cross with a
+  cast body on it; a bend is an elbow, a run that stops is a capped stub, and
+  couplings and clamps sit along the runs between. Runs come in up to three
+  diameters and ride on standoffs at a height you set, so they pass over the low
+  blocks and behind the tall ones — which is what stops the pipes reading as
+  decals. Only the lattice EDGES are stored, which is what keeps the lookup one
+  step per texel however long the routes get.
 
   This one is the opposite of the hull mode next door: nearly all of its
   character is in HEIGHT, and the colour map is mostly dirt. Blocks stand tens
-  of millimetres proud, which is more relief than a normal map carries
-  convincingly at a grazing angle — displace it if the surface is ever seen
-  from the side.
+  of millimetres proud before the tiers stack on top of them, which is more
+  relief than a normal map carries convincingly at a grazing angle — displace it
+  if the surface is ever seen from the side.
 
-  Dimensioned in metres and millimetres. Presets: hull greeble (fine), machine
-  bay (coarse), reactor face (lit), service panel (shallow).
+  Dimensioned in metres and millimetres. The readout says what the tiers stack
+  to, what the conduit lattice does to the largest diameter you asked for, and
+  which of it has got too small to read. Presets: hull greeble (fine), machine
+  bay (coarse), reactor face (lit), service panel (shallow), pipe works
+  (conduit heavy).
 
 Factory — 1940s brick factory wall
   A whole wall panel rather than a material: three storeys by four bays of steel
@@ -458,10 +527,16 @@ not sitting beside the repo.
 HISTORY
 -------
 This replaces the four separate tools in texture-toolkit.zip. street-forge,
-panel-forge and elevation-forge are now the street, plating and house modes;
-their generators are unchanged, so the same seed and settings give the same
-pixels as before, and exported file names are unchanged. asphalt-forge was
-already superseded by street-forge and has not been carried over.
+panel-forge and elevation-forge are now the street, plating and house modes,
+and exported file names are unchanged. asphalt-forge was already superseded by
+street-forge and has not been carried over.
+
+Those generators came over as they stood, and the house still matches the old
+tool pixel for pixel. Two have since moved on: plating now sieves its rivets
+against each other and anchors its field patches, so a seed gives the same
+panels and the same wear as before but not the same rivets, and street has
+gained edge decay, which is off by default and changes nothing until a side is
+turned on.
 
 The envelope, roof, hazard, fence and ruins modes came later: envelope shares
 the house generator so the faces of one building agree, roof and fence are new
