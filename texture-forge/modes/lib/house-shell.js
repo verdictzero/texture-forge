@@ -283,16 +283,17 @@ function buildOpenings(g){
   /* a picture window is not a double-hung stretched — it is a WIDER, SHORTER
      hole with a lower sill, and getting that proportion right is the difference
      between a living-room window and a shop front */
-  const placeWin=(cx,floor,style,span)=>{
+  const placeWin=(cx,floor,style,span,k)=>{
+    const kk=k||1;                                 // a gable end carries less glass
     if(style==="pic"){
-      const w=Math.min(span*0.84,P.winW*2.25);
+      const w=Math.min(span*0.84,P.winW*2.25)*kk;
       return win(cx,floor,w,P.winH*0.86,Math.max(1.3,P.sillH*0.72),"pic");
     }
     if(style==="slide"){
-      const w=Math.min(span*0.72,P.winW*1.5);
+      const w=Math.min(span*0.72,P.winW*1.5)*kk;
       return win(cx,floor,w,P.winH*0.80,P.sillH+P.winH*0.10,"slide");
     }
-    return win(cx,floor,P.winW,P.winH,P.sillH,style);
+    return win(cx,floor,P.winW*kk,P.winH,P.sillH,style);
   };
 
   if(isSide()){
@@ -319,8 +320,10 @@ function buildOpenings(g){
           ops.push(o);
           continue;
         }
-        ops.push(win(cx,floor,P.winW*0.9,P.winH,P.sillH,
-                     P.winStyle==="pic"||P.winStyle==="mixed"?"dh":(P.winStyle||"dh")));
+        /* through placeWin, so that a slider on the side is the same wide,
+           short hole it is on the front — one house from every angle */
+        ops.push(placeWin(cx,floor,
+          P.winStyle==="pic"||P.winStyle==="mixed"?"dh":(P.winStyle||"dh"),span,0.9));
       }
     }
     if(P.storeys>1&&P.stairWin){
@@ -367,8 +370,8 @@ function buildOpenings(g){
         if(s===0&&bi===doorIdx){
           if(P.backDoor==="slider"){
             const w=Math.min(span*0.92,Math.max(5,P.doorW*2));
-            const o=win(cx,floor,w,6.7,0.0);
-            o.slider=true;o.y1=floor+6.7;
+            const o=win(cx,floor,w,6.7,0.0,"slide");   // it is a slider: say so
+            o.y1=floor+6.7;
             ops.push(o);
           }else if(P.backDoor==="door"){
             ops.push({type:"door",x0:cx-P.doorW/2,x1:cx+P.doorW/2,y0:floor,y1:floor+6.7,
@@ -431,7 +434,6 @@ function buildStencil(g,SW,SH){
        about being a scrawl. */
     const face=window.ForgeFonts?ForgeFonts.resolve(P.graffFont):null;
     const n=Math.round(1+P.graffiti*P.aband*4);
-    const pal=["#bc2c34","#1e2026","#e4e0d6","#2e56a8","#c4a834","#6a4a9a","#2f8a52"];
     const words=String(P.graffText||"").split(/[,\n]/).map(w=>w.trim()).filter(Boolean);
     q.lineCap="round";q.lineJoin="round";
     q.textBaseline="alphabetic";
@@ -449,7 +451,6 @@ function buildStencil(g,SW,SH){
         q.font=size+'px "'+face.css+'", sans-serif';
         const wpx=q.measureText(word).width;
         const cx=rng()*Math.max(1,g.FW*fx-wpx*0.6)+wpx*0.1;
-        const col=pal[Math.floor(rng()*pal.length)];
         const hue=Math.floor(rng()*250);
         q.save();
         q.translate(cx,Y(cy));
@@ -518,8 +519,10 @@ function buildStencil(g,SW,SH){
        had four seasons is not the same height as one that has had one. */
     const n=Math.round(2+P.vines*P.aband*7);
     q.lineCap="round";q.lineJoin="round";
-    const leaf=(px,py,lr,dark)=>{
-      q.fillStyle="rgba(0,"+(dark?90:0)+",255,"+(0.55+rng()*0.45).toFixed(2)+")";
+    const leaf=(px,py,lr)=>{
+      /* B is the vine's own coverage; G belongs to the graffiti hue and a leaf
+         drawn over a tag must not tint it */
+      q.fillStyle="rgba(0,0,255,"+(0.55+rng()*0.45).toFixed(2)+")";
       q.beginPath();
       const lobes=5,rot=rng()*Math.PI*2;
       for(let t=0;t<=lobes*5;t++){
@@ -544,7 +547,7 @@ function buildStencil(g,SW,SH){
       /* the stem tapers: thick and woody at the root, whippy at the tip */
       for(let k=1;k<pts.length;k++){
         const t=k/pts.length;
-        q.strokeStyle="rgba(0,120,255,0.95)";
+        q.strokeStyle="rgba(0,0,255,0.95)";
         q.lineWidth=Math.max(1,thick*(1-t*0.72));
         q.beginPath();q.moveTo(pts[k-1][0],pts[k-1][1]);q.lineTo(pts[k][0],pts[k][1]);q.stroke();
       }
@@ -555,7 +558,7 @@ function buildStencil(g,SW,SH){
         for(let c=0;c<cnt;c++){
           const lr=(0.075+rng()*0.115)*fx*(1.15-t*0.45);
           const px=pts[k][0]+(rng()-0.5)*lr*3.4,py=pts[k][1]+(rng()-0.5)*lr*3.0;
-          leaf(px,py,lr,rng()<0.34);                 // some leaves are in the plant's own shade
+          leaf(px,py,lr);
         }
       }
       /* and it branches, once or twice, from about a third of the way up */
@@ -690,7 +693,14 @@ function build(params,io){
       const grain=fbm(x*3.5,y*26,3,seed+31);
       h+=(grain-0.5)*0.008*REL;
       const bh=hashi(bi,3,seed+11);
-      Mcourse=Math.floor(y/8);Mboard=bi;Mbu=f;Mbv=y/8-Math.floor(y/8);
+      /* A vertical board has no course above it — it runs the whole wall, so it
+         is one board with one history, and its cut ends are the top and the
+         bottom. Giving it a course every 8 ft put a dead-straight line across
+         the elevation in the peel and the missing-siding mask, which is the
+         very artefact the lapped branch goes out of its way to avoid. Across
+         the face, 0 is at a batten (where the water gets in) and 1 is the
+         middle of the board. */
+      Mcourse=0;Mboard=bi;Mbu=clamp(y/Math.max(FH,1),0,1);Mbv=Math.min(f,1-f)*2;
       const tone=1+(bh-0.5)*0.07*IRR+(grain-0.5)*0.06;
       r*=tone;gg*=tone;b*=tone;
       /* a batten shades the board either side of it rather than below it */
@@ -935,7 +945,8 @@ function build(params,io){
         r=lerp(r,86,sm);gg=lerp(gg,80,sm);b=lerp(b,76,sm);
         Mmet=lerp(0,0.85,sm);rg=lerp(rg,0.5,sm);
       }
-      const run=(dny>0)?Math.exp(-dny/0.10)*(1-smoothstep(0.02,0.05,Math.abs(dnx)))*P.rust:0;
+      /* uy climbs, so the stain wants dny below the nail — water goes down */
+      const run=(dny<0)?Math.exp(dny/0.10)*(1-smoothstep(0.02,0.05,Math.abs(dnx)))*P.rust:0;
       if(run>0){r=lerp(r,124,run*0.7);gg=lerp(gg,72,run*0.7);b=lerp(b,46,run*0.7);}
     }
     Mh=h;Mr=r;Mg=gg;Mb=b;Mrg=rg;
@@ -1622,9 +1633,15 @@ function build(params,io){
         /* graffiti and vines */
         if(AB>0){
           const su=wx/FW,sv=1-wy/FH;
-          const gcov=(P.graffiti>0)?sample(su,sv,0)*P.graffiti*AB:0;
+          const gA=(P.graffiti>0)?sample(su,sv,0):0;
+          const gcov=gA*P.graffiti*AB;
           if(gcov>0.02){
-            const hue=sample(su,sv,1);
+            /* the stencil composites the tag over black, so R and G both come
+               back multiplied by the same alpha — R is the coverage we want,
+               but G has to be divided back out or the anti-aliased rim of every
+               letter walks down the palette and haloes the tag in another
+               colour entirely */
+            const hue=clamp(sample(su,sv,1)/Math.max(gA,1e-3),0,0.999);
             const pc=GPAL[Math.min(GPAL.length-1,Math.floor(hue*GPAL.length))];
             const pr=pc[0],pg=pc[1],pb=pc[2];
             const cov=clamp(gcov*1.9,0,1);
@@ -1684,9 +1701,16 @@ function build(params,io){
        width, which is what makes a casing, a sill or a batten read; and most of
        a window, which is what makes a recessed opening go dark across its whole
        face the way a real one does. */
-    const r1=clamp(Math.round(pxPerFt*Math.max(expo,0.12)*0.55),2,26);
-    const r2=clamp(Math.round(pxPerFt*0.34),3,48);     // 4 in — casing, sill, batten
-    const r3=clamp(Math.round(pxPerFt*1.35),8,200);    // 16 in — the opening as a whole
+    /* These radii are feature sizes in feet, so their ceilings have to be in
+       feet too. A fixed pixel cap made the shading a function of the resolution
+       slider — and resolution is deliberately per face, so a front at 2048 and
+       a side at 4096 came out shaded differently on the same house. What is
+       left is a sanity bound against a pathological aspect, and it is generous
+       because the blur is O(1) per texel in its radius. */
+    const rCap=Math.max(8,Math.min(TW,TH)>>2);
+    const r1=clamp(Math.round(pxPerFt*Math.max(expo,0.12)*0.55),2,rCap);
+    const r2=clamp(Math.round(pxPerFt*0.34),3,rCap);   // 4 in — casing, sill, batten
+    const r3=clamp(Math.round(pxPerFt*1.35),8,rCap);   // 16 in — the opening as a whole
     const sc=1/0.28;                                   // a 3-4 in recess reads as full occlusion
     const N=TW*TH;
     /* The broad term is the one that says "you are inside a hole"; the tight
