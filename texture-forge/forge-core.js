@@ -328,6 +328,10 @@ function buildRow(st,row,params){
     const fill=()=>{
       const keep=sel.value;
       sel.innerHTML="";
+      if(row.autoLabel!==false){
+        const auto=make("option",null,row.autoLabel||"Any face loaded");
+        auto.value="auto";sel.appendChild(auto);
+      }
       const none=make("option",null,row.noneLabel||"None");
       none.value="none";sel.appendChild(none);
       for(const f of (window.ForgeFonts?ForgeFonts.list():[])){

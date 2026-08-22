@@ -113,9 +113,9 @@ window.ForgeFonts={
   /* the id a mode should actually draw with: what it asked for if that is
      registered, otherwise the first face there is, otherwise nothing */
   resolve:function(want){
-    if(want&&want!=="none"){const f=get(want);if(f)return f;}
-    if(want==="none")return null;
-    return faces[0]||null;
+    if(want==="none")return null;                  // asked for the fallback on purpose
+    if(want&&want!=="auto"){const f=get(want);if(f)return f;}
+    return faces[0]||null;                         // "auto", or a face that has gone away
   },
   count:function(){return faces.length;}
 };

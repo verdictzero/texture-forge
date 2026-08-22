@@ -489,44 +489,71 @@ function buildStencil(g,SW,SH){
     }
   }
   if(P.vines*P.aband>0){
-    const n=Math.round(3+P.vines*P.aband*14);
-    q.lineCap="round";
-    for(let i=0;i<n;i++){
-      let x=rng()*g.FW*fx,y=SH-rng()*0.6*fy;
-      const climb=(2+rng()*Math.min(16,g.FH*0.75))*fy;
-      const segs=Math.max(8,Math.round(climb/(0.3*fy)));
-      let ang=-Math.PI/2+(rng()-0.5)*0.5;
+    /* A vine is a PLANT: it is rooted in the ground, it climbs, it branches,
+       and its leaves cluster on the stem rather than floating beside it. Drawn
+       as a scatter of green lobes — which is what this did — it reads as
+       lichen, or as somebody flicking a brush at the wall.
+
+       So each one starts at grade, works upward with a bias it keeps (a vine
+       that has found a downpipe follows it), throws side branches, and carries
+       leaves thickest where the stem is oldest. They also stop: a vine that has
+       had four seasons is not the same height as one that has had one. */
+    const n=Math.round(2+P.vines*P.aband*7);
+    q.lineCap="round";q.lineJoin="round";
+    const leaf=(px,py,lr,dark)=>{
+      q.fillStyle="rgba(0,"+(dark?90:0)+",255,"+(0.55+rng()*0.45).toFixed(2)+")";
+      q.beginPath();
+      const lobes=5,rot=rng()*Math.PI*2;
+      for(let t=0;t<=lobes*5;t++){
+        const a2=t/(lobes*5)*Math.PI*2;
+        const rr=lr*(0.58+0.42*Math.abs(Math.cos(a2*lobes*0.5)));
+        const X=px+Math.cos(a2+rot)*rr,Y2=py+Math.sin(a2+rot)*rr*1.08;
+        if(t===0)q.moveTo(X,Y2);else q.lineTo(X,Y2);
+      }
+      q.closePath();q.fill();
+    };
+    const grow=(x0,y0,climb,thick,depth)=>{
+      const segs=Math.max(10,Math.round(climb/(0.22*fy)));
+      let x=x0,y=y0,ang=-Math.PI/2+(rng()-0.5)*0.4;
+      const lean=(rng()-0.5)*0.16;                   // the bias it keeps as it goes
       const pts=[[x,y]];
       for(let s2=0;s2<segs;s2++){
-        ang+=(rng()-0.5)*0.45;
-        if(ang>-0.35)ang=-0.35;if(ang<-Math.PI+0.35)ang=-Math.PI+0.35;   // keep climbing
+        ang+=lean*0.1+(rng()-0.5)*0.34;
+        if(ang>-0.42)ang=-0.42;if(ang<-Math.PI+0.42)ang=-Math.PI+0.42;
         x+=Math.cos(ang)*climb/segs;y+=Math.sin(ang)*climb/segs;
         pts.push([x,y]);
       }
-      // stem first, as one unbroken polyline
-      q.strokeStyle="rgba(0,0,255,0.95)";
-      q.lineWidth=Math.max(1.2,0.055*fx*(0.7+rng()));
-      q.beginPath();q.moveTo(pts[0][0],pts[0][1]);
-      for(let k=1;k<pts.length;k++)q.lineTo(pts[k][0],pts[k][1]);
-      q.stroke();
-      // then leaves clustered along it
+      /* the stem tapers: thick and woody at the root, whippy at the tip */
       for(let k=1;k<pts.length;k++){
-        const cnt=rng()<0.75?(1+Math.floor(rng()*3)):0;
+        const t=k/pts.length;
+        q.strokeStyle="rgba(0,120,255,0.95)";
+        q.lineWidth=Math.max(1,thick*(1-t*0.72));
+        q.beginPath();q.moveTo(pts[k-1][0],pts[k-1][1]);q.lineTo(pts[k][0],pts[k][1]);q.stroke();
+      }
+      /* leaves, thickest on the older wood low down */
+      for(let k=1;k<pts.length;k++){
+        const t=k/pts.length;
+        const cnt=1+Math.floor(rng()*3.4*(1.25-t*0.5));
         for(let c=0;c<cnt;c++){
-          const lr=(0.10+rng()*0.16)*fx;
-          const px=pts[k][0]+(rng()-0.5)*lr*3.0,py=pts[k][1]+(rng()-0.5)*lr*3.0;
-          q.fillStyle="rgba(0,0,255,"+(0.6+rng()*0.4).toFixed(2)+")";
-          q.beginPath();
-          const lobes=5;
-          for(let t=0;t<=lobes*4;t++){
-            const a=t/(lobes*4)*Math.PI*2;
-            const rr=lr*(0.62+0.38*Math.abs(Math.cos(a*lobes*0.5)));
-            const X=px+Math.cos(a)*rr,Y=py+Math.sin(a)*rr*1.1;
-            if(t===0)q.moveTo(X,Y);else q.lineTo(X,Y);
-          }
-          q.closePath();q.fill();
+          const lr=(0.075+rng()*0.115)*fx*(1.15-t*0.45);
+          const px=pts[k][0]+(rng()-0.5)*lr*3.4,py=pts[k][1]+(rng()-0.5)*lr*3.0;
+          leaf(px,py,lr,rng()<0.34);                 // some leaves are in the plant's own shade
         }
       }
+      /* and it branches, once or twice, from about a third of the way up */
+      if(depth>0){
+        const brs=1+Math.floor(rng()*2);
+        for(let bch=0;bch<brs;bch++){
+          const k=Math.floor(pts.length*(0.28+rng()*0.5));
+          grow(pts[k][0],pts[k][1],climb*(0.35+rng()*0.35),thick*0.6,depth-1);
+        }
+      }
+    };
+    for(let i=0;i<n;i++){
+      /* rooted at grade, and a vine only gets as far as its seasons allowed */
+      const x=rng()*g.FW*fx;
+      const climb=(2.5+rng()*rng()*Math.min(20,g.FH*0.9))*fy;
+      grow(x,SH-rng()*0.5*fy,climb,Math.max(1.4,0.075*fx*(0.8+rng()*0.8)),1);
     }
   }
   return q.getImageData(0,0,SW,SH).data;
@@ -794,12 +821,47 @@ function build(params,io){
     Gr=r;Gg=g2;Gb=b;Grough=rough;Gmet=met;
   }
 
-  /* ---------- board-up panel over an opening ---------- */
+  /* ---------- boarding over an opening ----------
+     Nobody screws a neat sheet over a window. Boarding goes up in a hurry, out
+     of whatever was in the van: planks laid across the opening, not quite level
+     because nobody reached for a level, with daylight between them where the
+     lengths did not match, and nails driven where the board crosses something
+     solid to nail into. Then somebody prises one off to get in, and the ones
+     nearest the ground go first.
+
+     Returns false where there is no plank, so the caller falls through and
+     draws what is behind — which, in a boarded house, is the dark of the room. */
   function boardPanel(lx,ly,w,hgt,sd){
     Mid=8;Mmet=0;Mwood=1;
-    let r=150,gg=126,b=92,h=0.06,rg=0.86;
+    /* the whole set leans: one nail goes in first and the rest follow it */
+    const ang=(hashi(sd,1,seed+301)-0.5)*0.13;
+    const cx=w*0.5,cy=hgt*0.5;
+    const ca=Math.cos(ang),sa=Math.sin(ang);
+    const ux=(lx-cx)*ca+(ly-cy)*sa+cx;
+    const uy=-(lx-cx)*sa+(ly-cy)*ca+cy;
+    const pw=(P.boardMat==="planks")?0.72:0.98;      // salvaged stock is narrower
+    const n=Math.max(2,Math.round(hgt/pw));
+    const ph=hgt/n;
+    const pi=Math.floor(uy/ph);
+    if(pi<0||pi>=n)return false;
+    const f=uy/ph-pi;
+    /* the gap between two planks is never zero: they were cut long ago, for
+       something else */
+    const gap=0.055+hashi(pi,3,sd+7)*0.05;
+    if(f<gap*0.5||f>1-gap*0.5)return false;
+    /* prised off, the low ones first, because that is where a person is */
+    const pry=hashi(pi,11,sd+13);
+    const reach=1-smoothstep(0,hgt*0.75,uy);
+    if(pry<(0.10+0.34*reach)*P.aband*(1-P.boardUp*0.55))return false;
+    /* and one plank in a set is usually just short */
+    const runIn=hashi(pi,17,sd+19)*0.30;
+    if(hashi(pi,23,sd+29)<0.22&&ux<w*runIn)return false;
+
+    let r=150,gg=126,b=92,h=0.09,rg=0.86;
     if(P.boardMat==="osb"){
-      worley(lx*26,ly*26,sd+3,0.95);
+      /* chipped strand: flakes lying flat, furring up at a cut edge once it has
+         had a winter of rain on it */
+      worley(ux*26,uy*26,sd+3,0.95);
       const fl=smoothstep(0.05,0.32,W_f2-W_f1);
       const ch=hashi(W_cx,W_cy,sd+5);
       const t=0.72+ch*0.55;
@@ -808,37 +870,46 @@ function build(params,io){
       r=lerp(r,r*0.7,1-fl);gg=lerp(gg,gg*0.7,1-fl);b=lerp(b,b*0.7,1-fl);
       rg=0.9;
     }else if(P.boardMat==="ply"){
-      const grain=fbm(lx*90,ly*7,4,sd+7);
+      const grain=fbm(ux*90,uy*7,4,sd+7);
       const t=0.85+grain*0.3;
       r=176*t;gg=142*t;b=98*t;
       h+=(grain-0.5)*0.006;
+      const de=1-smoothstep(0,0.06,Math.min(f,1-f)*ph);   // ply delaminates at the edge first
+      h-=de*0.014;r*=1-de*0.22;gg*=1-de*0.22;b*=1-de*0.20;
       rg=0.82;
     }else{
-      const bw=0.62;
-      const bi=Math.floor(ly/bw),f=ly/bw-bi;
-      const t=0.7+hashi(bi,1,sd+11)*0.5;
+      const t=0.66+hashi(pi,1,sd+11)*0.52;           // every plank off a different pile
       r=150*t;gg=124*t;b=94*t;
-      h+=0.012*(1-Math.abs(f-0.5)*2*0.3);
-      h-=(1-smoothstep(0,0.02,Math.min(f,1-f)*bw))*0.03;
-      const grain=fbm(lx*70,ly*9,3,sd+13);
-      h+=(grain-0.5)*0.008;
+      const grain=fbm(ux*70,uy*9,3,sd+13);
+      h+=(grain-0.5)*0.010;
+      const gt=0.92+grain*0.18;
+      r*=gt;gg*=gt;b*=gt;
       rg=0.88;
     }
-    // fasteners round the edge
-    const ex=Math.min(lx,w-lx),ey=Math.min(ly,hgt-ly);
-    const near=Math.min(ex,ey);
-    if(near<0.5){
-      const sp=0.85;
-      const sxi=Math.round(lx/sp)*sp,syi=Math.round(ly/sp)*sp;
-      const ax1=lx-sxi,ay1=ly-(ey<ex?(ly<hgt*0.5?0.22:hgt-0.22):syi);
-      const dsx=Math.sqrt(ax1*ax1+ay1*ay1);
-      const ax2=lx-(lx<w*0.5?0.22:w-0.22),ay2=ly-syi;
-      const dsy=Math.sqrt(ax2*ax2+ay2*ay2);
-      const d=Math.min(dsx,dsy);
-      const sm=1-smoothstep(0.02,0.035,d);
-      if(sm>0){h-=sm*0.01;r=lerp(r,96,sm);gg=lerp(gg,88,sm);b=lerp(b,82,sm);Mmet=lerp(0,0.8,sm);}
+    /* a plank is a board with two arrises, so it rounds off top and bottom */
+    const bev=smoothstep(0,0.035,Math.min(f,1-f)*ph);
+    h-=(1-bev)*0.02;
+    const shade=1-(1-bev)*0.30;
+    r*=shade;gg*=shade;b*=shade;
+    /* nails where the plank crosses something worth nailing into — the jambs —
+       rather than scattered across the middle where there is only glass */
+    const endD=Math.min(ux,w-ux);
+    if(endD<0.42){
+      const ny=(0.30+hashi(pi,31,sd+37)*0.40)*ph;
+      const nx=0.14+hashi(pi,41,sd+43)*0.16;
+      const dnx=endD-nx,dny=f*ph-ny;
+      const dn=Math.sqrt(dnx*dnx+dny*dny);
+      const sm=1-smoothstep(0.020,0.032,dn);
+      if(sm>0){
+        h-=sm*0.012;
+        r=lerp(r,86,sm);gg=lerp(gg,80,sm);b=lerp(b,76,sm);
+        Mmet=lerp(0,0.85,sm);rg=lerp(rg,0.5,sm);
+      }
+      const run=(dny>0)?Math.exp(-dny/0.10)*(1-smoothstep(0.02,0.05,Math.abs(dnx)))*P.rust:0;
+      if(run>0){r=lerp(r,124,run*0.7);gg=lerp(gg,72,run*0.7);b=lerp(b,46,run*0.7);}
     }
     Mh=h;Mr=r;Mg=gg;Mb=b;Mrg=rg;
+    return true;
   }
 
   const band=Math.max(2,Math.round(16384/TW));
@@ -1076,8 +1147,14 @@ function build(params,io){
           if(o.boarded){
             const cover=o.partial?0.72:1.0;
             if(ly<hh*cover){
-              boardPanel(lx,ly,w,hh*cover,sd);
-              r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;met=Mmet;wood=1;
+              if(boardPanel(lx,ly,w,hh*cover,sd)){
+                r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;met=Mmet;wood=1;
+                continue;
+              }
+              /* through a gap between planks you see the dark of the room, not
+                 the window that used to be in it */
+              const dk=0.9+fbm(lx*9,ly*9,2,sd+51)*0.7;
+              r=17*dk;gg=16*dk;b=16*dk;h=-0.46;rg=0.94;id=3;met=0;wood=0;
               continue;
             }
           }
@@ -1720,8 +1797,8 @@ const CONTROLS={
         ["osb","OSB"],["ply","Plywood"],["planks","Salvaged planks"]]},
       {id:"broken",need:"ab",label:"Broken glass",min:0,max:1,step:0.01,value:0.55},
       {id:"graffiti",need:"ab",label:"Graffiti",min:0,max:1,step:0.01,value:0.4},
-      {id:"graffFont",need:"ab",type:"font",label:"Graffiti face",value:"none",
-       noneLabel:"None found — drop one in"},
+      {id:"graffFont",need:"ab",type:"font",label:"Graffiti face",value:"auto",
+       noneLabel:"Scrawl — no typeface",autoLabel:"Any face loaded"},
       {id:"graffText",need:"ab",type:"text",label:"Tags",value:"KRSN, VOID, 92, OBEY, RIP",
        placeholder:"comma separated",maxlength:120},
       {type:"note",need:"ab",html:"Graffiti is <b>writing</b>, so it is drawn with a typeface rather "+
@@ -1745,32 +1822,87 @@ const CONTROLS={
    the face you happen to be looking at. Both modes offer the same names, so
    setting "colonial" on the front and on the side gives one house. */
 const PRESETS=[
-{id:"colonial",label:"Colonial",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.30,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,
-      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p6",
+    {id:"colonial",label:"Colonial",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.30,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,lapShade:0.6,
+      bays:3,winStyle:"dh",winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p6",
       cWall:"#c8cabc",cTrim:"#f4f1e6",cDoor:"#5c3a2e",cShut:"#2f4438",cornerW:4,friezeH:7,waterT:5,
       fade:0.35,peel:0.2,bare:0.3,streak:0.4,splash:0.4,mildew:0.3,rust:0.3,rot:0.15,grunge:0.35,aband:0}},
-    {id:"bungalow",label:"Bungalow",set:{glassRough:0.07,glassMetal:0.85,glassGrime:0.40,facadeW:30,storeys:1,storeyH:10,foundH:2.2,roof:"gable",pitch:5,clad:"shingle",exposure:6,
-      bays:3,winW:3.2,winH:4.4,sillH:2.8,liteC:3,liteR:1,shutter:"none",doorBay:2,doorStyle:"half",
+
+    {id:"capecod",label:"Cape Cod",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.24,facadeW:26,storeys:2,storeyH:8,foundH:1.4,roof:"gable",pitch:10,clad:"clapboard",exposure:5,lapShade:0.62,
+      bays:3,winStyle:"dh",winW:2.8,winH:4.2,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p6",
+      cWall:"#e6e4dc",cTrim:"#ffffff",cDoor:"#8a2f2a",cShut:"#22333f",cornerW:4,friezeH:6,waterT:4,
+      fade:0.28,peel:0.12,bare:0.2,streak:0.3,splash:0.35,mildew:0.28,rust:0.2,rot:0.1,grunge:0.3,aband:0}},
+
+    {id:"farmhouse",label:"White farmhouse",set:{glassRough:0.07,glassMetal:0.85,glassGrime:0.34,facadeW:30,storeys:2,storeyH:9.5,foundH:2,roof:"gable",pitch:9,clad:"clapboard",exposure:6,lapShade:0.68,
+      bays:3,winStyle:"dh",winW:3,winH:5.4,sillH:2.5,liteC:1,liteR:2,shutter:"none",doorBay:2,doorStyle:"half",
+      cWall:"#efeee7",cTrim:"#ffffff",cDoor:"#25402f",cornerW:5,friezeH:8,waterT:5,
+      fade:0.42,peel:0.3,bare:0.35,streak:0.5,splash:0.5,mildew:0.35,rust:0.35,rot:0.25,grunge:0.4,aband:0}},
+
+    {id:"bungalow",label:"Bungalow",set:{glassRough:0.07,glassMetal:0.85,glassGrime:0.40,facadeW:30,storeys:1,storeyH:10,foundH:2.2,roof:"gable",pitch:5,clad:"shingle",exposure:6,lapShade:0.66,
+      bays:3,winStyle:"dh",winW:3.2,winH:4.4,sillH:2.8,liteC:3,liteR:1,shutter:"none",doorBay:2,doorStyle:"half",
       cWall:"#9a8f74",cTrim:"#e8e2d0",cDoor:"#4a3b2a",cRoof:"#43403c",cornerW:5,friezeH:9,waterT:6,
       fade:0.45,peel:0.35,bare:0.4,streak:0.45,splash:0.5,mildew:0.4,rust:0.35,rot:0.25,grunge:0.45,aband:0}},
-    {id:"rowhouse",label:"Brick rowhouse",set:{glassRough:0.05,glassMetal:0.9,glassGrime:0.45,bandBoard:false,gutter:false,facadeW:20,storeys:3,storeyH:9.5,foundH:2.4,roof:"flat",clad:"brick",courseH:2.67,unitLen:8,
-      mortarW:0.38,bays:2,winW:3.2,winH:5.4,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:1,doorStyle:"half",
-      cWall:"#8d5a44",cTrim:"#e6e2d8",cDoor:"#3d4f3a",found:"stone",cornerW:0,friezeH:10,waterT:4,
-      fade:0.3,peel:0.15,bare:0.2,streak:0.55,splash:0.5,mildew:0.4,rust:0.2,rot:0.1,grunge:0.5,aband:0}},
-    {id:"vinyl",label:"Vinyl tract",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.18,facadeW:32,storeys:2,storeyH:8.5,foundH:1.4,roof:"eave",clad:"vinyl",exposure:8,
-      bays:4,winW:2.8,winH:4.4,sillH:2.8,liteC:1,liteR:1,shutter:"panel",doorBay:2,doorStyle:"p6",
+
+    {id:"craftsman",label:"Craftsman",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.34,facadeW:30,storeys:2,storeyH:9,foundH:2.4,roof:"gable",pitch:5,clad:"shingle",exposure:7,lapShade:0.7,
+      bays:3,winStyle:"dh",winW:3,winH:4.6,sillH:2.7,liteC:3,liteR:1,shutter:"none",doorBay:2,doorStyle:"half",
+      cWall:"#7d7a5e",cTrim:"#e2ddc8",cDoor:"#4a3524",cRoof:"#3e3a35",cornerW:6,friezeH:11,waterT:7,fasciaD:12,found:"stone",
+      fade:0.4,peel:0.28,bare:0.35,streak:0.45,splash:0.45,mildew:0.4,rust:0.3,rot:0.2,grunge:0.4,aband:0}},
+
+    {id:"queenanne",label:"Queen Anne",set:{glassRough:0.05,glassMetal:0.88,glassGrime:0.36,facadeW:26,storeys:3,storeyH:10,foundH:2.6,roof:"gable",pitch:11,clad:"clapboard",exposure:4,lapShade:0.72,
+      bays:3,winStyle:"dh1",winW:2.8,winH:6,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"half",
+      cWall:"#6d5a6b",cTrim:"#e8dcc0",cDoor:"#40241f",cShut:"#3a2a30",cornerW:6,friezeH:12,waterT:7,found:"stone",
+      fade:0.4,peel:0.32,bare:0.3,streak:0.55,splash:0.45,mildew:0.42,rust:0.3,rot:0.2,grunge:0.45,aband:0}},
+
+    {id:"ranch",label:"Mid-century ranch",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.2,facadeW:44,storeys:1,storeyH:8.5,foundH:1.2,roof:"eave",pitch:4,clad:"clapboard",exposure:8,lapShade:0.5,
+      bays:4,winStyle:"mixed",winW:3.4,winH:4,sillH:3,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"flush",
+      cWall:"#c2bda8",cTrim:"#f2efe6",cDoor:"#2f5d54",cornerW:3,friezeH:6,waterT:3,fasciaD:11,
+      fade:0.3,peel:0.1,bare:0.12,streak:0.3,splash:0.35,mildew:0.28,rust:0.15,rot:0.08,grunge:0.32,aband:0}},
+
+    {id:"vinyl",label:"Vinyl tract",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.18,facadeW:32,storeys:2,storeyH:8.5,foundH:1.4,roof:"eave",clad:"vinyl",exposure:8,lapShade:0.42,
+      bays:4,winStyle:"slide",winW:2.8,winH:4.4,sillH:2.8,liteC:1,liteR:1,shutter:"panel",doorBay:2,doorStyle:"p6",
       cWall:"#d6d3c4",cTrim:"#ffffff",cDoor:"#7a3b32",cShut:"#3a3f4a",cornerW:3,friezeH:5,waterT:3,
       fade:0.25,peel:0.05,bare:0.05,streak:0.3,splash:0.35,mildew:0.3,rust:0.05,rot:0.05,grunge:0.3,aband:0}},
-    {id:"abandoned",label:"Abandoned",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.8,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,
-      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p4",
+
+    {id:"shotgun",label:"Shotgun house",set:{glassRough:0.08,glassMetal:0.85,glassGrime:0.44,facadeW:16,storeys:1,storeyH:10,foundH:2.8,roof:"gable",pitch:8,clad:"clapboard",exposure:5,lapShade:0.66,
+      bays:2,winStyle:"dh1",winW:2.8,winH:5.6,sillH:2.2,liteC:1,liteR:1,shutter:"none",doorBay:1,doorStyle:"half",
+      cWall:"#b8c4bd",cTrim:"#f0ece0",cDoor:"#7a4a2c",cornerW:4,friezeH:8,waterT:5,found:"brick",
+      fade:0.55,peel:0.45,bare:0.45,streak:0.6,splash:0.55,mildew:0.5,rust:0.4,rot:0.35,grunge:0.55,aband:0}},
+
+    {id:"rowhouse",label:"Brick rowhouse",set:{glassRough:0.05,glassMetal:0.9,glassGrime:0.45,bandBoard:false,gutter:false,facadeW:20,storeys:3,storeyH:9.5,foundH:2.4,roof:"flat",clad:"brick",courseH:2.67,unitLen:8,lapShade:0.5,
+      mortarW:0.38,bays:2,winStyle:"dh1",winW:3.2,winH:5.4,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:1,doorStyle:"half",
+      cWall:"#8d5a44",cTrim:"#e6e2d8",cDoor:"#3d4f3a",found:"stone",cornerW:0,friezeH:10,waterT:4,
+      fade:0.3,peel:0.15,bare:0.2,streak:0.55,splash:0.5,mildew:0.4,rust:0.2,rot:0.1,grunge:0.5,aband:0}},
+
+    {id:"stucco",label:"Stucco & parapet",set:{glassRough:0.05,glassMetal:0.88,glassGrime:0.3,facadeW:28,storeys:2,storeyH:9.5,foundH:1.2,roof:"flat",clad:"stucco",lapShade:0.3,gutter:false,
+      bays:3,winStyle:"case",winW:2.6,winH:4.4,sillH:2.8,liteC:1,liteR:2,shutter:"none",doorBay:2,doorStyle:"p4",
+      cWall:"#d8c6a8",cTrim:"#e8dcc4",cDoor:"#4a3a58",cornerW:0,friezeH:0,waterT:0,found:"poured",
+      fade:0.5,peel:0.1,bare:0.05,streak:0.5,splash:0.5,mildew:0.3,rust:0.15,rot:0.05,grunge:0.45,aband:0}},
+
+    {id:"abandoned",label:"Abandoned",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.8,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,lapShade:0.7,
+      bays:3,winStyle:"dh",winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p4",
       cWall:"#a8a893",cTrim:"#ddd8c8",cDoor:"#4a3226",cShut:"#3a4438",cUnder:"#8f7f63",
       fade:0.7,peel:0.75,bare:0.65,streak:0.75,splash:0.7,mildew:0.7,rust:0.6,rot:0.6,grunge:0.7,
       aband:0.8,boardUp:0.7,boardMat:"osb",broken:0.6,graffiti:0.45,vines:0.5,missing:0.35}},
-    {id:"burned",label:"Derelict shell",set:{glassRough:0.14,glassMetal:0.75,glassGrime:1.0,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"flat",clad:"clapboard",exposure:5,
-      bays:3,winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:2,shutter:"none",doorBay:2,doorStyle:"flush",
+
+    /* Three derelicts that are derelict in DIFFERENT ways, because "abandoned"
+       is not one look. What separates them is which failure came first: nobody
+       came back, or the weather got in, or the city came and closed it up. */
+    {id:"longempty",label:"Long empty",set:{glassRough:0.12,glassMetal:0.78,glassGrime:0.9,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"gable",pitch:9,clad:"clapboard",exposure:6,lapShade:0.75,
+      bays:3,winStyle:"dh",winW:3,winH:5,sillH:2.5,liteC:1,liteR:2,shutter:"none",doorBay:2,doorStyle:"p4",
+      cWall:"#9a9c8a",cTrim:"#cfc9b6",cDoor:"#3e3226",cUnder:"#8a7a5e",
+      fade:0.85,peel:0.8,bare:0.75,streak:0.7,splash:0.65,mildew:0.75,rust:0.55,rot:0.55,grunge:0.6,
+      aband:0.75,boardUp:0.15,boardMat:"planks",broken:0.45,graffiti:0.08,vines:0.85,missing:0.3}},
+
+    {id:"condemned",label:"Condemned & boarded",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.85,facadeW:22,storeys:2,storeyH:9.5,foundH:2.2,roof:"flat",clad:"clapboard",exposure:5,lapShade:0.7,
+      bays:3,winStyle:"dh1",winW:3,winH:5.2,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"flush",
+      cWall:"#8e9184",cTrim:"#c8c2b0",cDoor:"#3a3630",cUnder:"#7e7050",
+      fade:0.7,peel:0.6,bare:0.5,streak:0.8,splash:0.7,mildew:0.6,rust:0.7,rot:0.4,grunge:0.75,
+      aband:0.9,boardUp:0.95,boardMat:"ply",broken:0.35,graffiti:0.75,vines:0.25,missing:0.2}},
+
+    {id:"burned",label:"Derelict shell",set:{glassRough:0.14,glassMetal:0.75,glassGrime:1.0,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"flat",clad:"clapboard",exposure:5,lapShade:0.8,
+      bays:3,winStyle:"dh1",winW:3,winH:4.8,sillH:2.6,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"flush",
       cWall:"#6b6559",cTrim:"#9a958a",cDoor:"#33291f",cUnder:"#5a4a38",
       fade:0.9,peel:0.9,bare:0.85,streak:0.85,splash:0.8,mildew:0.8,rust:0.8,rot:0.85,grunge:0.9,
-      aband:1,boardUp:0.45,boardMat:"planks",broken:0.95,graffiti:0.7,vines:0.8,missing:0.7}}
+      aband:1,boardUp:0.35,boardMat:"planks",broken:0.95,graffiti:0.7,vines:0.8,missing:0.7}}
 ];
 
 /* ============================ exports ============================ */
