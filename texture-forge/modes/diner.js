@@ -120,8 +120,50 @@ function build(P,io){
                   Math.max(2,Math.round(tubeR*2/ftPerPx)));
   }
 
-  /* the door, front face only */
-  const doorW=P.doorW,doorX=(FW-doorW)*clamp(P.doorPos,0.05,0.95);
+  /* ---- the entrance, front face only ----
+     Everything here is a real door member measured in inches: jamb, stile,
+     rail, the deeper bottom rail that takes the kick, the kick plate over it,
+     the pull and the threshold. A leaf is a frame with glass in the hole, so
+     the leaf edges are worked out once here and the loop only has to ask which
+     leaf it is in. */
+  const entry=(g.face==="front")?(P.entryType||"single"):"none";
+  const hasEntry=entry!=="none";
+  const doorW=Math.min(P.doorW,FW*0.92);
+  const doorX=(FW-doorW)*clamp(P.doorPos,0.05,0.95);
+  const doorTop=Math.min(P.doorH,g.yHead-2.2*IN);
+  const jambW=Math.max(P.jambIn*IN,aa*2);
+  const stileW=Math.max(P.stileIn*IN,aa*2);
+  const railW=stileW;
+  const botRail=Math.max(P.kickIn*IN*1.05,stileW*1.6);
+  const midRail=stileW*1.3;
+  const kickH=Math.max(P.kickIn*IN,aa*2);
+  const sillH=Math.max(1.6*IN,aa*2);
+  const pullR=Math.max(P.pullIn*0.5*IN,aa*1.4);
+  const beadW=Math.max(0.55*IN,aa*1.6);           // the pane's dark edge
+  const revealW=Math.max(0.7*IN,aa*2);            // leaf set back behind the jamb
+  /* how much light each member takes. One flat chrome for all of them is a
+     white rectangle; these are what make it read as parts. */
+  const T_JAMB=0.80,T_FRAME=1.0,T_BEAD=0.46,T_KICK=0.76,T_PULL=1.18,T_THR=0.70;
+  /* a transom only exists when there is room for its rail, its cap and some
+     glass between them; squeezed into three inches it is just a second line */
+  const hasTransom=P.transom&&(g.yHead-doorTop)>(railW+jambW+0.28);
+  const halfGlass=P.doorGlazing==="half";
+  /* lead tells the loop which stile the pull hangs on: a pair meets in the
+     middle and takes its pulls there, a single one is handed */
+  const leaves=[];
+  if(hasEntry){
+    const in0=doorX+jambW,in1=doorX+doorW-jambW;
+    if(entry==="double"){
+      const mid=(in0+in1)*0.5,gap=stileW*0.16;
+      leaves.push({x0:in0,x1:mid-gap,lead:1});
+      leaves.push({x0:mid+gap,x1:in1,lead:0});
+    }else if(entry==="sidelight"){
+      const lw=Math.min((in1-in0)*0.52,3.4),c=(in0+in1)*0.5;
+      leaves.push({x0:c-lw*0.5,x1:c+lw*0.5,lead:P.doorHand==="left"?0:1});
+    }else{
+      leaves.push({x0:in0,x1:in1,lead:P.doorHand==="left"?0:1});
+    }
+  }
 
   /* ---- material writers into a scratchpad ---- */
   let Mr=0,Mg=0,Mb=0,Mh=0,Mrg=0.4,Mmet=0;
@@ -151,6 +193,29 @@ function build(P,io){
       Mr*=sh;Mg*=sh;Mb*=sh;
       Mrg=0.12+ (1-s)*0.10;
     }
+  }
+  /* Plate glass and whatever is behind it, shared by the shopfront and by the
+     lights in the door — a door pane has to match the window beside it, and it
+     did not when the two were written out separately. */
+  let Gr=0,Gg=0,Gb=0,Grg=0,Gmet=0,Gh=0;
+  function glazing(wx,wy,dim){
+    const up=clamp((wy-g.ySill)/Math.max(0.1,g.win),0,1);
+    const refl=0.30+up*0.55;
+    Gr=lerp(glassC[0],glassC[0]*1.9+40,refl*0.5);
+    Gg=lerp(glassC[1],glassC[1]*1.9+44,refl*0.5);
+    Gb=lerp(glassC[2],glassC[2]*1.9+52,refl*0.5);
+    Grg=0.07;Gmet=0.85;Gh=-0.05;
+    if(P.interior>0){
+      const bandY=g.ySill+g.win*0.34;
+      const cnt=1-smoothstep(0,0.16,Math.abs(wy-bandY));
+      const st=1-smoothstep(0.30,0.42,Math.abs(wx/1.9-Math.round(wx/1.9))*1.9);
+      const k=clamp((cnt*0.8+st*cnt*0.5),0,1)*P.interior;
+      Gr=lerp(Gr,196,k*0.55);Gg=lerp(Gg,168,k*0.55);Gb=lerp(Gb,132,k*0.5);
+      const room=clamp((1-up)*0.7,0,1)*P.interior;
+      Gr=lerp(Gr,44,room*0.35);Gg=lerp(Gg,40,room*0.35);Gb=lerp(Gb,36,room*0.35);
+    }
+    /* a pane set back behind a door frame catches a little less sky */
+    if(dim>0){Gr*=1-dim*1.6;Gg*=1-dim*1.6;Gb*=1-dim*1.5;}
   }
   function chrome(){
     Mr=Math.min(255,steelC[0]*1.22+20);Mg=Math.min(255,steelC[1]*1.22+20);
@@ -219,18 +284,17 @@ function build(P,io){
         }
 
         /* ---------------- the window band ---------------- */
-        const hasGlass=(g.face!=="back")&&wy>g.ySill&&wy<g.yHead;
+        /* the entrance bay is cut out of it: the shopfront glazing stops at the
+           jamb rather than running behind the door */
+        const inBay=hasEntry&&wx>doorX&&wx<doorX+doorW&&wy<g.yHead;
+        const hasGlass=(g.face!=="back")&&wy>g.ySill&&wy<g.yHead&&!inBay;
         if(hasGlass){
-          const inDoor=(g.face==="front")&&wx>doorX&&wx<doorX+doorW&&wy<g.ySill+P.doorH;
           const sp=g.mull;
           const dM=Math.abs(wx/sp-Math.round(wx/sp))*sp;
           const onMull=1-smoothstep(mullW*0.5-aa,mullW*0.5,dM);
           const dRail=Math.min(wy-g.ySill,g.yHead-wy);
           const onRail=1-smoothstep(P.railIn*IN-aa,P.railIn*IN,dRail);
-          const dDoor=inDoor?Math.min(Math.min(wx-doorX,doorX+doorW-wx),
-                                      Math.min(wy-g.ySill,g.ySill+P.doorH-wy)):9;
-          const onDoorFrame=inDoor?1-smoothstep(P.mullIn*1.6*IN-aa,P.mullIn*1.6*IN,dDoor):0;
-          const steel=clamp(Math.max(Math.max(onMull,onRail),onDoorFrame),0,1);
+          const steel=clamp(Math.max(onMull,onRail),0,1);
           if(steel>0.02){
             chrome();
             r=lerp(r,Mr,steel);gg=lerp(gg,Mg,steel);b=lerp(b,Mb,steel);
@@ -239,31 +303,8 @@ function build(P,io){
             /* plate glass. Metallic on purpose, the same cheat the house mode
                documents: on an opaque plane a metallic pane picks up the
                environment and reads as glass. */
-            h=-0.05;
-            const up=(wy-g.ySill)/Math.max(0.1,g.win);
-            const refl=0.30+up*0.55;
-            r=lerp(glassC[0],glassC[0]*1.9+40,refl*0.5);
-            gg=lerp(glassC[1],glassC[1]*1.9+44,refl*0.5);
-            b=lerp(glassC[2],glassC[2]*1.9+52,refl*0.5);
-            rg=0.07;met=0.85;
-            /* what is behind the glass: the counter line and the stools */
-            if(P.interior>0){
-              const bandY=g.ySill+g.win*0.34;
-              const cnt=1-smoothstep(0,0.16,Math.abs(wy-bandY));
-              const st=1-smoothstep(0.30,0.42,
-                        Math.abs(wx/1.9-Math.round(wx/1.9))*1.9);
-              const k=clamp((cnt*0.8+st*cnt*0.5),0,1)*P.interior;
-              r=lerp(r,196,k*0.55);gg=lerp(gg,168,k*0.55);b=lerp(b,132,k*0.5);
-              const room=clamp((1-up)*0.7,0,1)*P.interior;
-              r=lerp(r,44,room*0.35);gg=lerp(gg,40,room*0.35);b=lerp(b,36,room*0.35);
-            }
-            if(inDoor){                                   // kick plate and push bar
-              const kick=1-smoothstep(0,aa,wy-(g.ySill+0.55));
-              const bar=1-smoothstep(0.045,0.055,Math.abs(wy-(g.ySill+P.doorH*0.46)));
-              const m=Math.max(kick,bar);
-              if(m>0){chrome();r=lerp(r,Mr,m);gg=lerp(gg,Mg,m);b=lerp(b,Mb,m);
-                rg=lerp(rg,Mrg,m);met=lerp(met,1,m);h=lerp(h,0.0,m);}
-            }
+            glazing(wx,wy,0);
+            r=Gr;gg=Gg;b=Gb;rg=Grg;met=Gmet;h=Gh;
             if(P.boarded>0){                              // shut up for the season
               const bd=hashi(Math.floor(wx/sp),0,seed+29);
               if(bd<P.boarded){
@@ -273,6 +314,172 @@ function build(P,io){
                 r=138*t2;gg=118*t2;b=94*t2;rg=0.9;met=0;h=-0.01-pe*0.006;
               }
             }
+          }
+        }
+
+        /* ---------------- the entrance ----------------
+           A door starts at the PAVEMENT, not at the window sill. Drawing it
+           inside the glazing band was the whole reason the old one read as a
+           rectangle on the window: it began three feet up in the air, had no
+           bottom rail, no kick and no threshold, and its head was wherever the
+           glass happened to stop. This runs floor to head straight through the
+           tile skirt and the enamel band, the way an opening does.
+
+           A leaf is a FRAME — two stiles, a top rail, a deeper bottom rail that
+           takes the kick — with glass in the hole, set into a jamb heavier than
+           any mullion beside it.
+
+           Every member is the same polished metal, so what tells them apart is
+           how much light each one takes and the reveal shadow between them. A
+           door drawn in one flat chrome is a white rectangle, which is what the
+           old one was; the tones below are what make it read as parts. */
+        if(inBay){
+          const dJamb=Math.min(wx-doorX,doorX+doorW-wx);
+          const jambM=1-smoothstep(jambW-aa,jambW,dJamb);
+          /* the leaf hangs BEHIND the jamb, and the shadow in that reveal is
+             most of what says so */
+          const reveal=(1-smoothstep(aa,revealW,dJamb-jambW))*(1-jambM);
+          let bead=0;
+
+          if(wy>=doorTop){                                /* over the head */
+            const headM=1-smoothstep(railW-aa,railW,wy-doorTop);
+            const capM=1-smoothstep(jambW-aa,jambW,g.yHead-wy);
+            if(hasTransom){glazing(wx,wy,0.14);r=Gr;gg=Gg;b=Gb;rg=Grg;met=Gmet;h=Gh;
+              bead=Math.max(1-smoothstep(beadW-aa,beadW,wy-doorTop-railW),
+                            1-smoothstep(beadW-aa,beadW,g.yHead-wy-jambW));
+            }else{stainless(wx,wy,false);r=Mr*0.90;gg=Mg*0.90;b=Mb*0.90;rg=0.20;met=1;h=0.012;}
+            chrome();
+            const m=Math.max(headM,capM);
+            if(m>0.01){r=lerp(r,Mr*T_FRAME,m);gg=lerp(gg,Mg*T_FRAME,m);b=lerp(b,Mb*T_FRAME,m);
+              rg=lerp(rg,0.07,m);met=lerp(met,1,m);h=lerp(h,0.030,m);}
+          }else{
+            let leaf=-1;
+            for(let L=0;L<leaves.length;L++)
+              if(wx>=leaves[L].x0&&wx<=leaves[L].x1){leaf=L;break;}
+
+            if(leaf<0){
+              /* a sidelight, or the reveal where two leaves meet */
+              glazing(wx,wy,0.08);r=Gr;gg=Gg;b=Gb;rg=Grg;met=Gmet;h=Gh;
+              let closer=0;
+              for(let L=0;L<leaves.length;L++){
+                const d=Math.min(Math.abs(wx-leaves[L].x0),Math.abs(wx-leaves[L].x1));
+                closer=Math.max(closer,1-smoothstep(stileW*0.5-aa,stileW*0.5,d));
+              }
+              if(closer>0.01){
+                chrome();
+                r=lerp(r,Mr*T_FRAME,closer);gg=lerp(gg,Mg*T_FRAME,closer);
+                b=lerp(b,Mb*T_FRAME,closer);
+                rg=lerp(rg,0.07,closer);met=lerp(met,1,closer);h=lerp(h,0.028,closer);
+              }
+            }else{
+              const lf=leaves[leaf];
+              const dStile=Math.min(wx-lf.x0,lf.x1-wx);
+              const dTop=doorTop-wy,dBot=wy;
+              const midY=botRail+(doorTop-railW-botRail)*0.42;
+              const solid=halfGlass&&wy<midY;
+
+              /* the hole first, then the frame round it */
+              if(solid){stainless(wx,wy,false);r=Mr*0.94;gg=Mg*0.94;b=Mb*0.93;rg=0.24;met=1;h=0.004;}
+              else{glazing(wx,wy,0.05);r=Gr;gg=Gg;b=Gb;rg=Grg;met=Gmet;h=Gh;}
+
+              let frameM=1-smoothstep(stileW-aa,stileW,dStile);
+              frameM=Math.max(frameM,1-smoothstep(railW-aa,railW,dTop));
+              frameM=Math.max(frameM,1-smoothstep(botRail-aa,botRail,dBot));
+              if(halfGlass)frameM=Math.max(frameM,
+                1-smoothstep(midRail*0.5-aa,midRail*0.5,Math.abs(wy-midY)));
+
+              /* the glazing bead: the thin dark line where the frame catches
+                 the edge of the pane. Cheap, and it is what stops the frame and
+                 the glass reading as one flat shape. */
+              if(!solid){
+                bead=Math.max(bead,1-smoothstep(beadW-aa,beadW,dStile-stileW));
+                bead=Math.max(bead,1-smoothstep(beadW-aa,beadW,dTop-railW));
+                bead=Math.max(bead,1-smoothstep(beadW-aa,beadW,dBot-botRail));
+                bead*=(1-frameM);
+              }
+
+              if(frameM>0.01){
+                chrome();
+                r=lerp(r,Mr*T_FRAME,frameM);gg=lerp(gg,Mg*T_FRAME,frameM);
+                b=lerp(b,Mb*T_FRAME,frameM);
+                rg=lerp(rg,0.07,frameM);met=lerp(met,1,frameM);h=lerp(h,0.028,frameM);
+              }
+
+              /* the kick plate: a separate sheet screwed over the bottom rail.
+                 Brushed rather than polished, so it sits DULLER than the frame
+                 it is fixed to, and scuffed where feet land. */
+              const kick=(1-smoothstep(kickH-aa,kickH,dBot))*smoothstep(0,aa*2,dStile);
+              if(kick>0.01){
+                stainless(wx,wy,false);
+                const scuff=clamp(fbm2(wx*7,wy*22,64,96,3,seed+53)*1.5-0.42,0,1);
+                const t2=T_KICK*(1.06-scuff*0.30);
+                r=lerp(r,Mr*t2,kick);gg=lerp(gg,Mg*t2,kick);b=lerp(b,Mb*t2,kick);
+                rg=lerp(rg,0.16+scuff*0.52,kick);met=lerp(met,1,kick);
+                h=lerp(h,0.034,kick);
+                /* the screwed edge of the plate reads as a line, not a fade */
+                const lip=1-smoothstep(aa,aa*3,Math.abs(dBot-kickH));
+                if(lip>0){r*=1-lip*0.46;gg*=1-lip*0.46;b*=1-lip*0.44;h-=lip*0.004;}
+              }
+
+              /* the pull. Tubular and vertical is the diner one; a push bar is
+                 the horizontal crash bar; a loop is the short D-handle. All
+                 three are round stock held OFF the leaf on standoffs, so the
+                 shadow under the tube is drawn before the tube itself — that
+                 shadow is what makes it read in the colour map and not only in
+                 the normal. */
+              const px=lf.lead?lf.x1-stileW*0.52:lf.x0+stileW*0.52;
+              let pd=9,pSpan=-1;
+              if(P.doorPull==="push"){
+                pd=Math.abs(wy-doorTop*0.44);
+                pSpan=Math.min(wx-lf.x0,lf.x1-wx)-stileW*0.30;
+              }else{
+                const y0=doorTop*(P.doorPull==="loop"?0.40:0.26);
+                const y1=doorTop*(P.doorPull==="loop"?0.56:0.72);
+                pd=Math.abs(wx-px);
+                pSpan=Math.min(wy-y0,y1-wy);
+              }
+              if(pd<pullR*2.1&&pSpan>-pullR){
+                const end=smoothstep(0,pullR*0.7,pSpan);
+                const shade=(1-smoothstep(pullR*1.15,pullR*2.05,pd))*end;
+                if(shade>0.004){r*=1-shade*0.42;gg*=1-shade*0.42;b*=1-shade*0.40;}
+                const t=pd/pullR;
+                const round=Math.sqrt(Math.max(0,1-t*t));
+                const m=(1-smoothstep(pullR*0.85,pullR,pd))*end;
+                if(m>0.004){
+                  chrome();
+                  const lit=T_PULL*(0.72+round*0.56);
+                  r=lerp(r,Math.min(255,Mr*lit),m);gg=lerp(gg,Math.min(255,Mg*lit),m);
+                  b=lerp(b,Math.min(255,Mb*lit),m);
+                  rg=lerp(rg,0.05,m);met=lerp(met,1,m);
+                  const stand=1-smoothstep(pullR*1.2,pullR*2.6,pSpan);
+                  h=lerp(h,0.062+round*pullR*1.2+stand*0.014,m);
+                }
+              }
+            }
+          }
+
+          if(bead>0.01){                                  /* the pane's dark edge */
+            r*=1-bead*(1-T_BEAD);gg*=1-bead*(1-T_BEAD);b*=1-bead*(1-T_BEAD);
+            rg=lerp(rg,0.35,bead*0.6);h-=bead*0.006;
+          }
+          if(reveal>0.01){                                /* the shadow in the reveal */
+            r*=1-reveal*0.46;gg*=1-reveal*0.46;b*=1-reveal*0.44;
+            h-=reveal*0.010;
+          }
+          if(jambM>0.01){                                 /* the jamb, proudest of all */
+            chrome();
+            r=lerp(r,Mr*T_JAMB,jambM);gg=lerp(gg,Mg*T_JAMB,jambM);b=lerp(b,Mb*T_JAMB,jambM);
+            rg=lerp(rg,0.11,jambM);met=lerp(met,1,jambM);h=lerp(h,0.052,jambM);
+          }
+          /* the threshold: the opening reads as a way IN rather than a panel
+             because the floor plate catches the light along the bottom of it */
+          const thr=1-smoothstep(sillH-aa,sillH,wy);
+          if(thr>0.02){
+            stainless(wx,wy,false);
+            const wear=clamp(fbm2(wx*9,wy*30,96,128,2,seed+59)*1.6-0.5,0,1);
+            const t3=T_THR*(1.04-wear*0.34);
+            r=lerp(r,Mr*t3,thr);gg=lerp(gg,Mg*t3,thr);b=lerp(b,Mb*t3,thr);
+            rg=lerp(rg,0.24+wear*0.5,thr);met=lerp(met,1,thr);h=lerp(h,0.040,thr);
           }
         }
 
@@ -291,33 +498,104 @@ function build(P,io){
             r=lerp(r,52,grease*0.8);gg=lerp(gg,46,grease*0.8);b=lerp(b,40,grease*0.75);
             rg=lerp(rg,0.94,grease);met=lerp(met,0.1,grease);
           }
-          const sdx=wx-FW*P.doorPos,sdy=wy-g.yBase*0.1;
-          if(P.backDoor&&sdx>-0.5&&sdx<3.6&&sdy>-0.5&&sdy<8.2){
-            if(sdx>0&&sdx<3.1&&sdy>0&&sdy<6.9){
-              const dF=Math.min(Math.min(sdx,3.1-sdx),Math.min(sdy,6.9-sdy));
-              const fr=1-smoothstep(0.10,0.13,dF);          // pressed edge of the slab
+          /* ---- the service door ----
+             A steel slab in a pressed frame: hinge stile with three butts on
+             it, a lever on the leading edge, an optional vision lite, and a
+             kick plate. A pair gets a meeting stile down the middle and a lever
+             on each leaf, which is what a kitchen with a trolley actually has. */
+          const bdT=P.backDoorType||"none";
+          const bdLeaves=bdT==="double"?2:1;
+          const bdW=3.1*bdLeaves,bdH=6.9;
+          const sdx=wx-(FW*P.doorPos-bdW*0.5),sdy=wy-g.yBase*0.1;
+          if(bdT!=="none"&&sdx>-0.5&&sdx<bdW+0.5&&sdy>-0.5&&sdy<8.2){
+            if(sdx>0&&sdx<bdW&&sdy>0&&sdy<bdH){
+              const lw=bdW/bdLeaves;
+              const li=Math.min(bdLeaves-1,Math.floor(sdx/lw));
+              const lx0=li*lw,ux=sdx-lx0;                 // across this leaf
+              /* leaf 0 hangs on the left, leaf 1 on the right, so a pair opens
+                 outward from the middle */
+              const hingeLeft=(li===0);
+              const dF=Math.min(Math.min(ux,lw-ux),Math.min(sdy,bdH-sdy));
+              const fr=1-smoothstep(0.10,0.13,dF);        // pressed edge of the slab
               const t=0.86+fbm2(wx*6,wy*6,64,64,2,seed+41)*0.28;
               r=steelC[0]*0.62*t;gg=steelC[1]*0.62*t;b=steelC[2]*0.6*t;
               rg=0.55;met=0.7;h=-0.03+fr*0.06;
-              const kick=1-smoothstep(1.30,1.34,sdy);       // kick plate, scuffed bright
+
+              if(P.backLite){                             // vision lite, head height
+                const gx=ux-lw*0.5,gy=sdy-5.15;
+                const gw=Math.min(lw*0.34,0.62),gh=0.82;
+                const dg=Math.max(Math.abs(gx)-gw*0.5,Math.abs(gy)-gh*0.5);
+                if(dg<0.10){
+                  const bez=1-smoothstep(0.02,0.05,dg);
+                  if(dg<0){
+                    glazing(wx,wy,0.30);
+                    r=Gr*0.72;gg=Gg*0.72;b=Gb*0.7;rg=0.10;met=0.8;h=-0.05;
+                  }
+                  if(bez>0&&dg>=-0.03){                   // the pressed bezel round it
+                    chrome();
+                    r=lerp(r,Mr*0.8,bez);gg=lerp(gg,Mg*0.8,bez);b=lerp(b,Mb*0.8,bez);
+                    rg=lerp(rg,0.3,bez);met=lerp(met,1,bez);h=lerp(h,0.03,bez);
+                  }
+                }
+              }
+
+              const kick=1-smoothstep(1.30,1.34,sdy);     // kick plate, scuffed bright
               if(kick>0){r=lerp(r,r*1.35+18,kick);gg=lerp(gg,gg*1.35+18,kick);
                 b=lerp(b,b*1.32+18,kick);rg=lerp(rg,0.30,kick);met=lerp(met,1,kick);
                 h+=kick*0.012;}
-              const hinge=1-smoothstep(0.18,0.22,sdx);      // hinge stile
-              h+=hinge*0.006;
+
+              /* three butt hinges down the hanging stile */
+              const hx=hingeLeft?ux:lw-ux;
+              const hStile=1-smoothstep(0.18,0.22,hx);
+              h+=hStile*0.006;
+              if(hx<0.16){
+                for(let k=0;k<3;k++){
+                  const hy=Math.abs(sdy-(0.85+k*2.55));
+                  if(hy<0.30){
+                    const m=(1-smoothstep(0.26,0.30,hy))*(1-smoothstep(0.13,0.16,hx));
+                    chrome();
+                    r=lerp(r,Mr*0.74,m);gg=lerp(gg,Mg*0.74,m);b=lerp(b,Mb*0.74,m);
+                    rg=lerp(rg,0.34,m);met=lerp(met,1,m);h=lerp(h,0.026,m);
+                  }
+                }
+              }
+
+              /* the lever, on the leading edge at handle height */
+              const px=hingeLeft?lw-0.34:0.34;
+              const dlx=ux-px,dly=sdy-3.05;
+              const rose=Math.sqrt(dlx*dlx+dly*dly);
+              if(rose<0.42){
+                const back=1-smoothstep(0.13,0.16,rose);  // the rose plate
+                const armX=hingeLeft?(dlx>-0.02?dlx:9):(dlx<0.02?-dlx:9);
+                const arm=(armX<0.34)
+                  ?(1-smoothstep(0.036,0.05,Math.abs(dly)))*(1-smoothstep(0.30,0.34,armX)):0;
+                const m=Math.max(back,arm);
+                if(m>0.01){
+                  chrome();
+                  r=lerp(r,Mr,m);gg=lerp(gg,Mg,m);b=lerp(b,Mb,m);
+                  rg=lerp(rg,0.08,m);met=lerp(met,1,m);
+                  h=lerp(h,0.035+arm*0.026,m);
+                }
+              }
+
+              if(bdLeaves===2){                           // the stile the pair meets on
+                const meet=1-smoothstep(0.05,0.08,Math.abs(sdx-bdW*0.5));
+                if(meet>0){h-=meet*0.02;r*=1-meet*0.35;gg*=1-meet*0.35;b*=1-meet*0.35;}
+              }
+
               const rust=clamp(fbm2(wx*8,wy*3,64,32,3,seed+43)*1.6-0.7,0,1)*P.grime;
               r=lerp(r,126,rust);gg=lerp(gg,72,rust);b=lerp(b,44,rust);
               rg=lerp(rg,0.95,rust);met=lerp(met,0.1,rust);
             }else{
-              const dJ=Math.min(Math.min(sdx+0.5,3.6-sdx),Math.min(sdy+0.5,7.4-sdy));
-              if(dJ>0&&sdy<7.4){                            // pressed steel frame round it
+              const dJ=Math.min(Math.min(sdx+0.5,bdW+0.5-sdx),Math.min(sdy+0.5,bdH+0.5-sdy));
+              if(dJ>0&&sdy<bdH+0.5){                      // pressed steel frame round it
                 chrome();
                 r=Mr*0.72;gg=Mg*0.72;b=Mb*0.72;rg=0.42;met=0.85;h=0.03;
               }
             }
             /* the bulkhead light over every back door, on the same switch as
                the neon so one slider takes the whole building to night */
-            const lx=sdx-1.55,lyy=sdy-7.6;
+            const lx=sdx-bdW*0.5,lyy=sdy-(bdH+0.7);
             const dl=Math.sqrt(lx*lx+lyy*lyy*1.7);
             if(dl<0.42){
               const t2=1-smoothstep(0.30,0.40,dl);
@@ -446,6 +724,28 @@ function build(P,io){
 
 const MATS=[["stainless","Stainless"],["fluted","Fluted stainless"],["enamel","Porcelain enamel"]];
 
+/* Three faces of one prefabricated body, so every step after the first opens
+   with the whole body already decided and only the face's own business left:
+   the entrance on the front, the length on the side, the service door and the
+   exhaust on the back. */
+Forge.registerStructure({
+  id:"diner",
+  label:"Diner",
+  blurb:"Front, side and back of one streamline body",
+  steps:[
+    {id:"front",label:"Front",mode:"diner",set:{face:"front"},
+     note:"The front decides the body: the band heights, the materials, the colours, the neon "+
+          "and the sign. The side and the back are the same body seen from elsewhere, so they "+
+          "open with all of it and the bands land at the same heights on each."},
+    {id:"side",label:"Side",mode:"diner",set:{face:"side"},
+     note:"The long run. Only the LENGTH is its own — everything else arrived from the front, "+
+          "which is what makes the neon carry round the corner instead of stopping at it."},
+    {id:"back",label:"Back",mode:"diner",set:{face:"back"},
+     note:"Service. The glass goes solid, and what is left to set is the kitchen exhaust duct "+
+          "and the service door — single leaf or a pair, with or without a vision lite."}
+  ]
+});
+
 Forge.register({
   id:"diner",
   label:"Diner",
@@ -473,7 +773,7 @@ Forge.register({
       bodyW:30,bodyL:52,baseH:1.6,lowH:1.7,winH:4.2,upH:1.3,browH:1.7,
       baseMat:"tile",lowMat:"enamel",upMat:"fluted",browMat:"stainless",
       panelW:4,bowIn:.14,battenIn:2.5,fluteIn:2.6,mullSp:4,mullIn:2.5,railIn:3,tileIn:4,
-      doorW:3.4,doorH:7,doorPos:.5,interior:.5,boarded:0,
+      doorW:3.4,doorH:7,doorPos:.5,entryType:"single",doorHand:"right",doorGlazing:"full",doorPull:"tube",pullIn:1.5,stileIn:4,jambIn:3,kickIn:10,transom:true,backDoorType:"single",backLite:true,interior:.5,boarded:0,
       neonBands:2,neonOn:1,neonBack:false,tubeIn:1.2,sign:"DINER",signColour:0,
       grime:.2,fade:.15,
       cBody:"#c8202a",cTrim:"#d8dde0",cTile:"#e9e4d6",cSteel:"#b9bfc4",
@@ -482,7 +782,7 @@ Forge.register({
       bodyW:28,bodyL:46,baseH:1.5,lowH:1.9,winH:4,upH:1.4,browH:1.6,
       baseMat:"tile",lowMat:"enamel",upMat:"enamel",browMat:"fluted",
       panelW:3.5,bowIn:.12,battenIn:2,fluteIn:2.2,mullSp:3.6,mullIn:2.2,railIn:3,tileIn:4,
-      doorW:3.2,doorH:6.9,doorPos:.34,interior:.45,boarded:0,
+      doorW:6.2,doorH:6.9,doorPos:.34,entryType:"double",doorHand:"right",doorGlazing:"full",doorPull:"tube",pullIn:1.75,stileIn:3.5,jambIn:3,kickIn:12,transom:true,backDoorType:"single",backLite:true,interior:.45,boarded:0,
       neonBands:3,neonOn:.9,neonBack:false,tubeIn:1,sign:"EAT",signColour:1,
       grime:.18,fade:.25,
       cBody:"#3fb3ae",cTrim:"#f2ece0",cTile:"#f0ead9",cSteel:"#c2c8cc",
@@ -491,7 +791,7 @@ Forge.register({
       bodyW:32,bodyL:56,baseH:1.7,lowH:1.6,winH:4.4,upH:1.2,browH:1.8,
       baseMat:"fluted",lowMat:"fluted",upMat:"enamel",browMat:"enamel",
       panelW:4.5,bowIn:.16,battenIn:3,fluteIn:3,mullSp:4.4,mullIn:2.8,railIn:3.5,tileIn:4,
-      doorW:3.5,doorH:7.1,doorPos:.62,interior:.85,boarded:0,
+      doorW:3.5,doorH:7.1,doorPos:.62,entryType:"sidelight",doorHand:"left",doorGlazing:"full",doorPull:"loop",pullIn:1.25,stileIn:4.5,jambIn:3.5,kickIn:8,transom:true,backDoorType:"double",backLite:false,interior:.85,boarded:0,
       neonBands:3,neonOn:1,neonBack:true,tubeIn:1.4,sign:"OPEN",signColour:2,
       grime:.3,fade:.1,
       cBody:"#1f2a33",cTrim:"#cfd6da",cTile:"#dcd6c6",cSteel:"#aeb5bb",
@@ -500,7 +800,7 @@ Forge.register({
       bodyW:29,bodyL:48,baseH:1.6,lowH:1.8,winH:4.1,upH:1.3,browH:1.6,
       baseMat:"tile",lowMat:"enamel",upMat:"fluted",browMat:"stainless",
       panelW:4,bowIn:.14,battenIn:2.5,fluteIn:2.6,mullSp:4,mullIn:2.5,railIn:3,tileIn:4,
-      doorW:3.4,doorH:7,doorPos:.5,interior:0,boarded:.55,
+      doorW:3.4,doorH:7,doorPos:.5,entryType:"single",doorHand:"right",doorGlazing:"half",doorPull:"push",pullIn:1.5,stileIn:5,jambIn:3,kickIn:14,transom:false,backDoorType:"single",backLite:false,interior:0,boarded:.55,
       neonBands:2,neonOn:0,neonBack:false,tubeIn:1.2,sign:"CAFE",signColour:0,
       grime:.8,fade:.7,
       cBody:"#9a6b62",cTrim:"#b4b0a6",cTile:"#cabfa9",cSteel:"#9aa0a4",
@@ -543,11 +843,31 @@ Forge.register({
       {id:"interior",label:"Counter showing through",min:0,max:1,step:0.01,value:0.5},
       {id:"boarded",label:"Boarded windows",min:0,max:1,step:0.01,value:0}
     ]},
-    {title:"Door",need:["front","back"],rows:[
-      {id:"doorW",label:"Door width",unit:"ft",min:2.4,max:6,step:0.1,value:3.4,need:"front"},
-      {id:"doorH",label:"Door height",unit:"ft",min:5.5,max:9,step:0.1,value:7,need:"front"},
-      {id:"doorPos",label:"Door position",min:0,max:1,step:0.01,value:0.5},
-      {type:"checks",need:"back",items:[{id:"backDoor",label:"Service door",value:true}]}
+    {title:"Doors",open:true,need:["front","back"],rows:[
+      {id:"entryType",need:"front",type:"select",label:"Entrance",value:"single",options:[
+        ["single","Single leaf"],["double","Double — a pair"],
+        ["sidelight","Single with sidelights"],["none","None — glass right across"]]},
+      {id:"doorW",label:"Opening width",unit:"ft",min:2.4,max:9,step:0.1,value:3.4,need:"front"},
+      {id:"doorH",label:"Head height",unit:"ft",min:5.5,max:9,step:0.1,value:7,need:"front"},
+      {id:"doorPos",label:"Position along the face",min:0,max:1,step:0.01,value:0.5},
+      {id:"doorHand",need:"front",type:"select",label:"Hand",value:"right",options:[
+        ["right","Pull on the right"],["left","Pull on the left"]]},
+      {id:"doorGlazing",need:"front",type:"select",label:"Leaf",value:"full",options:[
+        ["full","Full glass"],["half","Half glass over a solid panel"]]},
+      {id:"doorPull",need:"front",type:"select",label:"Pull",value:"tube",options:[
+        ["tube","Tubular — full height"],["loop","D-handle"],["push","Push bar across"]]},
+      {id:"pullIn",need:"front",label:"Pull diameter",unit:"in",min:0.75,max:3,step:0.05,value:1.5},
+      {id:"stileIn",need:"front",label:"Stile & rail",unit:"in",min:1.5,max:8,step:0.25,value:4},
+      {id:"jambIn",need:"front",label:"Jamb",unit:"in",min:1,max:8,step:0.25,value:3},
+      {id:"kickIn",need:"front",label:"Kick plate",unit:"in",min:0,max:20,step:0.5,value:10},
+      {type:"checks",need:"front",items:[{id:"transom",label:"Transom light over the door",value:true}]},
+      {type:"note",need:"front",html:"A leaf is a <b>frame</b> — two stiles, a top rail, a deeper "+
+        "bottom rail that takes the kick — with glass in the hole, set into a jamb heavier than any "+
+        "mullion beside it. The shopfront glazing stops at that jamb, so the entrance is a way in "+
+        "rather than a rectangle drawn on the window."},
+      {id:"backDoorType",need:"back",type:"select",label:"Service door",value:"single",options:[
+        ["single","Single leaf"],["double","Double — a pair"],["none","None"]]},
+      {type:"checks",need:"back",items:[{id:"backLite",label:"Vision lite in the service door",value:true}]}
     ]},
     {title:"Back of house",need:"back",rows:[
       {id:"ductW",label:"Exhaust duct",unit:"ft",min:0.6,max:5,step:0.1,value:2},
