@@ -55,7 +55,7 @@ Forge.register({
       {id:"seed",type:"seed",value:1912},
       {type:"checks",items:[{id:"linkHouse",label:"Coordinate with the envelope and roof",value:false}]}
     ]},
-  ].concat(Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","maps"])),
+  ].concat(Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","micro","maps"])),
 
   /* keeps the side, the back and the roof describing this same house */
   derive:function(P){Shell.coordinate("house",P);},

@@ -1902,6 +1902,13 @@ function build(params,io){
         NRM[i]=(nx*0.5+0.5)*255;NRM[i+1]=(ny*0.5+0.5)*255;NRM[i+2]=(inv*0.5+0.5)*255;
       }
     }
+    /* THE LAST PASS. Everything above draws one texel knowing only where it is;
+       this one looks at each texel's neighbours. Heights here are in FEET and
+       so is the texel spacing, which is the unit these numbers are in. */
+    if(window.ForgeMicro)ForgeMicro.apply({A:A,RGH:RGH,HGT:HGT,ALP:ALP,W:TW,H:TH},{
+      seed:P.seed|0,mpp:ftPerTexel,wrap:false,up:-1,
+      curve:+P.mCurve||0,grain:+P.mGrain||0,speck:(+P.mGrain||0)*0.8,dust:+P.mDust||0,
+      ledgeM:0.16,stepU:0.055,curveU:0.010,dustC:[176,170,156]});
     io.progress(1);
     io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,ID:IDm,hMin:hMin,hMax:hMax});
   }
@@ -2021,6 +2028,18 @@ const CONTROLS={
         "falls back to a scrawl."},
       {id:"vines",need:"ab",label:"Vines and weeds",min:0,max:1,step:0.01,value:0.4},
       {id:"missing",need:"ab",label:"Missing siding",min:0,max:1,step:0.01,value:0.3}
+    ]};},
+  micro:function(){return {title:"Micro detail",rows:[
+      {id:"mCurve",label:"Edges & crevices",min:0,max:1,step:0.01,value:0.45},
+      {id:"mGrain",label:"Fine tooth & flecks",min:0,max:1,step:0.01,value:0.4},
+      {id:"mDust",label:"Dust on the ledges",min:0,max:1,step:0.01,value:0.45},
+      {type:"note",html:"Three things the generator cannot see while it is drawing one texel "+
+        "at a time, because all three are about a texel's <b>relationship to its neighbours</b>. "+
+        "Dust settles on anything that faces up — a sill, a belt course, a coping, the top of a "+
+        "canopy — and the height field is what knows which texels those are. Edges and crevices "+
+        "come off the curvature of the same field: convex catches the light, concave holds the "+
+        "dirt. The tooth is roughness only, and it is most of what stops a large flat area "+
+        "reading as a rendered plane."}
     ]};},
   maps:function(){return {title:"Maps",rows:[
       {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},

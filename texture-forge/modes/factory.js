@@ -969,6 +969,14 @@ function build(params,io){
         NRM[j]=(nx*0.5+0.5)*255;NRM[j+1]=(ny*0.5+0.5)*255;NRM[j+2]=(inv*0.5+0.5)*255;
       }
     }
+    /* THE LAST PASS — neighbours rather than texels. Heights here are in
+       tile-width units, so a length in metres comes through M and the texel
+       spacing is one over the width in texels. */
+    if(window.ForgeMicro)ForgeMicro.apply({A:A,RGH:RGH,HGT:HGT,ALP:ALP,W:SW,H:SH},{
+      seed:seed,mpp:1/SW,wrap:WALL,up:-1,
+      curve:+P.mCurve||0,grain:+P.mGrain||0,speck:(+P.mGrain||0)*0.8,dust:+P.mDust||0,
+      ledgeM:0.05*M,stepU:Math.max(1e-6,sillOut*0.45),
+      curveU:Math.max(1e-6,jointD*1.6),dustC:[166,160,148]});
     io.progress(1);
     io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,
              hMin:hMin,hMax:hMax});
@@ -1235,6 +1243,16 @@ Forge.register({
       {type:"colors",label:"Brick · mortar · stone · sash · glass",items:[
         {id:"cBrick",value:"#8a4030"},{id:"cMortar",value:"#a89b86"},
         {id:"cStone",value:"#9a9589"},{id:"cSash",value:"#3b423c"},{id:"cGlass",value:"#3b464e"}]}
+    ]},
+    {title:"Micro detail",rows:[
+      {id:"mCurve",label:"Edges & crevices",min:0,max:1,step:0.01,value:0.45},
+      {id:"mGrain",label:"Fine tooth & flecks",min:0,max:1,step:0.01,value:0.4},
+      {id:"mDust",label:"Dust on the ledges",min:0,max:1,step:0.01,value:0.5},
+      {type:"note",html:"Three things a per-texel loop cannot see, because all three are about a "+
+        "texel's <b>relationship to its neighbours</b>. Dust settles on whatever faces up — every "+
+        "sill, belt course, coping and door canopy on the elevation — and the height field is what "+
+        "knows which texels those are. Edges and crevices come off the curvature of the same "+
+        "field: the arris of a brick catches the light, the joint beside it holds the dirt."}
     ]},
     {title:"Maps",rows:[
       {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},

@@ -23,7 +23,7 @@ const wall=P=>P.face==="side"?"side":"back";
 
 const FACES=[["side","Side elevation"],["back","Back elevation"]];
 
-const wallGroups=Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","maps"])
+const wallGroups=Shell.controls(["cladding","openings","glass","trim","weathering","abandonment","micro","maps"])
   .map(function(g){
     const c={};for(const k in g)c[k]=g[k];
     c.need=["side","back"];

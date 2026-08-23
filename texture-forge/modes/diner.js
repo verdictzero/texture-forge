@@ -711,6 +711,14 @@ function build(P,io){
         NRM[j]=(nx*0.5+0.5)*255;NRM[j+1]=(ny*0.5+0.5)*255;NRM[j+2]=(inv*0.5+0.5)*255;
       }
     }
+    /* THE LAST PASS — neighbours rather than texels. Heights here are in
+       texture-WIDTH units, so a length in feet is divided by the face width and
+       the texel spacing is one over the width in texels. */
+    if(window.ForgeMicro)ForgeMicro.apply({A:A,RGH:RGH,HGT:HGT,ALP:ALP,W:TW,H:TH},{
+      seed:P.seed|0,mpp:1/TW,wrap:false,up:-1,
+      curve:+P.mCurve||0,grain:+P.mGrain||0,speck:(+P.mGrain||0)*0.8,dust:+P.mDust||0,
+      ledgeM:0.16/Math.max(1,g.FW),stepU:0.05/Math.max(1,g.FW),
+      curveU:0.010/Math.max(1,g.FW),dustC:[178,173,162]});
     io.progress(1);
     io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMC:EMC,
              hMin:hMin,hMax:hMax});
@@ -903,6 +911,16 @@ Forge.register({
         {id:"cSteel",value:"#b9bfc4"},{id:"cGlass",value:"#2e3a42"}]},
       {id:"grime",label:"Grime",min:0,max:1,step:0.01,value:0.2},
       {id:"fade",label:"Sun fade",min:0,max:1,step:0.01,value:0.15}
+    ]},
+    {title:"Micro detail",rows:[
+      {id:"mCurve",label:"Edges & crevices",min:0,max:1,step:0.01,value:0.5},
+      {id:"mGrain",label:"Fine tooth & flecks",min:0,max:1,step:0.01,value:0.35},
+      {id:"mDust",label:"Dust on the ledges",min:0,max:1,step:0.01,value:0.4},
+      {type:"note",html:"Three things a per-texel loop cannot see, because all three are about a "+
+        "texel's <b>relationship to its neighbours</b>. Dust settles on whatever faces up — the "+
+        "top of every band, sill and coping on the body. Edges and crevices come off the "+
+        "curvature of the height field, which on a stainless body is most of what makes a "+
+        "rolled edge read as rolled rather than as a painted line."}
     ]},
     {title:"Maps",rows:[
       {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},

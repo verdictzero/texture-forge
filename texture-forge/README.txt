@@ -667,6 +667,40 @@ Notes worth knowing:
   to it — that path cannot be blocked by the browser.
 
 
+MICRO DETAIL
+------------
+The house, envelope, factory and diner modes each end with one more pass that
+looks at a texel's NEIGHBOURS rather than at the texel. Three things live
+there, and none of them can be seen from inside a per-texel loop:
+
+  Dust on the ledges     dust, soot and worse settle on anything that faces
+                         up — a sill, a belt course, a coping, the top of a
+                         door canopy, the flat of a band. The generator does
+                         not know it drew one; the height field does. A texel
+                         is on a ledge when it stands proud of the wall just
+                         above it, which is one sliding window down each
+                         column and nothing else.
+
+  Edges & crevices       an arris that has been knocked about catches the
+                         light and a joint beside it holds dirt. Both come
+                         straight off the curvature of the height field —
+                         positive where the surface is locally convex,
+                         negative where it is concave.
+
+  Fine tooth & flecks    the grain under everything, in ROUGHNESS only, plus
+                         the dark and pale flecks in any real material. It
+                         costs nothing in the normal map and it is most of
+                         what stops a large flat area reading as a rendered
+                         plane.
+
+Every field in that pass is held so its finest octave stays several texels
+wide. Value noise doubles its lattice per octave, so a base period of 300 over
+three octaves lands its finest cells at about one texel of a 1024 map — and a
+cell that small does not read as grain, it reads as square blocks.
+
+The generator is shared: modes/lib/micro.js.
+
+
 GEOMETRY OUT
 ------------
 Every zip also contains model.gltf, model.obj and model.mtl: the surface as
