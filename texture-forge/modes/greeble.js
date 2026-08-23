@@ -762,6 +762,9 @@ Forge.register({
     }};
   },
 
+  /* a tiling material: one tile of it, at the size the mode says it covers */
+  plan:function(P){const t=Math.max(0.05,+P.tileM||2);return {w:t,h:t,tile:t,cutout:false};},
+
   size:function(P){const S=P.size|0;return {w:S,h:S};},
   build:build,
 

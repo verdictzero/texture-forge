@@ -906,6 +906,17 @@ async function downloadZip(){
     }
     files.push({name:fileBase(st)+"_readme.txt",
       data:new TextEncoder().encode(readmeText(st))});
+    /* GEOMETRY. Every mode already knows how big the thing it drew really is —
+       it prints it in the readout — so the zip carries a plane at that size
+       with these maps already wired to it, rather than a paragraph telling you
+       what to scale a plane to. See forge-model.js. */
+    if(window.ForgeModel){
+      const plan=ForgeModel.planOf(st.mode,st.P);
+      const maps={};
+      for(const ch of st.mode.channels)maps[ch.key]=fileName(st,ch.key);
+      for(const f of ForgeModel.filesForFace(st.mode.id,plan,maps,plan.cutout&&!!maps.opacity))
+        files.push(f);
+    }
     const zip=makeZip(files),name=fileBase(st)+".zip";
     if(st.zipUrl)URL.revokeObjectURL(st.zipUrl);
     st.zipUrl=saveBlob(zip,name);
@@ -1148,7 +1159,7 @@ async function wizBuildAll(){
   const steps=wizSteps(),start=wiz.i;
   try{
     wizRecord();
-    const files=[];
+    const files=[],faceBy={},planList=[];
     for(let k=0;k<steps.length;k++){
       const step=steps[k];
       setStatus("Building "+step.label+"…");
@@ -1173,6 +1184,30 @@ async function wizBuildAll(){
       }
       files.push({name:step.id+"/"+fileBase(st)+"_readme.txt",
                   data:new TextEncoder().encode(readmeText(st))});
+      if(window.ForgeModel){
+        const maps={};
+        for(const ch of st.mode.channels)maps[ch.key]=step.id+"/"+fileName(st,ch.key);
+        const plan=ForgeModel.planOf(st.mode,st.P);
+        faceBy[step.id]={plan:plan,
+          material:{name:step.id,maps:maps,cutout:plan.cutout&&!!maps.opacity}};
+        planList.push({name:step.id,plan:plan});
+      }
+    }
+    /* THE BUILDING, not four planes. The wizard already knows which face is
+       which and every one of them just reported its real size, so the box
+       assembles itself: the front and back at their own widths, the side
+       elevation used twice because that is what the two sides of a building
+       are, and whatever roof the front described sitting at the eaves. */
+    if(window.ForgeModel&&faceBy.front){
+      const order=steps.map(x=>x.id);
+      const at=i=>(order[i]&&order[i]!=="roof")?faceBy[order[i]]:null;
+      const model=ForgeModel.filesForBuilding(wiz.s.id+"_"+(wiz.vals.seed|0),{
+        front:faceBy.front||at(0),
+        side :faceBy.side ||at(1),
+        back :faceBy.back ||at(2),
+        roof :faceBy.roof ||null
+      },planList);
+      for(const f of model)files.push(f);
     }
     files.push({name:"readme.txt",data:new TextEncoder().encode(wizReadme())});
     const zip=makeZip(files),name=wiz.s.id+"_"+(wiz.vals.seed|0)+"_all.zip";
@@ -1208,7 +1243,12 @@ function wizReadme(){
     "them together and they line up; rebuild one on its own with different",
     "settings and it stops matching the others.","",
     "Resolution is deliberately per-face — how many texels a face needs is a",
-    "property of the export, not of the building.");
+    "property of the export, not of the building.",
+    "",
+    "model.gltf, model.obj and model.mtl are the building itself: a box at true",
+    "scale in metres with these faces mapped onto it and a roof on top. Import the",
+    "glTF into Blender and the materials arrive wired. model_readme.txt has the",
+    "dimensions and the caveats.");
   return out.join("\n");
 }
 

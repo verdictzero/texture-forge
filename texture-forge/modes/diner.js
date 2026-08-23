@@ -949,6 +949,14 @@ Forge.register({
     }};
   },
 
+  /* feet in, metres out. The body is flat behind its brow, so the roof plane
+     belongs at the top of the upper band and the brow stays part of the wall
+     texture — which is exactly where the alpha silhouette already puts it. */
+  plan:function(P){
+    const g=geom(P),FT=0.3048;
+    return {w:g.FW*FT,h:g.FH*FT,cutout:true,eaves:g.yUp*FT,roof:{kind:"flat"}};
+  },
+
   size:function(P){const g=geom(P);return {w:g.TW,h:g.TH};},
   build:build,
 

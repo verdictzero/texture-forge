@@ -2247,6 +2247,15 @@ Forge.register({
     if((P.size|0)>cap)ui.set("size",cap);
   },
 
+  /* One tile of fence is however many bays it holds, and its height follows
+     from the aspect the mode already computes — inches and feet in, metres out.
+     It carries alpha, so the model is a cut-out plane. */
+  plan:function(P){
+    const FT=0.3048,bays=Math.max(1,P.baysPerTile|0);
+    const w=Math.max(0.3,(+P.bayFt||8)*bays*FT);
+    return {w:w,h:w*aspectK(P),tile:w,cutout:true};
+  },
+
   size:function(P,preview){
     const g=geo(P);
     const w=preview?Math.min(P.size|0,256):Math.min(P.size|0,sizeCap(g.k));

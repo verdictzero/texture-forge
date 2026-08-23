@@ -221,6 +221,39 @@ function pass1(){
 | `EMI` | `Uint8ClampedArray` | only if something glows |
 | anything else | | whatever your custom writers need |
 
+### Real-world size, and the geometry export
+
+Optional, but do it. Declare `plan(P)` and every zip your mode produces gains
+`model.gltf`, `model.obj` and `model.mtl` — a plane at the size you actually
+drew, with your maps already wired to it, so the export lands in Blender at true
+scale instead of as nine PNGs and a paragraph about what to scale a plane to.
+
+```js
+plan(P)   // -> {w, h, cutout, eaves, tile, roof}
+```
+
+**`w` and `h` are METRES, always**, whatever unit the mode itself thinks in —
+the house and the diner work in feet, the roof in inches, the vent in
+millimetres, and each of them converts here. This is the single easiest thing
+to get wrong and it is the one thing the feature test checks by value rather
+than by shape.
+
+| field | meaning |
+|---|---|
+| `w`, `h` | the real size of the face or of one tile, in metres |
+| `cutout` | true if `A`'s alpha is a silhouette — the material gets `alphaMode: MASK` |
+| `eaves` | where the walls stop and a roof would start; defaults to `h` |
+| `tile` | for a tiling material, the repeat size, so a roof plane can be given UVs that repeat at true size rather than stretching one copy |
+| `roof` | only the FIRST face of a structure needs this: `{kind:"flat"\|"gable", pitch, ridge:"x"\|"z"}` |
+
+A mode with no `plan()` still exports; it gets a one-metre square and the
+model readme says so, which is better than geometry that quietly lies about
+its scale.
+
+The wizard uses the same hook for a whole building: the front and back at their
+own widths, the side elevation used twice because that is what the two sides of
+a building are, and the roof sitting at `eaves`. See forge-model.js.
+
 ### Custom channels
 
 ```js

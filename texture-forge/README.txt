@@ -667,6 +667,47 @@ Notes worth knowing:
   to it — that path cannot be blocked by the browser.
 
 
+GEOMETRY OUT
+------------
+Every zip also contains model.gltf, model.obj and model.mtl: the surface as
+something you can import, at true scale in metres, with the maps already wired
+to it.
+
+  model.gltf   glTF 2.0. Blender: File > Import > glTF 2.0. This app is a
+               natural fit for the format — glTF reads roughness from the green
+               channel of one image and metallic from its blue, and occlusion
+               from that same image's red, which is exactly what orm.png
+               already is. One image, three slots, nothing to repack. Cut-out
+               faces arrive with alpha clipping on.
+  model.obj    the same geometry for anything that does not read glTF.
+  model.mtl    OBJ cannot address one channel of an image, so this points at
+               roughness.png and metallic.png instead of the packed one.
+
+Both are written Y-up, which is glTF's own convention and the default Blender's
+OBJ importer expects, so the two land in the same orientation and a wall
+arrives standing up.
+
+A single mode exports a single plane. A STRUCTURE — the House, Factory or
+Diner buttons in the top bar — exports the building: four walls off three
+elevations (the two sides are the same elevation seen from opposite ends,
+which is what the wizard's side face is), and a roof on top. The roof sits at
+the EAVES rather than at the top of the silhouette, because a parapet or a
+gable is drawn into the wall texture; put the plane at the top and it floats
+above the building it belongs to. Where there is a gable, the ridge is taken
+from the gable face's own silhouette so the plane closes the triangle exactly
+rather than leaving a slot of daylight.
+
+A cut-out face is a flat plane with the silhouette punched into its alpha.
+That is deliberate: the roofline is part of the texture, so the plane carries
+it without any geometry. It reads correctly from any angle you would
+photograph a building from, and it is a flat plane if you walk round the
+corner.
+
+Two modes do not declare a real-world size — plating and ruins are scaled in
+texels rather than in metres — so they export a one-metre plane and the model
+readme says so rather than pretending.
+
+
 USING IT
 --------
 - The tabs along the top switch mode. Each keeps its own settings, and the URL

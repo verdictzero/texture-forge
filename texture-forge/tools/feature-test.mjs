@@ -278,6 +278,81 @@ if (want("fonts")) {
   ok("neither path throws", errors.length === before);
 }
 
+/* ============================ geometry out ============================
+   The exporter's contract is that a mode's plan() is in METRES and the glTF
+   it produces is at true scale — so this checks the numbers rather than that
+   the file merely parses. A mode reporting feet as metres would give a house
+   three times too big and nothing else in the app would notice. */
+if (want("model")) {
+  console.log("\n— geometry —");
+  const R = await page.evaluate(() => {
+    const M = window.ForgeModel;
+    if (!M) return { missing: true };
+    const out = { plans: [], guessed: [] };
+    for (const m of window.Forge.modes) {
+      const st = window.Forge.state(m.id);
+      const p = M.planOf(m, st.P);
+      if (p.guessed) out.guessed.push(m.id);
+      else out.plans.push({ id: m.id, w: p.w, h: p.h, cutout: p.cutout, eaves: p.eaves });
+    }
+    const maps = { basecolor: "a_basecolor.png", normal: "a_normal.png",
+                   orm: "a_orm.png", roughness: "a_r.png", metallic: "a_m.png",
+                   opacity: "a_o.png" };
+    const face = { plan: { w: 8, h: 6, eaves: 5, cutout: true,
+                           roof: { kind: "gable", pitch: 6, ridge: "x" } },
+                   material: { name: "front", maps, cutout: true } };
+    const side = { plan: { w: 10, h: 7.5, eaves: 5, cutout: true },
+                   material: { name: "side", maps, cutout: true } };
+    const roof = { plan: { w: 2, h: 2, tile: 2, cutout: false },
+                   material: { name: "roof", maps, cutout: false } };
+    const S = M.buildingScene("t", { front: face, side, back: face, roof });
+    const doc = JSON.parse(M.gltf(S));
+    const objText = M.obj(S, "model.mtl");
+    let lo = Infinity, hi = -Infinity;
+    for (const a of doc.accessors) if (a.type === "VEC3" && a.min) {
+      lo = Math.min(lo, a.min[1]); hi = Math.max(hi, a.max[1]);
+    }
+    return Object.assign(out, {
+      meshes: doc.meshes.length, materials: doc.materials.length,
+      mask: doc.materials.filter(m => m.alphaMode === "MASK").length,
+      packed: doc.materials.filter(m => m.occlusionTexture &&
+        m.pbrMetallicRoughness.metallicRoughnessTexture &&
+        m.occlusionTexture.index === m.pbrMetallicRoughness.metallicRoughnessTexture.index).length,
+      yLo: lo, yHi: hi,
+      bufOK: doc.buffers[0].uri.startsWith("data:application/octet-stream;base64,"),
+      objVerts: (objText.match(/^v /gm) || []).length,
+      objFaces: (objText.match(/^f /gm) || []).length
+    });
+  });
+  ok("the exporter is loaded", !R.missing);
+  if (!R.missing) {
+    ok("a building is five planes", R.meshes === 5, R.meshes + " meshes");
+    ok("three materials, one per face", R.materials === 3, R.materials + " materials");
+    ok("cut-out faces mask their alpha", R.mask === 2, R.mask + " of 3 masked");
+    ok("orm.png serves occlusion AND metallic-roughness", R.packed === 3,
+       R.packed + " materials share the one packed image");
+    ok("the buffer is inline", R.bufOK);
+    ok("the roof closes the gable exactly", Math.abs(R.yHi - 7.5) < 0.001,
+       "ridge at " + R.yHi.toFixed(3) + " m, the gable face is 7.5 m tall");
+    ok("the walls stand on the ground", Math.abs(R.yLo) < 1e-6, "lowest y " + R.yLo);
+    ok("the OBJ carries the same geometry", R.objVerts === 24 && R.objFaces === 12,
+       R.objVerts + " verts, " + R.objFaces + " faces");
+    /* the check that catches a unit slip: a house is about eight metres wide,
+       not eight feet and not twenty-six */
+    const byId = Object.fromEntries(R.plans.map(p => [p.id, p]));
+    if (byId.house) ok("the house reports metres, not feet",
+                       byId.house.w > 5 && byId.house.w < 25, byId.house.w.toFixed(2) + " m wide");
+    if (byId.factory) ok("the factory reports a real works", byId.factory.w > 4,
+                         byId.factory.w.toFixed(2) + " m");
+    if (byId.roof) ok("the roof reports its repeat in metres",
+                      byId.roof.w > 0.3 && byId.roof.w < 8, byId.roof.w.toFixed(3) + " m");
+    if (byId.vent) ok("the vent reports millimetres as metres",
+                      byId.vent.w > 0.05 && byId.vent.w < 5, byId.vent.w.toFixed(3) + " m");
+    console.log("       no declared size (1 m plane, and the readme says so): " +
+                (R.guessed.join(", ") || "none"));
+  }
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();

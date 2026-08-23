@@ -1315,6 +1315,15 @@ Forge.register({
     }};
   },
 
+  /* Metres already. A works has a flat roof behind its parapet, and the roof
+     plane belongs at the EAVES rather than at the top of the silhouette —
+     put it at the top and it floats above the parapet it is hiding behind. */
+  plan:function(P){
+    if(isWall(P)){const T=Math.max(2,+P.tileW||14);return {w:T,h:T,tile:T,cutout:false};}
+    const g=geom(P);
+    return {w:g.FW,h:g.FH,cutout:true,eaves:g.wallTop,roof:{kind:"flat"}};
+  },
+
   /* square and tiling as a panel; the building's own aspect as an elevation */
   size:function(P){
     if(isWall(P)){const S=P.size|0;return {w:S,h:S};}

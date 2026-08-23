@@ -83,6 +83,18 @@ Forge.register({
     return m;
   },
 
+  /* What a plane of this wants to be, in METRES — the mode itself thinks in
+     feet, and the geometry exporter's contract is metric. The roof is described
+     here rather than by the roof mode because the roof mode draws a material,
+     not a shape: which way the ridge runs is a property of the house. */
+  plan:function(P){
+    const g=Shell.geometry(P,"front"),FT=0.3048;
+    return {w:g.FW*FT,h:g.FH*FT,cutout:true,eaves:g.wallTop*FT,
+            roof:{kind:P.roof==="flat"?"flat":"gable",
+                  pitch:+P.pitch||6,
+                  ridge:P.roof==="gable"?"z":"x"}};
+  },
+
   /* non-square at uniform texel density; the drag preview keeps the aspect */
   size:function(P,preview){return Shell.size(P,"front",preview);},
   build:function(P,io){return Shell.build(P,io,"front");},

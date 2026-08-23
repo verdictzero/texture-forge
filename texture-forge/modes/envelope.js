@@ -137,6 +137,11 @@ Forge.register({
 
   tileTag:function(){return "single piece — one face of a house";},
 
+  plan:function(P){
+    const face=P.face||"side",g=Shell.geometry(P,face),FT=0.3048;
+    return {w:g.FW*FT,h:g.FH*FT,cutout:true,eaves:g.wallTop*FT};
+  },
+
   size:function(P,preview){return Shell.size(P,wall(P),preview);},
   build:function(P,io){return Shell.build(P,io,wall(P));},
 

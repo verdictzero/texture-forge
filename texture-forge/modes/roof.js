@@ -63,6 +63,14 @@ Forge.register({
   readout:function(P){return Roof.readout(P);},
   tileTag:function(){return "tiles ↔ and ↕";},
 
+  /* a tiling material: the plane is one tile, and `tile` is what lets a roof
+     plane in a whole-building export repeat it at true size instead of
+     stretching one copy over the lot. Inches in, metres out. */
+  plan:function(P){
+    const t=Math.max(0.05,(+P.rfTileIn||96)*0.0254);
+    return {w:t,h:t,tile:t,cutout:false};
+  },
+
   size:function(P,preview){return Roof.size(P,preview);},
   build:function(P,io){return Roof.build(P,io);},
 
