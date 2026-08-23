@@ -767,6 +767,7 @@ Forge.register({
   id:"vent",
   label:"Vent",
   group:"Detail",
+  threadable:true,
   blurb:"Louvres, grilles, intakes and heatsinks — cold or glowing",
   title:'Vent <em>& Heatsink</em>',
   tagline:"Louvre · grille · honeycomb · intake · fin · pin · emissive heat",

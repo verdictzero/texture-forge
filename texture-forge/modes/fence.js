@@ -1864,6 +1864,7 @@ Forge.register({
   id:"fence",
   label:"Fence",
   group:"Buildings",
+  threadable:true,
   blurb:"Board, picket, split rail, chain link, mesh panel, iron, hoarding",
   title:'Fence <em>Run</em>',
   tagline:"Board · picket · rail · chain link · mesh · iron · hoarding · real inches",

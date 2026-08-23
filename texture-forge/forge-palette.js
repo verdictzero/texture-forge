@@ -435,7 +435,10 @@ window.Palette={
     const cols=colors();
     if(!cols)return null;
     const d=DITHERS.find(x=>x[0]===state.dither);
-    return p.label+" ("+cols.length+" colours), "+
+    /* the cube palettes already say how many colours they hold in their own
+       name, and "64 colours (64 colours)" reads as a bug */
+    const count=/\d colours$/.test(p.label)?"":" ("+cols.length+" colours)";
+    return p.label+count+", "+
       (state.dither==="none"?"no dither":(d?d[1].split(" — ")[0]:state.dither)+
       " at "+(+state.strength).toFixed(2));
   }

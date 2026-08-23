@@ -221,6 +221,28 @@ function pass1(){
 | `EMI` | `Uint8ClampedArray` | only if something glows |
 | anything else | | whatever your custom writers need |
 
+### Threading
+
+```js
+threadable   // true, false, or a function of P
+```
+
+Set it and your generator runs on a worker instead of on the thread drawing the
+page. Nothing else changes: the runtime hands your `build(P, io)` the same `io`
+and takes the same `B` back through the same `done`.
+
+What you must be sure of is that your generator produces the **same bytes**
+either way. The worker has `window` aliased to `self`, and a `document` that
+returns an `OffscreenCanvas` from `createElement("canvas")` and throws for
+anything else — so shape rasterisation is fine. What is NOT fine is anything
+that depends on the page: a typeface registered against the document is
+invisible to a worker, and a build using one would come back quietly different
+rather than merely late. That is why `house`, `envelope` and `diner` declare a
+function rather than `true` — they say no when there is lettering on the build.
+
+The feature test compares a worker build against a main-thread build byte for
+byte, so if you get this wrong it will say so.
+
 ### Real-world size, and the geometry export
 
 Optional, but do it. Declare `plan(P)` and every zip your mode produces gains

@@ -674,6 +674,7 @@ Forge.register({
   id:"hazard",
   label:"Hazard",
   group:"Ground",
+  threadable:true,
   blurb:"Seamless caution striping and floor marking, worn in",
   title:'Hazard <em>Marking</em>',
   tagline:"Striping · chevrons · chequer · worn floor · seamless",

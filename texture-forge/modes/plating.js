@@ -488,6 +488,7 @@ Forge.register({
   id:"plating",
   label:"Plating",
   group:"Panels",
+  threadable:true,
   blurb:"Seamless riveted aircraft skin",
   title:'Panel <em>Forge</em>',
   tagline:"Seamless riveted skin · PBR set · PNG",

@@ -974,6 +974,7 @@ Forge.register({
   id:"street",
   label:"Street",
   group:"Ground",
+  threadable:true,
   blurb:"Asphalt, markings, kerb and footway",
   title:'Surface <em>Course</em>',
   tagline:"Asphalt & street layout · PBR · PNG",

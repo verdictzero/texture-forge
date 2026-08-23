@@ -34,6 +34,11 @@ Forge.register({
   id:"envelope",
   label:"Envelope",
   group:"Buildings",
+  /* The graffiti is drawn with a face registered against the DOCUMENT, and a
+     worker cannot see one — it would silently fall back to the scrawl and hand
+     back a different wall from the one the main thread draws. So this goes off
+     thread only when there is no lettering on it. */
+  threadable:function(P){return !((+P.graffiti||0)>0);},
   blurb:"Side and back elevations — the faces of the house nobody photographs",
   title:'Building <em>Envelope</em>',
   tagline:"Side & back elevations · keyed to the house mode",

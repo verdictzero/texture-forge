@@ -26,6 +26,7 @@ Forge.register({
   id:"roof",
   label:"Roof",
   group:"Buildings",
+  threadable:true,
   blurb:"Seamless roofing: shingle, shake, slate, tile, metal, rolled",
   title:'Roof <em>Covering</em>',
   tagline:"Shingle · shake · slate · tile · metal · seamless · real inches",

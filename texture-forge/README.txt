@@ -498,6 +498,72 @@ Diner — American chrome and neon, every face
 
   Presets: chrome classic, turquoise & cream, night shift, closed up.
 
+Vent — louvres, grilles, intakes and heatsinks
+  Everything that moves air through a surface and everything that throws heat
+  off one. Six of them: a weather LOUVRE with the drip lip out and down, a dark
+  throat above each blade and mesh behind it; a GRILLE of bars over a plenum,
+  vertical, horizontal or egg-crate; a HONEYCOMB intake matrix whose cells run
+  back into dark; an INTAKE with a rolled lip, a receding throat, vanes across
+  it and a hub; and two HEATSINKS, extruded plate fin and pin fin, seen from
+  directly above, which is the only view a texture can honestly give of one.
+
+  Two pieces off the one generator. A seamless FIELD divides the tile into a
+  grid of framed panels — a plant-room louvre wall, an endless heatsink — or one
+  UNIT with an alpha silhouette, a flange and its fixing screws, to drop onto a
+  wall or a hull. The frame is what makes the tiling honest: the field is only
+  ever drawn INSIDE a cell, and at the tile edge two half-frames meet across the
+  wrap and make exactly the mullion the interior ones are. So the blade pitch,
+  the hex grid and the fin count never have to wrap, and none of them has to be
+  fudged to make the tile close.
+
+  THE HEAT is the other half. Anything with a deep part can be lit from inside
+  it — behind the face, at the roots where a running heatsink is actually
+  hottest, or the metal itself. The glow lives in emissive.png in whatever
+  colour the core is; past a point it also drags the albedo towards it, because
+  a fin hot enough to light its own channels is not still grey.
+
+  Finishes: mill aluminium, anodised, hot-dip galvanised (with the crystal
+  spangle), painted steel, bare steel, copper. Bright worn edges, micro
+  scratches, dust on the ledges, rust and grime over the lot.
+
+  Presets: plant room louvre, extract grille, honeycomb intake, ram air intake,
+  turbine intake, aluminium heatsink, reactor heatsink, pin-fin core, rusted
+  extract louvre.
+
+Sheet · Plate · Slab — three panels off one generator
+  What they have in common is that they are all a PANEL: a piece of material
+  with a real thickness, real edges and real fixings, rather than a pattern
+  printed on nothing.
+
+  SHEET is a rusted metal sheet and it tiles. Flat, corrugated or box profile
+  with the rib pitch snapped to the tile, welded seams with a rippled bead, and
+  one fixing per crown per purlin with a bonded washer under the head and rust
+  weeping from it. The paint is modelled as a film with HOLES in it rather than
+  a layer over rust, because that is the order it fails in: the steel corrodes
+  first, the swelling lifts the film, the film breaks away and takes the primer
+  with it. That is why its edges are hard and stand a little proud.
+
+  PLATE is one riveted metal panel, cut out. A bevel round the edge, which is
+  the only place a plate's thickness ever shows and without which the piece
+  reads as a decal; rivets at a pitch SNAPPED to each side so one lands exactly
+  on every corner; domed, countersunk, low button or hex bolt heads, each with
+  the ring of bruised bare metal the gun left round it; an optional pressed
+  stiffening swage and a lap over its neighbour.
+
+  SLAB is one precast concrete panel, cut out. A chamfered arris all round —
+  not decoration: a sharp arris in concrete does not survive being lifted —
+  smooth, board-marked, ribbed or exposed-aggregate form finish, form-tie holes
+  with the mortar that never quite matched and the stain that runs from them,
+  lifting sockets with their galvanised ferrules, cracking with the rust of the
+  bar behind it, efflorescence, dirt washing down from the top and moss rising
+  from the bottom. And BLOWHOLES — the little round craters air trapped against
+  the formwork leaves, which are the one detail that says poured rather than
+  modelled, and which live almost entirely in the height and the AO.
+
+  Presets: corrugated barn, box profile, welded tank plate, derelict shed; hull
+  plate, access panel, bolted bulkhead, wreck plate; precast cladding,
+  board-marked, exposed aggregate, ribbed weathered, ruined panel.
+
 
 COORDINATING ONE BUILDING
 -------------------------
@@ -665,6 +731,63 @@ Notes worth knowing:
 
 - If a download does not start, click the orange Save button that appears next
   to it — that path cannot be blocked by the browser.
+
+
+THREADS AND THE GPU
+-------------------
+Two things moved off the thread that draws the page.
+
+WORKER THREADS. A generator is a per-texel loop over typed arrays and has no
+business on the thread that is also trying to keep a slider moving. It runs on
+a worker now (forge-worker.js), and the difference is not subtle — measured on
+a four-core machine, a 2048-square factory build:
+
+               frames drawn   worst stall   95th-percentile frame
+  main thread       137          4.95 s            119 ms
+  a worker          681          0.52 s             17 ms
+
+Same eleven and a half seconds of work either way. A BUILD IS NOT SPLIT ACROSS
+THREADS: every generator is a sequential row loop, and banding one would mean
+rewriting sixteen of them. What is parallel is whole builds — and the place
+that matters is a structure, where the four faces of a building go out to the
+pool together instead of queueing. That comes out at about 1.5x on four cores;
+the PNG encoding and the zipping are still one thread and are most of what is
+left.
+
+A mode opts in with `threadable`, which may be a function of its parameters.
+Two say no conditionally: the graffiti faces and the diner's neon sign are
+drawn with typefaces registered against the DOCUMENT, and a worker cannot see
+one — off thread those builds would come back subtly wrong rather than merely
+late. The pool also cannot exist at all on file://, where a worker has no
+origin, so every path ends in "do it on the main thread instead", quietly.
+
+Worker builds are checked against main-thread builds byte for byte by the
+feature test, which is the only claim about them worth making.
+
+THE GPU. The generators are sixteen hand-written per-texel loops in JavaScript
+and none of them has been ported to GLSL — that is a different piece of work.
+What HAS moved is the one heavy thing every mode does identically at the end:
+turning the finished buffers into images. That was a JS loop over every texel
+of every channel, which for a 4096-square house with ten channels is a hundred
+and sixty million iterations per export, plus the chip strip, plus a pass for
+every preview upload while you drag. It is now a fragment shader
+(forge-gpu.js), and the buffers upload straight from the typed arrays they
+were built in — A and NRM are already tightly packed RGB8, the single channels
+are R8, the height field is R32F — so there is no CPU pass to prepare the CPU
+pass being removed.
+
+WHICH PATH IS FASTER IS A PROPERTY OF THE MACHINE, so the two are raced once,
+at a real export size, on the machine actually running them, and the answer is
+kept against that machine's renderer string. A software WebGL implementation —
+SwiftShader, llvmpipe — is the same CPU running a rasteriser instead of
+running the loop, and loses badly, so those are ruled out by name before the
+race. The line under Channels says which path is live.
+
+A channel a MODE writes itself stays on the CPU, because it is arbitrary
+JavaScript. So does a palettised base colour, because the quantiser wants the
+pixels back and reading them back would give away what was gained; only the
+base colour is ever palettised, so the other eight channels take the fast path
+regardless. The GPU output is checked against the CPU output byte for byte.
 
 
 MICRO DETAIL
@@ -848,8 +971,27 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
+It also covers the four things that are easy to break silently:
+
+  chrome    a typed value reaches the parameters and is clamped and snapped,
+            the control filter hides what does not match, and the mode browser
+            searches the blurbs rather than only the names
+  threads   the pool comes up, every mode has an opinion about threading, and
+            a worker build is the SAME BUILD as a main-thread one — byte for
+            byte, from the same parameters. This section serves the directory
+            over http for its own length, because a worker cannot be reached
+            from file:// and the rest of the suite stays there on purpose.
+  gpu       the GPU channel packer's output matches the CPU path byte for byte
+            (the height field is allowed one least-significant bit, which is a
+            float divide against a double one), and a software renderer is
+            never offered as a fast path
+  model     a mode's plan() is in METRES whatever it counts in — a house is
+            about eight metres wide, not eight — and the glTF a building
+            produces stands on the ground with its roof closing the gable
+
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them
+  node tools/feature-test.mjs threads gpu   # or several
 
 Both need playwright; PLAYWRIGHT= and CHROME= point them at an install if it is
 not sitting beside the repo.

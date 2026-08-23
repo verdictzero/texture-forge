@@ -292,6 +292,8 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 .tray{border-top:1px solid var(--rule);padding:10px 14px 12px;background:#161719;flex:0 0 auto}
 .tray-head{display:flex;align-items:center;gap:10px;margin-bottom:9px;flex-wrap:wrap}
 .tray-head h2{margin:0;font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.13em;color:#9aa0a7}
+.trayinfo{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:#5f646a}
 .zip{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
   padding:0 12px;height:var(--tap);border:1px solid var(--accent);background:transparent;
   color:var(--accent);border-radius:2px;cursor:pointer}
@@ -494,6 +496,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
           <button type="button" class="zip" id="zipall">Download all as .zip</button>
           <button type="button" class="zip" id="h16">Height 16-bit</button>
           <a class="zip zipsave" id="zipsave" hidden></a>
+          <span class="trayinfo" id="trayinfo"></span>
         </div>
         <div class="chips" id="chips"></div>
       </div>
@@ -521,8 +524,10 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 
 <!-- The runtime first, then one file per mode. Adding a mode is a new file
      here plus modes/<name>.js — nothing else in the app needs to change. -->
+<script src="forge-math.js"></script>
 <script src="forge-palette.js"></script>
 <script src="forge-fonts.js"></script>
+<script src="forge-gpu.js"></script>
 <script src="forge-model.js"></script>
 <script src="forge-core.js"></script>
 <script src="modes/street.js"></script>

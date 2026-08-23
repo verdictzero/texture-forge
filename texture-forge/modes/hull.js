@@ -242,6 +242,7 @@ Forge.register({
   id:"hull",
   label:"Hull",
   group:"Sci-fi",
+  threadable:true,
   blurb:"Starship aztec plating — sheen, not colour",
   title:'Aztec <em>Hull</em>',
   tagline:"Starship plating · pearlescent quilt · windows · seamless",

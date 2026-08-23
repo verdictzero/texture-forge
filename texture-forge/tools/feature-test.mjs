@@ -285,6 +285,17 @@ if (want("chrome")) {
   console.log("\n— chrome —");
   await page.click('#modebar-tabs [data-mode="factory"]');
   await settle();
+  /* The wizard section ran before this one and left the factory drawing a
+     whole elevation, where "tile covers" is not a control that exists. Sections
+     inherit each other's state by design — they share one page — so a section
+     that needs a particular row on screen says so.
+
+     selectOption rather than Forge.setParam: setParam writes the value and
+     marks the build stale but deliberately does not run the mode's derive or
+     the row-visibility pass, so the panel would still be showing an elevation's
+     controls. Driving the real control fires the real handler. */
+  await page.selectOption("#factory--piece", "wall");
+  await settle();
 
   /* a number you can type */
   await page.fill("#factory--tileW-val", "22.5");
@@ -345,6 +356,188 @@ if (want("chrome")) {
      (await page.evaluate(() => document.body.dataset.panel)) === "on");
   await page.click('#modebar-tabs [data-mode="factory"]');
   await settle();
+}
+
+/* ============================ worker threads ============================
+   The pool cannot be reached from file:// — a worker there has no origin — so
+   this section serves the directory over http for the length of it. That is
+   also how the thing is actually deployed, and the rest of the suite stays on
+   file:// on purpose, because the readme claims that works.
+
+   The claim being tested is not "it is faster". It is that a build off the
+   main thread is the SAME BUILD: identical bytes, from the same parameters,
+   whichever thread ran it. A generator that quietly took a different path in a
+   worker — a missing typeface, a canvas that antialiases differently — would
+   be worse than no threading at all. */
+if (want("threads")) {
+  console.log("\n— worker threads —");
+  const http = await import("node:http");
+  const fs = await import("node:fs");
+  const root = path.join(HERE, "..");
+  const TYPES = { ".html": "text/html", ".js": "text/javascript", ".txt": "text/plain",
+                  ".md": "text/markdown", ".png": "image/png" };
+  const server = http.createServer((req, res) => {
+    const rel = decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "") || "index.html";
+    const file = path.join(root, rel);
+    if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
+    fs.readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end(); return; }
+      res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
+      res.end(data);
+    });
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + server.address().port + "/index.html";
+
+  const wp = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+  const werr = [];
+  wp.on("pageerror", e => werr.push(e.message));
+  wp.on("console", m => {
+    if (m.type() === "error" && !/404|googleapis|ERR_CONNECTION/.test(m.text())) werr.push(m.text());
+  });
+  await wp.goto(base);
+  const wsettle = async () => {
+    for (let i = 0; i < 400; i++) {
+      const s = await wp.evaluate(() => { const a = window.Forge.active(); return { b: !!a.busy, d: !!a.built }; });
+      if (!s.b && s.d) return true;
+      await wp.waitForTimeout(150);
+    }
+    return false;
+  };
+  await wsettle();
+
+  const pool = await wp.evaluate(() => window.Forge.pool());
+  ok("the pool comes up when it can be reached", !pool.off && pool.ready > 0, JSON.stringify(pool));
+
+  /* every mode says whether it is safe off thread, and two of them say it
+     depends on whether there is lettering on the build */
+  const flags = await wp.evaluate(() => window.Forge.modes.map(m => ({
+    id: m.id, t: typeof m.threadable === "function" ? "conditional" : !!m.threadable
+  })));
+  ok("every mode has an opinion about threading",
+     flags.every(f => f.t !== undefined && f.t !== false),
+     flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true");
+
+  /* THE CLAIM. Same parameters, both threads, byte for byte. */
+  for (const id of ["factory", "vent", "slab", "hazard"]) {
+    await wp.click(`#modebar-tabs [data-mode="${id}"]`);
+    await wsettle();
+    await wp.evaluate(m => window.Forge.setParam(m, "size", 256), id);
+    await wp.click(`#${id}--forge`);
+    await wsettle();
+    const hashes = await wp.evaluate(async (mid) => {
+      const st = window.Forge.state(mid);
+      const grab = () => {
+        const cv = window.Forge.makeMap("basecolor");
+        const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < d.length; i += 7) { h ^= d[i]; h = Math.imul(h, 16777619) >>> 0; }
+        const n = window.Forge.makeMap("normal");
+        const e = n.getContext("2d").getImageData(0, 0, n.width, n.height).data;
+        for (let i = 0; i < e.length; i += 7) { h ^= e[i]; h = Math.imul(h, 16777619) >>> 0; }
+        return h.toString(16);
+      };
+      const threaded = grab();
+      /* now the same build with the pool refused, on this thread */
+      const P = JSON.parse(JSON.stringify(st.P));
+      const dim = st.mode.size(P, false);
+      const B = await new Promise((res, rej) => {
+        try {
+          st.mode.build(P, { W: dim.w, H: dim.h, preview: false, progress: () => {}, done: res });
+        } catch (e) { rej(e); }
+      });
+      B.W = dim.w; B.H = dim.h;
+      const keep = st.B;
+      st.B = B; window.Forge.state(mid).B = B;
+      const main = grab();
+      st.B = keep;
+      return { threaded, main };
+    }, id);
+    ok(id + ": a worker build is the same build",
+       hashes.threaded === hashes.main, hashes.threaded + " vs " + hashes.main);
+  }
+
+  /* and the wizard uses more than one of them */
+  await wp.click('[data-struct="factory"]');
+  await wsettle();
+  await wp.evaluate(() => { for (const m of window.Forge.modes) window.Forge.setParam(m.id, "size", 256); });
+  await wp.click("#wiz-all");
+  for (let i = 0; i < 400; i++) {
+    const t = await wp.$eval("#status", n => n.textContent);
+    if (/packed|Could not/.test(t)) break;
+    await wp.waitForTimeout(200);
+  }
+  const packed = await wp.$eval("#status", n => n.textContent);
+  const after = await wp.evaluate(() => window.Forge.pool());
+  ok("a structure packs across threads", /faces packed/.test(packed) && after.ready > 1,
+     packed + " | " + JSON.stringify(after));
+  ok("no errors on the threaded path", werr.length === 0, werr.slice(0, 3).join(" | "));
+  await wp.close();
+  await new Promise(r => server.close(r));
+}
+
+/* ============================ the GPU channel packer ============================
+   The runtime races the two paths and picks the winner for the machine, so on
+   a software rasteriser — which is what a headless browser has — it will
+   correctly never choose the GPU. That is exactly why this forces it: the code
+   still has to be right on the machines that do choose it, and "it matches the
+   CPU path byte for byte" is the only claim worth making about it. */
+if (want("gpu")) {
+  console.log("\n— GPU channel packing —");
+  const info = await page.evaluate(() => ({
+    there: !!window.ForgeGPU,
+    renderer: window.ForgeGPU ? window.ForgeGPU.renderer() : null,
+    software: window.ForgeGPU ? window.ForgeGPU.software() : null,
+    available: window.ForgeGPU ? window.ForgeGPU.available() : null
+  }));
+  ok("the packer is loaded", info.there);
+  console.log("       renderer: " + info.renderer);
+  ok("a software renderer is not offered as a fast path",
+     !info.software || info.available === false,
+     "software=" + info.software + " available=" + info.available);
+
+  await page.click('#modebar-tabs [data-mode="factory"]');
+  await settle();
+  await page.evaluate(() => window.Forge.setParam("factory", "size", 256));
+  await page.click("#factory--forge");
+  await settle();
+
+  const r = await page.evaluate(() => {
+    const st = window.Forge.active();
+    const out = [];
+    for (const c of st.mode.channels) {
+      const k = c.key;
+      if (!window.ForgeGPU.handles(k)) continue;
+      if (st.custom && (k in st.custom)) continue;
+      window.ForgeGPU.force(true);
+      const g = window.ForgeGPU.channel(st.B, k, st.B.W, st.B.H);
+      window.ForgeGPU.force(null);
+      if (!g) { out.push({ k, fail: "the GPU path returned nothing" }); continue; }
+      const c2 = document.createElement("canvas");
+      c2.width = st.B.W; c2.height = st.B.H;
+      const ctx = c2.getContext("2d");
+      const img = ctx.createImageData(st.B.W, st.B.H), o = img.data;
+      const w = st.writers[k];
+      for (let i = 0; i < st.B.W * st.B.H; i++) o[i * 4 + 3] = w(i, o, i * 4);
+      const gd = g.getContext("2d").getImageData(0, 0, g.width, g.height).data;
+      let n = 0, worst = 0;
+      for (let i = 0; i < gd.length; i++) {
+        const d = Math.abs(gd[i] - o[i]);
+        if (d) { n++; if (d > worst) worst = d; }
+      }
+      out.push({ k, n, worst, of: gd.length });
+    }
+    return out;
+  });
+  for (const d of r) {
+    if (d.fail) { ok(d.k + ": renders", false, d.fail); continue; }
+    /* the height field is the one channel where the two arithmetics can
+       disagree — a float divide on the GPU against a double one in JS — and a
+       single least-significant bit on a handful of texels is the whole of it */
+    const bar = d.k === "height" ? 1 : 0;
+    ok(d.k + ": GPU matches the CPU path", d.worst <= bar,
+       d.n + " of " + d.of + " bytes differ, worst by " + d.worst);
+  }
 }
 
 /* ============================ geometry out ============================
@@ -425,4 +618,8 @@ if (want("model")) {
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();
-process.exit(fails ? 1 : 0);
+/* NOT process.exit(): it does not wait for stdout to drain, and piping this
+   into anything — a grep, a log file, CI — was losing the last few lines,
+   including the verdict. Setting the code lets node exit on its own once the
+   output is out. */
+process.exitCode = fails ? 1 : 0;

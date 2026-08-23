@@ -1021,6 +1021,7 @@ Forge.register({
   id:"factory",
   label:"Factory",
   group:"Buildings",
+  threadable:true,
   blurb:"1940s brick factory wall — steel sash windows",
   title:'Factory <em>Wall</em>',
   tagline:"Brick · steel industrial sash · wall panel or whole elevation",
@@ -1355,18 +1356,40 @@ Forge.register({
   fileBase:function(P,W){return "factory_"+(P.seed|0)+"_"+W;},
 
   readme:function(P,info){
-    const T=Math.max(2,+P.tileW||14);
+    /* It said "no plinth and no parapet, cap it with your own geometry" whatever
+       you had asked it to draw — which is true of the panel and the opposite of
+       true of the three elevations, every one of which is capped at both ends. */
+    const wall=isWall(P);
+    const g=wall?null:geom(P);
+    const T=wall?Math.max(2,+P.tileW||14):g.FW;
     const mm=(info.hMax-info.hMin)*T*1000;
-    return ["Texture Forge · factory — 1940s brick factory wall",
-      "",
-      "Seed "+(P.seed|0)+"   Resolution "+info.W+"x"+info.H+"   Seamless in both axes",
-      "Tile covers "+T+" m square: "+(P.rows|0)+" storeys by "+(P.cols|0)+" bays.",
-      "One texel is "+(T/info.W*1000).toFixed(1)+" mm.",
-      "",
-      "This is a wall panel, not a material. It repeats in both axes, so it will",
-      "carry a whole elevation — but it has no plinth and no parapet, because",
-      "neither of those can repeat honestly. Cap it with your own geometry.",
-      "",
+    const head=wall
+      ? ["Texture Forge · factory — a seamless panel of 1940s brick works wall",
+         "",
+         "Seed "+(P.seed|0)+"   Resolution "+info.W+"x"+info.H+"   Seamless in both axes",
+         "Tile covers "+T+" m square: "+(P.rows|0)+" storeys by "+(P.cols|0)+" bays.",
+         "One texel is "+(T/info.W*1000).toFixed(1)+" mm.",
+         "",
+         "This is a wall PANEL, not a material and not a building. It repeats in both",
+         "axes, so it will carry a whole elevation — but it has no plinth and no",
+         "parapet, because neither of those can repeat honestly. Cap it with your own",
+         "geometry, or set Draw to one of the whole-building faces, which have both.",
+         ""]
+      : ["Texture Forge · factory — the "+faceOf(P)+" of a brick works",
+         "",
+         "Seed "+(P.seed|0)+"   Texture "+info.W+"x"+info.H+" px",
+         "Face "+g.FW.toFixed(2)+" m wide x "+g.FH.toFixed(2)+" m tall  ("+
+           (info.W/g.FW).toFixed(1)+" px per metre, "+(g.FW/info.W*1000).toFixed(1)+" mm a texel)",
+         g.bays+" bays x "+g.storeys+" storeys, walls to "+g.wallTop.toFixed(2)+" m"+
+           (g.roofTop>g.wallTop?", roof to "+g.roofTop.toFixed(2)+" m":"")+".",
+         "",
+         "This is a whole ELEVATION, not a tiling texture. It has an alpha channel:",
+         "above the roofline is transparent, so a parapet, a sawtooth or a monitor cuts",
+         "out cleanly against the sky. Grade is the bottom edge. Scale your plane to the",
+         "footprint above and the brickwork, the openings and the doors sit at true",
+         "size — or use model.gltf in this archive, which has already done that.",
+         ""];
+    return head.concat([
       "basecolor.png  sRGB albedo. Import as sRGB / colour data.",
       "normal.png     Tangent space, "+info.normalNote+". Non-colour.",
       "roughness.png  Linear grey.",
@@ -1382,7 +1405,7 @@ Forge.register({
       "               depth eats the range and leaves the brick almost nothing at 8 bits.",
       "orm.png        R = AO, G = roughness, B = metallic.",
       "",
-      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."].join("\n");
+      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."]).join("\n");
   }
 });
 

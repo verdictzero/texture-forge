@@ -145,4 +145,8 @@ for (const m of modes) {
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();
-process.exit(fails ? 1 : 0);
+/* NOT process.exit(): it does not wait for stdout to drain, and piping this
+   into anything — a grep, a log file, CI — was losing the last few lines,
+   including the verdict. Setting the code lets node exit on its own once the
+   output is out. */
+process.exitCode = fails ? 1 : 0;

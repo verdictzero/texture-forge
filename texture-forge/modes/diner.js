@@ -764,6 +764,10 @@ Forge.register({
   id:"diner",
   label:"Diner",
   group:"Buildings",
+  /* The sign is stroked in a webfont loaded by the page, which a worker has no
+     access to — off thread it would fall back to a different face and come back
+     with the wrong sign rather than merely late. No sign, no problem. */
+  threadable:function(P){return (P.sign||"none")==="none";},
   blurb:"Chrome-and-neon diner — front, side and back",
   title:'Chrome <em>Diner</em>',
   tagline:"Stainless · porcelain enamel · plate glass · neon on emissive",
