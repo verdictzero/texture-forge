@@ -253,18 +253,18 @@ function buildPanel(st){
 function buildRow(st,row,params){
   const kind=row.type||"range";
   const wrap=make("div",kind==="readout"||kind==="note"?"":"row");
-  if(row.need)wrap.setAttribute("data-need",row.need);
+  if(row.need)wrap.setAttribute("data-need",[].concat(row.need).join(" "));
 
   if(kind==="readout"){
     const r=make("div","readout","—");
     r.id=pid(st,row.id||"readout");
-    if(row.need)r.setAttribute("data-need",row.need);
+    if(row.need)r.setAttribute("data-need",[].concat(row.need).join(" "));
     return r;
   }
   if(kind==="note"){
     const r=make("div","readout");
     r.innerHTML=row.html||row.text||"";
-    if(row.need)r.setAttribute("data-need",row.need);
+    if(row.need)r.setAttribute("data-need",[].concat(row.need).join(" "));
     return r;
   }
 
@@ -276,7 +276,7 @@ function buildRow(st,row,params){
     inp.type="range";inp.id=pid(st,row.id);
     inp.min=row.min;inp.max=row.max;inp.step=row.step;inp.value=row.value;
     wrap.appendChild(lab);wrap.appendChild(inp);
-    params.push({id:row.id,kind:"range",dp:decimals(row.step)});
+    params.push({id:row.id,kind:"range",dp:decimals(row.step),def:row.value});
     return wrap;
   }
 
@@ -295,7 +295,7 @@ function buildRow(st,row,params){
       sel.appendChild(opt);
     }
     wrap.appendChild(lab);wrap.appendChild(sel);
-    params.push({id:row.id,kind:"select",numeric:numeric});
+    params.push({id:row.id,kind:"select",numeric:numeric,def:row.value});
     return wrap;
   }
 
@@ -307,7 +307,7 @@ function buildRow(st,row,params){
     if(row.placeholder)inp.placeholder=row.placeholder;
     if(row.maxlength)inp.maxLength=row.maxlength;
     wrap.appendChild(lab);wrap.appendChild(inp);
-    params.push({id:row.id,kind:"text"});
+    params.push({id:row.id,kind:"text",def:row.value===undefined?"":row.value});
     return wrap;
   }
 
@@ -355,7 +355,7 @@ function buildRow(st,row,params){
     wrap.appendChild(lab);wrap.appendChild(line);
     if(window.ForgeFonts)ForgeFonts.on(fill);
     fill();
-    params.push({id:row.id,kind:"select",numeric:false});
+    params.push({id:row.id,kind:"select",numeric:false,def:row.value});
     return wrap;
   }
 
@@ -373,7 +373,7 @@ function buildRow(st,row,params){
     });
     line.appendChild(inp);line.appendChild(roll);
     wrap.appendChild(lab);wrap.appendChild(line);
-    params.push({id:row.id,kind:"number"});
+    params.push({id:row.id,kind:"number",def:row.value});
     return wrap;
   }
 
@@ -386,7 +386,7 @@ function buildRow(st,row,params){
       inp.type="color";inp.id=pid(st,c.id);inp.value=c.value;
       if(c.title)inp.title=c.title;
       cell.appendChild(inp);sw.appendChild(cell);
-      params.push({id:c.id,kind:"color"});
+      params.push({id:c.id,kind:"color",def:c.value});
     }
     wrap.appendChild(sw);
     return wrap;
@@ -400,7 +400,7 @@ function buildRow(st,row,params){
       inp.type="checkbox";inp.id=pid(st,c.id);inp.checked=!!c.value;
       lab.appendChild(inp);lab.appendChild(document.createTextNode(" "+c.label));
       box.appendChild(lab);
-      params.push({id:c.id,kind:"check"});
+      params.push({id:c.id,kind:"check",def:!!c.value});
     }
     wrap.appendChild(box);
     return wrap;
@@ -457,9 +457,25 @@ function readParams(st){
   return P;
 }
 
+/* Things a preset must not touch: they belong to the export, or to which face
+   you happen to be looking at, not to the building being described. */
+const PRESET_KEEP={size:1,face:1,seed:1};
+
+/* A preset is a description of a whole building, not a patch on whatever was
+   last on screen. Several of them switch a feature off — the rowhouse has no
+   gutter, the parapet no band board — and nothing ever switched it back, so it
+   stayed off for the rest of the session on every preset clicked after it, and
+   presets that omit a value inherited it from the one before. Reset to the
+   declared defaults first and the button means what it says. */
 function applyPreset(st,id){
   const preset=(st.mode.presets||[]).find(p=>p.id===id);
   if(!preset)return;
+  for(const d of st.params){
+    if(PRESET_KEEP[d.id]||d.def===undefined)continue;
+    const n=node(st,d.id);
+    if(!n)continue;
+    if(n.type==="checkbox")n.checked=!!d.def;else n.value=d.def;
+  }
   for(const k in preset.set){
     const n=node(st,k);
     if(!n)continue;
@@ -475,8 +491,11 @@ function syncUI(st){
   const need=m.needs?m.needs(P):[];
   const panel=st.panel;
   if(panel){
+    /* a row may name several flags, the same way a group does — stringifying
+       the array and asking for an exact match hid "Bays across" on both of the
+       two faces it names */
     for(const n of panel.querySelectorAll("[data-need]"))
-      n.hidden=need.indexOf(n.getAttribute("data-need"))<0;
+      n.hidden=!n.getAttribute("data-need").split(" ").some(k=>need.indexOf(k)>=0);
     for(const n of panel.querySelectorAll("[data-need-any]"))
       n.hidden=!n.getAttribute("data-need-any").split(" ").some(k=>need.indexOf(k)>=0);
     const ro=el(pid(st,"readout"));
