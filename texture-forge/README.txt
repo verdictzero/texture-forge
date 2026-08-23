@@ -531,11 +531,15 @@ nobody wrote it.
 
 THE APP BUNDLES NO FONT, deliberately. This repository carries six graffiti
 faces in fonts/, and that directory is already outside the published site — the
-Pages workflow uploads texture-forge/ and nothing above it. Three of the six are
-personal-use or demo cuts whose terms do not cover redistribution, and three
-arrived with no licence file at all, which is unknown terms rather than free
-terms. fonts/README.txt quotes what each one actually ships with. Copying them
-in beside index.html would publish all six to a public URL.
+Pages workflow uploads texture-forge/ and nothing above it, and it has to stay
+that way because the app fetches that directory at runtime from one level up.
+
+None of the six is ours to publish. fonts/README.txt quotes what each one
+actually ships with and is the authority; in short, two are personal-use or demo
+cuts, one is donationware whose commercial use needs the author's agreement, and
+three came with no licence FILE — terms unknown, not terms granted. Their terms
+also govern what you do with a texture you export with them, not just whether
+the files ship. Copying them in beside index.html would publish all six.
 
 So a face arrives one of three ways instead:
 
@@ -546,9 +550,11 @@ So a face arrives one of three ways instead:
   found locally  from the repository ROOT — say `python3 -m http.server`
                  there, then open /texture-forge/index.html — the six in
                  fonts/ are one directory up and load on their own. Opened
-                 straight off disk as a file:// page they still load in
-                 Chromium, which lets a page read a directory above its
-                 own; Firefox and Safari confine it and refuse.
+                 straight off disk as a file:// page they still loaded in
+                 the Chromium these checks run in, which lets a page read a
+                 directory above its own; Firefox and Safari confine a
+                 file:// page to its own directory and are expected to
+                 refuse, which nothing here can test.
   not at all     on the hosted copy they are not there. It fails quietly and
                  the mode falls back to what it did before.
 
@@ -674,8 +680,11 @@ Every push to main publishes this directory at
 .github/workflows/static.yml does it. There is nothing to build, so the deploy
 is a straight copy: the workflow uploads texture-forge/ and GitHub Pages serves
 it. The publish root is this directory rather than the repository root, which
-is why index.html is the landing page, and why fonts/ — third-party font files
-the app never loads — stays out of the published site.
+is why index.html is the landing page, and why fonts/ stays out of the published
+site. Not because the app ignores it — it fetches it at runtime from one
+directory up — but precisely because it does not own those files. The upload
+boundary is what keeps them unpublished, so it is load-bearing: moving fonts/
+inside texture-forge/ would put all six on a public URL.
 
 The mode is in the URL there too, so
 https://verdictzero.github.io/texture-forge/#fence opens straight into fencing.

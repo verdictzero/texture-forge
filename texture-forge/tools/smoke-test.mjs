@@ -27,7 +27,13 @@ if (!chromium) {
   process.exit(2);
 }
 const APP = pathToFileURL(path.join(HERE, "..", "index.html")).href;
-const SHOTS = process.env.SHOTS || path.join(HERE, "shots");
+/* Outside the publish root on purpose. The whole of texture-forge/ is what the
+   Pages workflow uploads, and a screenshot taken with Derelict raised now bakes
+   glyphs from one of the repository's restricted faces into the PNG — those
+   faces load in this browser. A .gitignore line is the wrong last line of
+   defence for that; not writing into the published directory is the right one.
+   SHOTS=/somewhere overrides it. */
+const SHOTS = process.env.SHOTS || path.join(HERE, "..", "..", ".shots");
 const only = process.argv.slice(2);
 
 let fails = 0;

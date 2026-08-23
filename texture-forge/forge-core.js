@@ -328,8 +328,14 @@ function buildRow(st,row,params){
     const fill=()=>{
       const keep=sel.value;
       sel.innerHTML="";
+      const have=(window.ForgeFonts?ForgeFonts.list():[]).length;
       if(row.autoLabel!==false){
-        const auto=make("option",null,row.autoLabel||"Any face loaded");
+        /* "Any face loaded" selected with nothing loaded reads as a claim that
+           there is one. On the hosted copy there never is — say so, and fix
+           itself the moment somebody loads one, since this reruns on every
+           ForgeFonts change. */
+        const auto=make("option",null,have?(row.autoLabel||"Any face loaded")
+                                          :(row.emptyLabel||"No face loaded — scrawl"));
         auto.value="auto";sel.appendChild(auto);
       }
       const none=make("option",null,row.noneLabel||"None");

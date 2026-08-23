@@ -40,8 +40,10 @@ jobs:
         with:
           # Only the app, so index.html sits at the root of the site rather
           # than one directory down. This deliberately leaves fonts/ behind:
-          # those are third-party font files with their own licences, and the
-          # app never loads them.
+          # those are third-party faces this repository has no licence to
+          # redistribute. The app DOES load them at runtime, from one level
+          # up, which is exactly why they must stay outside this path — do
+          # not "fix" the 404s by moving fonts/ inside texture-forge/.
           path: './texture-forge'
       - name: Deploy to GitHub Pages
         id: deployment

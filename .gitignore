@@ -4,5 +4,8 @@ node_modules/
 package.json
 package-lock.json
 
-# screenshots the smoke test drops beside itself
+# screenshots the smoke test writes — now outside the publish root, since a
+# capture can contain glyphs from a face this repo may not redistribute
+.shots/
+# where they used to go; still ignored so an old checkout does not publish them
 texture-forge/tools/shots/

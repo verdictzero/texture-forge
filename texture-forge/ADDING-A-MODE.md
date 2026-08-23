@@ -311,7 +311,8 @@ targets as you go, so they do not each fire their own off-mirror later.
 
 Anything that has to draw WORDS — a tag on a wall, a sign, a stencil — needs a
 typeface, and the app deliberately bundles none: the six graffiti faces in this
-repository's `fonts/` are personal-use cuts or came with no licence at all, and
+repository's `fonts/` are personal-use cuts, donationware, or came with no
+licence file (fonts/README.txt is the authority on which is which), and
 publishing them beside `index.html` would be redistributing them. `forge-fonts.js`
 is the registry that gets round it.
 

@@ -456,7 +456,8 @@ function buildStencil(g,SW,SH){
 
        The face comes from ForgeFonts, which never bundles one (see the note at
        the top of forge-fonts.js — three of the six in this repository are
-       personal-use cuts and three came with no licence at all). If none is
+       personal-use cuts, one is donationware and three came with no licence
+       file — see fonts/README.txt, which is the authority). If none is
        registered we fall back to the old scrawl, which is at least honest
        about being a scrawl. */
     const face=window.ForgeFonts?ForgeFonts.resolve(P.graffFont):null;
@@ -2011,9 +2012,10 @@ const CONTROLS={
       {id:"graffText",need:"ab",type:"text",label:"Tags",value:"KRSN, VOID, 92, OBEY, RIP",
        placeholder:"comma separated",maxlength:120},
       {type:"note",need:"ab",html:"Graffiti is <b>writing</b>, so it is drawn with a typeface rather "+
-        "than as curly strokes. The app ships no font: three of the six graffiti faces in this "+
-        "repository's <code>fonts/</code> are personal-use cuts and three came with no licence at "+
-        "all, so publishing them would be redistributing them. <b>Load…</b> takes one straight from "+
+        "than as curly strokes. The app ships no font: of the six graffiti faces in this "+
+        "repository's <code>fonts/</code>, two are personal-use cuts, one is donationware and "+
+        "three came with no licence file, so publishing them would be redistributing them, and "+
+        "their terms govern an exported texture too. <b>Load…</b> takes one straight from "+
         "its bytes — nothing is fetched and nothing is published. Opened from the repository "+
         "root the six are found on their own; where the browser will not reach them the mode "+
         "falls back to a scrawl."},

@@ -12,23 +12,33 @@
    The repository carries six graffiti faces in fonts/, one directory per
    family, and that directory is deliberately NOT part of the published
    site — .github/workflows/static.yml uploads texture-forge/ and nothing
-   above it. That is not an oversight. Three of the six are personal-use
-   or demo cuts whose terms do not cover redistribution, and three arrived
-   with no licence file at all, which is unknown terms rather than free
-   terms. Copying them in beside index.html would publish all six to a
-   public URL. So the app never bundles a face; it gets one of three ways:
+   above it, and it has to stay that way because the app FETCHES that
+   directory at runtime from one level up — copying it in beside index.html
+   would publish all six.
 
-     dropped in    the reliable one. Drop a .ttf/.otf/.woff on the picker
-                   and it is registered straight from its bytes. Nothing
-                   is fetched, nothing is published, and it works on the
-                   hosted copy exactly as it does locally.
+   None of the six is ours to publish. fonts/README.txt quotes what each one
+   actually ships with and is the authority; in short, two are personal-use
+   or demo cuts, one is donationware whose commercial use needs the author's
+   agreement, and three came with no licence FILE — which is terms unknown,
+   not terms granted. So the app never bundles a face; it gets one of three
+   ways:
+
+     loaded in     the reliable one. "Load…" beside the picker takes a
+                   .ttf/.otf/.woff and registers it straight from its
+                   bytes. Nothing is fetched, nothing is published, and it
+                   works on the hosted copy exactly as it does locally.
      found locally opened from the repository root, the six in fonts/ are
                    one directory up and load on their own — over http
                    always, and over file:// in browsers that let a page
-                   read a directory above its own — Chromium does, Firefox
-                   and Safari confine it and refuse. On the
-                   hosted copy they are simply not there. Whatever the
-                   reason, the failure is quiet and the picker says so.
+                   read a directory above its own — Chromium did in the
+                   build these checks run in; Firefox and Safari confine a
+                   file:// page to its own directory and are expected to
+                   refuse, which nothing here can test. On the hosted
+                   copy index.html is the site root, so ../fonts/ points
+                   at the account's user-pages root — a different site,
+                   which does not exist, so all six 404. Whatever the
+                   reason, the failure is quiet and the picker is left
+                   offering Load… and the fallback.
      not at all    the mode falls back to what it did before.
 
    A face registered here is available to every mode, so the next one that
@@ -90,9 +100,10 @@ function loadFile(file){
   });
 }
 
-/* Best effort, once. Every failure here is expected and silent: some browsers
-   refuse to fetch a sibling file from a file:// page, and on the hosted copy
-   there is nothing above the published directory to fetch. */
+/* Best effort, once. Every failure here is expected, and silent in the app —
+   though not in devtools: on the hosted copy all six 404 and the browser logs
+   them, which looks alarming and is not. Some browsers also refuse to read a
+   file outside the page's own directory from a file:// page. */
 function scan(){
   if(scanned)return Promise.resolve(0);
   scanned=true;
