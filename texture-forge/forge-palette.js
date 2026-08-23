@@ -60,13 +60,38 @@ function rgb332(){
     out.push([Math.round(r*255/7),Math.round(g*255/7),Math.round(b*255/3)]);
   return out;
 }
+/* A UNIFORM RGB CUBE: n evenly spaced levels per channel, every combination.
+   These are the "quantise to N levels" palettes — 4·4·4 through 48·48·48 —
+   and they are a different animal from a list of colours somebody chose. The
+   nearest entry is not a search, it is arithmetic: round each channel to its
+   own nearest level, independently. So they are declared by their level count
+   and the list is only ever materialised for the swatch strip, never for the
+   quantiser, which would otherwise be scanning a hundred thousand entries per
+   distinct colour. */
+function rgbCube(n){
+  const out=[],lv=new Uint8Array(n);
+  for(let i=0;i<n;i++)lv[i]=Math.round(i*255/(n-1));
+  for(let r=0;r<n;r++)for(let g=0;g<n;g++)for(let b=0;b<n;b++)out.push([lv[r],lv[g],lv[b]]);
+  return out;
+}
+const group=(x)=>String(x).replace(/\B(?=(\d{3})+(?!\d))/g," ");
+const cube=n=>({id:"rgb"+n,label:"RGB "+n+"·"+n+"·"+n+" — "+group(n*n*n)+" colours",
+                colors:null,cube:n});
 const BUILTIN=[
   {id:"none",  label:"None — full colour", colors:null},
   {id:"grey8", label:"Grey 8",             colors:greyRamp(8)},
   {id:"grey16",label:"Grey 16",            colors:greyRamp(16)},
   {id:"grey32",label:"Grey 32",            colors:greyRamp(32)},
-  {id:"rgb332",label:"RGB 3-3-2 · 256",    colors:rgb332()}
+  {id:"rgb332",label:"RGB 3-3-2 · 256",    colors:rgb332()},
+  cube(4),cube(8),cube(16),cube(32),cube(48)
 ];
+
+/* the full list for a cube, built once and kept on the palette itself: the
+   swatch strip wants it, and nothing else does */
+function cubeColors(p){
+  if(!p.cube)return null;
+  return p._cols||(p._cols=rgbCube(p.cube));
+}
 
 const DITHERS=[
   ["none","No dither — hard snap"],
@@ -109,7 +134,12 @@ function get(id){
   for(const p of list())if(p.id===id)return p;
   return BUILTIN[0];
 }
-function colors(){const p=get(state.id);return p&&p.colors&&p.colors.length?p.colors:null;}
+function colors(){
+  const p=get(state.id);
+  if(!p)return null;
+  const c=p.colors||cubeColors(p);
+  return c&&c.length?c:null;
+}
 function on(fn){listeners.push(fn);}
 function fire(){for(const fn of listeners)fn();}
 function set(k,v){
@@ -126,7 +156,7 @@ function set(k,v){
    luminance, blue almost none — because an unweighted RGB distance picks
    visibly wrong entries out of any palette with a lot of blues in it. */
 function makeFinder(cols){
-  const cache=new Int16Array(32768).fill(-1);
+  const cache=new Int32Array(32768).fill(-1);   // a loaded palette may hold more than 32767 entries
   const n=cols.length;
   const R=new Float64Array(n),G=new Float64Array(n),B=new Float64Array(n);
   for(let i=0;i<n;i++){R[i]=cols[i][0];G[i]=cols[i][1];B[i]=cols[i][2];}
@@ -186,12 +216,24 @@ const BAYER={2:bayer(2),4:bayer(4),8:bayer(8)};
 
 /* Compiled once per palette rather than per map: a mode being dragged rebuilds
    its preview many times a second and the O(n²) step measurement is not free. */
-let CACHE={id:null,find:null,cols:null,step:0};
+let CACHE={id:null,find:null,cols:null,step:0,lut:null};
 function compiled(){
+  const p=get(state.id);
+  if(!p)return null;
+  if(p.cube){
+    /* one 256-entry lookup a channel, and the dither step is exactly the gap
+       between levels — no search, no O(n²) measurement of it */
+    if(CACHE.id!==state.id||!CACHE.lut){
+      const n=p.cube,lut=new Uint8Array(256);
+      for(let v=0;v<256;v++)lut[v]=Math.round(Math.round(v*(n-1)/255)*255/(n-1));
+      CACHE={id:state.id,cols:null,find:null,step:255/(n-1),lut:lut};
+    }
+    return CACHE;
+  }
   const cols=colors();
   if(!cols)return null;
   if(CACHE.id!==state.id||CACHE.cols!==cols)
-    CACHE={id:state.id,cols:cols,find:makeFinder(cols),step:stepOf(cols)};
+    CACHE={id:state.id,cols:cols,find:makeFinder(cols),step:stepOf(cols),lut:null};
   return CACHE;
 }
 
@@ -204,8 +246,14 @@ const SKIP=8;                                    // alpha at or under this is no
 function quantise(data,w,h){
   const C=compiled();
   if(!C)return false;
-  const find=C.find,cols=C.cols;
+  const find=C.find,cols=C.cols,lut=C.lut;
   const amt=C.step*clamp(+state.strength||0,0,2);
+  /* one call shape whichever kind of palette this is; `out` is reused, so the
+     per-texel path allocates nothing either way */
+  const snap=lut
+    ?function(r,g,b,out){out[0]=lut[r];out[1]=lut[g];out[2]=lut[b];}
+    :function(r,g,b,out){const p=cols[find(r,g,b)];out[0]=p[0];out[1]=p[1];out[2]=p[2];};
+  const out=[0,0,0];
 
   if(state.dither==="fs"&&amt>0){
     /* Floyd–Steinberg, serpentine so the error does not comb in one direction.
@@ -225,9 +273,9 @@ function quantise(data,w,h){
         const i=y*w+x,k=i*3;
         if(data[i*4+3]<=SKIP)continue;
         const r=clamp(buf[k],0,255),g=clamp(buf[k+1],0,255),b=clamp(buf[k+2],0,255);
-        const p=cols[find(Math.round(r),Math.round(g),Math.round(b))];
-        data[i*4]=p[0];data[i*4+1]=p[1];data[i*4+2]=p[2];
-        const er=(r-p[0])*k16,eg=(g-p[1])*k16,eb=(b-p[2])*k16;
+        snap(Math.round(r),Math.round(g),Math.round(b),out);
+        data[i*4]=out[0];data[i*4+1]=out[1];data[i*4+2]=out[2];
+        const er=(r-out[0])*k16,eg=(g-out[1])*k16,eb=(b-out[2])*k16;
         const dx=rev?-1:1;
         const push=(xx,yy,f)=>{
           if(xx<0||xx>=w||yy>=h)return;
@@ -255,8 +303,8 @@ function quantise(data,w,h){
         const t=((row[x&(n-1)]+0.5)*norm-0.5)*amt;
         r=clamp(r+t,0,255);g=clamp(g+t,0,255);b=clamp(b+t,0,255);
       }
-      const p=cols[find(r|0,g|0,b|0)];
-      data[i*4]=p[0];data[i*4+1]=p[1];data[i*4+2]=p[2];
+      snap(r|0,g|0,b|0,out);
+      data[i*4]=out[0];data[i*4+1]=out[1];data[i*4+2]=out[2];
     }
   }
   return true;
@@ -384,9 +432,10 @@ window.Palette={
   active:function(){return !!colors();},
   describe:function(){
     const p=get(state.id);
-    if(!p.colors)return null;
+    const cols=colors();
+    if(!cols)return null;
     const d=DITHERS.find(x=>x[0]===state.dither);
-    return p.label+" ("+p.colors.length+" colours), "+
+    return p.label+" ("+cols.length+" colours), "+
       (state.dither==="none"?"no dither":(d?d[1].split(" — ")[0]:state.dither)+
       " at "+(+state.strength).toFixed(2));
   }
