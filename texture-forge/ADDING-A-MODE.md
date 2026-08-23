@@ -327,8 +327,9 @@ if (face) {
 
 `resolve()` takes what the control holds: a specific id, `"auto"` for whatever is
 registered, or `"none"` to ask for your fallback on purpose. It returns null when
-there is nothing, and **your mode must cope with that** — served as a plain
-file:// page there will usually be no face at all.
+there is nothing, and **your mode must cope with that** — on the hosted copy the
+six local faces are not there at all, and a browser with a strict file:// origin
+will not reach them either.
 
 A `type:"font"` control gives the user a picker plus a Load button that registers
 a file straight from its bytes, so it works on the hosted copy too. Faces are

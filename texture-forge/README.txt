@@ -543,13 +543,14 @@ So a face arrives one of three ways instead:
                  .ttf/.otf/.woff and registers it straight from its bytes.
                  Nothing is fetched, nothing is published, and it works on the
                  hosted copy exactly as it does locally.
-  found locally  served over http from the repository ROOT — say
-                 `python3 -m http.server` there, then open
-                 /texture-forge/index.html — the six in fonts/ are one
-                 directory up and load on their own.
-  not at all     opened as a plain file:// page the browser refuses the fetch,
-                 and on the hosted copy they are not there. Both fail quietly
-                 and the mode falls back to what it did before.
+  found locally  from the repository ROOT — say `python3 -m http.server`
+                 there, then open /texture-forge/index.html — the six in
+                 fonts/ are one directory up and load on their own. Opened
+                 straight off disk as a file:// page they still load in
+                 Chromium, which lets a page read a directory above its
+                 own; Firefox and Safari confine it and refuse.
+  not at all     on the hosted copy they are not there. It fails quietly and
+                 the mode falls back to what it did before.
 
 A face registered there is available to every mode, so the next one that wants
 lettering does not have to solve this again.
@@ -649,6 +650,16 @@ USING IT
   without regenerating it. Results above 1024 px are dropped when you leave
   the mode rather than held in memory, so they rebuild on return.
 
+- A preset button describes a whole thing, not a patch on what was on screen:
+  every control goes back to its declared default first and then the preset is
+  applied. Only the seed, the resolution and which face you are on survive it,
+  because those belong to the export rather than to the thing being described.
+
+- A face's height follows its real proportions, not the resolution slider — a
+  three-storey gable end can be four times taller than it is wide. Where the
+  full width would make an image too large to hold in memory, the width comes
+  down until it fits and the size line says so, rather than the tab dying.
+
 - The tabs in the preview bar switch between the lit view and the individual
   channels. 1x/2x/4x repeats the tile — seamless modes only. Dark/sky/checker
   set the backdrop behind a cut-out — house only.
@@ -692,11 +703,13 @@ tools/feature-test.mjs covers the things that are not per-mode: that every mode
 survives the small end of the resolution ladder with all of its channels intact,
 that the palette parses hex lists, GIMP and JASC files, CSS and swatch sheets
 and then actually snaps the base colour while leaving the data channels alone,
-and that each structure wizard carries its settings forward, marks what it
+that each structure wizard carries its settings forward, marks what it
 inherited, refuses to carry the resolution, and packs every face into one
-archive.
+archive, and that graffiti draws through both of its paths — a real typeface
+where one is registered, and the scrawl fallback, which is otherwise exercised
+by nothing because the local faces load.
 
-  node tools/feature-test.mjs               # all three
+  node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them
 
 Both need playwright; PLAYWRIGHT= and CHROME= point them at an install if it is

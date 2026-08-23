@@ -1,7 +1,8 @@
 /* Checks over the things the smoke test does not touch: the resolution ladder,
-   the palette and dither pipeline, and the structure wizard.
+   the palette and dither pipeline, the structure wizard, and both halves of the
+   graffiti typeface path.
 
-     node tools/feature-test.mjs            # all three
+     node tools/feature-test.mjs            # all of them
      node tools/feature-test.mjs palette    # one of them
 
    Same requirements as smoke-test.mjs — playwright (PLAYWRIGHT=/path if it is
@@ -221,6 +222,60 @@ if (want("wizard")) {
     ok(`${s.id}: leaving gives the mode tabs back`,
        (await page.evaluate(() => document.body.dataset.wizard)) === "off");
   }
+}
+
+/* ============================ typefaces ============================
+   The graffiti stencil has two paths and only one of them normally runs. Where
+   the six local faces are reachable — which, opened straight off disk, they are
+   in Chromium — every build takes the typeface path and the scrawl fallback is
+   exercised by nothing. "none" is the setting that reaches it on purpose.
+
+   setParam only marks the build stale, so this drives the controls the way a
+   person does and lets the panel's own handler queue the rebuild. */
+if (want("fonts")) {
+  console.log("\n— typefaces —");
+  const n = await page.evaluate(() => window.ForgeFonts ? ForgeFonts.list().length : -1);
+  ok("the font registry is there", n >= 0, n + " face(s)");
+  await page.click('#modebar-tabs [data-mode="house"]');
+  await settle();
+  const build = async (vals) => {
+    await page.evaluate(v => {
+      for (const k in v) {
+        const el = document.getElementById("house--" + k);
+        if (!el) continue;
+        el.value = v[k];
+        el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+      }
+    }, vals);
+    await page.waitForTimeout(250);
+    await settle();
+    return page.evaluate(() => {
+      const B = window.Forge.active().B, N = B.W * B.H;
+      let hash = 2166136261 >>> 0, hot = 0;
+      for (let i = 0; i < N; i++) {
+        if (!B.ALP[i]) continue;
+        const r = B.A[i * 3], g = B.A[i * 3 + 1], b = B.A[i * 3 + 2];
+        if (Math.max(r, g, b) - Math.min(r, g, b) > 45) hot++;
+        hash ^= r; hash = Math.imul(hash, 16777619) >>> 0;
+        hash ^= g; hash = Math.imul(hash, 16777619) >>> 0;
+      }
+      return { hot, hash: hash.toString(16) };
+    });
+  };
+  const before = errors.length;
+  const bare   = await build({ size: 256, aband: 1, vines: 0, graffiti: 0 });
+  const face   = await build({ graffiti: 0.9, graffFont: "auto" });
+  const scrawl = await build({ graffiti: 0.9, graffFont: "none" });
+  ok("graffiti at zero leaves the wall alone", bare.hash !== face.hash,
+     bare.hash + " vs " + face.hash);
+  ok("a tag puts strong colour on a grey wall", face.hot > bare.hot,
+     bare.hot + " → " + face.hot + " saturated texels");
+  if (n > 0)
+    ok("the scrawl fallback draws something else", scrawl.hash !== face.hash,
+       "face " + face.hash + " vs scrawl " + scrawl.hash);
+  ok("the fallback still writes on the wall", scrawl.hot > bare.hot,
+     bare.hot + " → " + scrawl.hot + " saturated texels");
+  ok("neither path throws", errors.length === before);
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }

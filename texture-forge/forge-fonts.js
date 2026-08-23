@@ -22,11 +22,13 @@
                    and it is registered straight from its bytes. Nothing
                    is fetched, nothing is published, and it works on the
                    hosted copy exactly as it does locally.
-     found locally opened over http from the repository root, the six in
-                   fonts/ are one directory up and load on their own. Over
-                   file:// the browser refuses the fetch, and on the
-                   hosted copy they are simply not there — both fail
-                   quietly and the picker says so.
+     found locally opened from the repository root, the six in fonts/ are
+                   one directory up and load on their own — over http
+                   always, and over file:// in browsers that let a page
+                   read a directory above its own — Chromium does, Firefox
+                   and Safari confine it and refuse. On the
+                   hosted copy they are simply not there. Whatever the
+                   reason, the failure is quiet and the picker says so.
      not at all    the mode falls back to what it did before.
 
    A face registered here is available to every mode, so the next one that
@@ -88,9 +90,9 @@ function loadFile(file){
   });
 }
 
-/* Best effort, once. Every failure here is expected and silent: over file://
-   the browser will not fetch a font at all, and on the hosted copy there is
-   nothing above the published directory to fetch. */
+/* Best effort, once. Every failure here is expected and silent: some browsers
+   refuse to fetch a sibling file from a file:// page, and on the hosted copy
+   there is nothing above the published directory to fetch. */
 function scan(){
   if(scanned)return Promise.resolve(0);
   scanned=true;
