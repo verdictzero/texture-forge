@@ -1100,6 +1100,7 @@ function build(params,io){
 Forge.register({
   id:"ruins",
   label:"Ruins",
+  group:"Sci-fi",
   blurb:"Ruin-stone plating with etched circuit traces",
   title:'Plating <em>Fabricator</em>',
   tagline:"The Plating Fabricator tool · stone plates & etched traces · seamless · PBR + pre-lit",

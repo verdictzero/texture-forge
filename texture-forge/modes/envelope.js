@@ -33,6 +33,7 @@ const wallGroups=Shell.controls(["cladding","openings","glass","trim","weatherin
 Forge.register({
   id:"envelope",
   label:"Envelope",
+  group:"Buildings",
   blurb:"Side and back elevations — the faces of the house nobody photographs",
   title:'Building <em>Envelope</em>',
   tagline:"Side & back elevations · keyed to the house mode",

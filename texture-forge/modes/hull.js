@@ -241,6 +241,7 @@ function build(params,io){
 Forge.register({
   id:"hull",
   label:"Hull",
+  group:"Sci-fi",
   blurb:"Starship aztec plating — sheen, not colour",
   title:'Aztec <em>Hull</em>',
   tagline:"Starship plating · pearlescent quilt · windows · seamless",

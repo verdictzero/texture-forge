@@ -1020,6 +1020,7 @@ Forge.registerStructure({
 Forge.register({
   id:"factory",
   label:"Factory",
+  group:"Buildings",
   blurb:"1940s brick factory wall — steel sash windows",
   title:'Factory <em>Wall</em>',
   tagline:"Brick · steel industrial sash · wall panel or whole elevation",

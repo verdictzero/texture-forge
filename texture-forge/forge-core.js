@@ -173,6 +173,14 @@ function stateFor(mode){
 const pid=(st,id)=>st.mode.id+"--"+id;
 const node=(st,id)=>el(pid(st,id));
 
+/* A control's value readout is an <input> for a range and a <span> for
+   everything else, and it is never overwritten while somebody is typing in it —
+   reformatting "1" to "1.00" under the caret makes the field unusable. */
+function showVal(v,text){
+  if(!v||v===document.activeElement)return;
+  if(v.tagName==="INPUT")v.value=text;else v.textContent=text;
+}
+
 /* A mode flag may be a plain value or a function of the parameters, so one
    mode can switch between a tiling surface and a single cut-out piece per
    build (the envelope mode does: walls are cut-outs, roofs tile). Resolved
@@ -210,6 +218,21 @@ function buildPanel(st){
   if(m.tagline)head.appendChild(make("p",null,m.tagline));
   form.appendChild(head);
 
+  /* FIND A CONTROL BY NAME. A big mode carries forty of them behind eight
+     collapsed groups, and knowing the word — "rivet", "soot", "pitch" — is
+     faster than remembering which group somebody filed it under. */
+  const find=make("div","findrow");
+  const fi=make("input");
+  fi.type="search";fi.id=pid(st,"find");fi.placeholder="Find a control…";
+  fi.setAttribute("aria-label","Find a control in this panel");
+  fi.autocomplete="off";
+  const fc=make("button","mini clearfind","Clear");
+  fc.type="button";
+  fi.addEventListener("input",()=>filterPanel(st,fi.value));
+  fc.addEventListener("click",()=>{fi.value="";filterPanel(st,"");fi.focus();});
+  find.appendChild(fi);find.appendChild(fc);
+  form.appendChild(find);
+
   if(m.presets&&m.presets.length){
     const pr=make("div","presets");
     for(const p of m.presets){
@@ -239,7 +262,12 @@ function buildPanel(st){
   const actions=make("div","actions");
   const forge=make("button","forge",m.actionLabel||"Forge texture");
   forge.type="button";forge.id=pid(st,"forge");
-  forge.addEventListener("click",()=>{readParams(st);run(st,false);});
+  forge.addEventListener("click",()=>{
+    readParams(st);run(st,false);
+    /* on a phone the controls pane is covering the thing you just asked for */
+    if(matchMedia("(max-width:900px)").matches&&document.body.dataset.pane==="controls")
+      setPane("preview");
+  });
   actions.appendChild(forge);
   const note=make("p","autonote",autonote(st));
   note.id=pid(st,"autonote");
@@ -269,14 +297,33 @@ function buildRow(st,row,params){
   }
 
   if(kind==="range"){
+    /* THE NUMBER IS AN INPUT, not a label. Every one of these is a real
+       dimension — a brick length, a bay width, a slat pitch — and somebody may
+       have the number on a drawing in front of them. Dragging to 4.35 when you
+       want 4.40 is the single most irritating thing about a slider, and the
+       readouts have always quoted values a slider cannot land on exactly.
+
+       The name keeps its own <label for>; the box is a sibling rather than a
+       child of it, because a labelable control nested inside a label for a
+       DIFFERENT control is exactly the kind of thing browsers disagree on. */
+    const line=make("div","labrow");
     const lab=make("label");
     lab.htmlFor=pid(st,row.id);
-    lab.innerHTML=row.label+' <span class="val" id="'+pid(st,row.id)+'-val"></span>'+(row.unit?" "+row.unit:"");
+    lab.innerHTML=row.label;
+    const box=make("div","valbox");
+    const val=make("input");
+    val.type="number";val.className="val";val.id=pid(st,row.id)+"-val";
+    val.min=row.min;val.max=row.max;val.step=row.step;
+    val.setAttribute("aria-label",String(row.label).replace(/<[^>]*>/g,"")+" value");
+    box.appendChild(val);
+    if(row.unit)box.appendChild(make("span","unit",row.unit));
+    line.appendChild(lab);line.appendChild(box);
     const inp=make("input");
     inp.type="range";inp.id=pid(st,row.id);
     inp.min=row.min;inp.max=row.max;inp.step=row.step;inp.value=row.value;
-    wrap.appendChild(lab);wrap.appendChild(inp);
-    params.push({id:row.id,kind:"range",dp:decimals(row.step),def:row.value});
+    wrap.appendChild(line);wrap.appendChild(inp);
+    params.push({id:row.id,kind:"range",dp:decimals(row.step),def:row.value,
+                 min:+row.min,max:+row.max,step:+row.step});
     return wrap;
   }
 
@@ -422,6 +469,25 @@ function wireInputs(st){
       /* dragging previews, releasing rebuilds at full size */
       n.addEventListener("input",()=>{readParams(st);queue(st,true);});
       n.addEventListener("change",()=>{readParams(st);queue(st,false);});
+      /* And the same value, typed. It is held to the control's range and
+         SNAPPED TO ITS STEP, exactly as dragging is — the range input stays
+         the single source of truth for a parameter, and a second one that
+         disagreed with it by a fraction would be worse than the rounding.
+         The box is rewritten with what it landed on when you leave it, so
+         what you see is always what the generator got. */
+      const box=el(pid(st,d.id)+"-val");
+      if(box){
+        const take=full=>{
+          const v=parseFloat(box.value);
+          if(!isFinite(v))return;
+          n.value=String(clamp(v,d.min,d.max));
+          readParams(st);queue(st,!full);
+        };
+        box.addEventListener("input",()=>take(false));
+        box.addEventListener("change",()=>{take(true);box.value=(+n.value).toFixed(d.dp);});
+        box.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();box.blur();}});
+        box.addEventListener("focus",()=>box.select());
+      }
     }else if(d.kind==="text"){
       /* typing a word rebuilds on the pause, not on every keystroke */
       n.addEventListener("input",()=>{readParams(st);queue(st,true);});
@@ -444,8 +510,7 @@ function readParams(st){
     else if(d.kind==="color")P[d.id]=n.value;
     else if(d.kind==="select")P[d.id]=d.numeric?+n.value:n.value;
     else P[d.id]=+n.value;
-    const v=el(pid(st,d.id)+"-val");
-    if(v)v.textContent=(d.kind==="range")?(+n.value).toFixed(d.dp):n.value;
+    showVal(el(pid(st,d.id)+"-val"),(d.kind==="range")?(+n.value).toFixed(d.dp):n.value);
   }
   if(st.mode.derive)st.mode.derive(P,{
     set:(id,value)=>{
@@ -453,8 +518,7 @@ function readParams(st){
       if(!n)return;
       if(n.type==="checkbox")n.checked=value;else n.value=value;
       P[id]=value;
-      const v=el(pid(st,id)+"-val");
-      if(v)v.textContent=value;
+      showVal(el(pid(st,id)+"-val"),value);
     }
   });
   syncUI(st);
@@ -1395,6 +1459,7 @@ function activate(id){
   try{localStorage.setItem("texture-forge-mode",id);}catch(e){}
   try{history.replaceState(null,"","#"+id);}catch(e){}
 
+  if(browserReady)markBrowser();
   buildViewTabs(st);
   syncChrome(st);
   el("zipsave").hidden=true;
@@ -1426,6 +1491,256 @@ function buildViewTabs(st){
   }
 }
 
+/* ============================ chrome ============================
+   The frame around the modes: which one you are on, how much room the panel
+   gets, and — on a phone — which of the three panes is on screen. None of it
+   touches a generator. */
+
+function filterPanel(st,q){
+  const panel=st.panel;
+  if(!panel)return;
+  const needle=String(q||"").trim().toLowerCase();
+  panel.dataset.finding=needle?"on":"off";
+  for(const g of panel.querySelectorAll(".group")){
+    let any=false;
+    for(const r of g.querySelectorAll(".row")){
+      const hit=!needle||r.textContent.toLowerCase().indexOf(needle)>=0;
+      r.classList.toggle("nomatch",!hit);
+      /* a row this mode has hidden for other reasons is not a hit */
+      if(hit&&!r.hidden)any=true;
+    }
+    g.classList.toggle("nomatch",!!needle&&!any);
+    if(needle&&any)g.open=true;
+  }
+}
+
+/* ---- the mode browser ----
+   Sixteen modes is well past the point where a strip of tabs is a way of
+   FINDING one. This is the same list grouped, described and searchable, and on
+   a phone it is the only mode picker there is. */
+/* Groups run in the order somebody would actually go looking, not in whichever
+   order the <script> tags happen to load. Anything a mode invents that is not
+   on this list falls in at the end. */
+const GROUP_ORDER=["Ground","Buildings","Panels","Sci-fi","Detail"];
+function buildBrowser(){
+  const host=el("modegrid");
+  host.innerHTML="";
+  const order=[],by={};
+  for(const m of MODES){
+    const g=m.group||"Other";
+    if(!by[g]){by[g]=[];order.push(g);}
+    by[g].push(m);
+  }
+  order.sort((a,b)=>{
+    const ia=GROUP_ORDER.indexOf(a),ib=GROUP_ORDER.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib);
+  });
+  for(const g of order){
+    const sec=make("div","modegroup");
+    sec.appendChild(make("h3",null,g));
+    const box=make("div","modegrid");
+    for(const m of by[g]){
+      const b=make("button","modecard");
+      b.type="button";b.dataset.mode=m.id;
+      /* searched as one string, so "neon" finds the diner through its tagline
+         and "hex" finds the vent through its blurb */
+      b.dataset.hay=(m.id+" "+m.label+" "+(m.blurb||"")+" "+(m.tagline||"")+" "+g).toLowerCase();
+      b.appendChild(make("b",null,m.label));
+      b.appendChild(make("span",null,m.blurb||""));
+      box.appendChild(b);
+    }
+    sec.appendChild(box);
+    host.appendChild(sec);
+  }
+  const none=make("div","nohits",
+    "Nothing matches that. Try a material — brick, rust, neon, concrete, hex, shingle.");
+  none.id="modenone";none.hidden=true;
+  host.appendChild(none);
+}
+function filterBrowser(q){
+  const needle=String(q||"").trim().toLowerCase();
+  let hits=0;
+  /* the structure buttons live in here on a phone. They are not modes, they
+     hold no cards, and searching for "brick" should not leave them sitting
+     above an empty list — so they are shown only when nothing is typed. */
+  const sh=el("structhost");
+  if(sh)sh.hidden=!!needle||!onPhone();
+  for(const sec of el("modegrid").querySelectorAll(".modegroup")){
+    if(sec.id==="structhost")continue;
+    let any=false;
+    for(const c of sec.querySelectorAll(".modecard")){
+      const hit=!needle||c.dataset.hay.indexOf(needle)>=0;
+      c.hidden=!hit;
+      if(hit){any=true;hits++;}
+    }
+    sec.hidden=!any;
+  }
+  el("modenone").hidden=hits>0;
+  el("modefoot").textContent=needle
+    ?(hits+" of "+MODES.length+" modes · Enter takes the first")
+    :(MODES.length+" modes · type to narrow · Esc to close");
+}
+function markBrowser(){
+  for(const c of el("modegrid").querySelectorAll(".modecard"))
+    c.setAttribute("aria-current",String(active&&c.dataset.mode===active.mode.id));
+}
+function openBrowser(){
+  const sheet=el("modesheet");
+  buildBrowserOnce();
+  sheet.hidden=false;
+  markBrowser();
+  const q=el("modesearch");
+  q.value="";filterBrowser("");
+  /* not on a phone: the keyboard springing up covers the list it is filtering */
+  if(!matchMedia("(pointer:coarse)").matches)q.focus();
+}
+function closeBrowser(){el("modesheet").hidden=true;}
+let browserReady=false;
+function buildBrowserOnce(){if(!browserReady){buildBrowser();browserReady=true;}}
+
+/* ---- panes, the panel and the grip ---- */
+function setPane(p){
+  document.body.dataset.pane=p;
+  for(const b of el("tabbar").children)
+    b.setAttribute("aria-pressed",String(b.dataset.pane===p));
+  try{localStorage.setItem("texture-forge-pane",p);}catch(e){}
+  /* the canvas was display:none while another pane was up, so it has no size
+     until the browser has laid it out again */
+  if(p!=="controls")requestAnimationFrame(()=>{view==="lit"?drawGL():drawFlat();});
+}
+const onPhone=()=>matchMedia("(max-width:900px)").matches;
+
+function setPanel(on){
+  document.body.dataset.panel=on?"on":"off";
+  el("panelbtn").setAttribute("aria-pressed",String(on));
+  try{localStorage.setItem("texture-forge-panel",on?"on":"off");}catch(e){}
+  requestAnimationFrame(()=>{view==="lit"?drawGL():drawFlat();});
+}
+
+/* WHERE THE STRUCTURE BUTTONS LIVE. On a wide screen they belong in the top
+   bar beside the modes. On a phone the top bar has no room for three more
+   buttons, and the mode browser is already the place you go to choose what to
+   make — so they move into it. The element itself moves, listeners and all,
+   rather than being rebuilt. */
+function placeStructs(){
+  const s=el("structs");
+  if(!s||s.hidden)return;
+  if(onPhone()){
+    let host=el("structhost");
+    if(!host){
+      host=make("div","modegroup");host.id="structhost";
+      host.appendChild(make("h3",null,"Whole structure — every face of one building"));
+      el("modegrid").insertBefore(host,el("modegrid").firstChild);
+    }
+    if(s.parentNode!==host)host.appendChild(s);
+    if(!el("modesheet").hidden)filterBrowser(el("modesearch").value);
+  }else{
+    const host=el("structhost");
+    if(host)host.hidden=true;
+    if(s.parentNode!==el("topbar"))el("topbar").insertBefore(s,el("hintline"));
+  }
+}
+
+function initChrome(){
+  buildBrowserOnce();
+  el("browse").addEventListener("click",openBrowser);
+  el("modeclose").addEventListener("click",closeBrowser);
+  el("modesheet").addEventListener("click",e=>{if(e.target===el("modesheet"))closeBrowser();});
+  el("modesearch").addEventListener("input",e=>filterBrowser(e.target.value));
+  el("modesearch").addEventListener("keydown",e=>{
+    if(e.key!=="Enter")return;
+    const first=el("modegrid").querySelector(".modecard:not([hidden])");
+    if(first){activate(first.dataset.mode);closeBrowser();}
+  });
+  el("modegrid").addEventListener("click",e=>{
+    const b=e.target.closest("[data-mode]");
+    if(b){activate(b.dataset.mode);closeBrowser();}
+  });
+
+  el("tabbar").addEventListener("click",e=>{
+    const b=e.target.closest("[data-pane]");
+    if(b)setPane(b.dataset.pane);
+  });
+  el("panelbtn").addEventListener("click",()=>{
+    if(onPhone())setPane(document.body.dataset.pane==="controls"?"preview":"controls");
+    else setPanel(document.body.dataset.panel!=="on");
+  });
+
+  /* the drag handle. The width lives in a custom property so the panel, the
+     bay and the shadow all follow it without any of them being measured. */
+  const grip=el("grip");
+  let dragging=false;
+  grip.addEventListener("pointerdown",e=>{
+    dragging=true;grip.setPointerCapture(e.pointerId);e.preventDefault();
+  });
+  grip.addEventListener("pointermove",e=>{
+    if(!dragging)return;
+    const w=clamp(e.clientX,260,Math.min(680,innerWidth-320));
+    document.documentElement.style.setProperty("--panel-w",Math.round(w)+"px");
+  });
+  const stop=()=>{
+    if(!dragging)return;
+    dragging=false;
+    try{localStorage.setItem("texture-forge-panelw",
+      getComputedStyle(document.documentElement).getPropertyValue("--panel-w").trim());}catch(e){}
+    if(view==="lit")drawGL();else drawFlat();
+  };
+  grip.addEventListener("pointerup",stop);
+  grip.addEventListener("pointercancel",stop);
+  grip.addEventListener("dblclick",()=>{
+    document.documentElement.style.removeProperty("--panel-w");
+    try{localStorage.removeItem("texture-forge-panelw");}catch(e){}
+  });
+
+  /* ---- keys. None of them fire while you are typing in a field, which is
+     what makes single letters safe to use at all. ---- */
+  addEventListener("keydown",e=>{
+    if(e.key==="Escape"&&!el("modesheet").hidden){closeBrowser();return;}
+    const t=e.target;
+    const typing=t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"||t.isContentEditable);
+    if((e.key==="k"||e.key==="K")&&(e.metaKey||e.ctrlKey)){e.preventDefault();openBrowser();return;}
+    if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
+    if(e.key==="k"||e.key==="K"){e.preventDefault();openBrowser();}
+    else if(e.key==="p"||e.key==="P"){e.preventDefault();el("panelbtn").click();}
+    else if(e.key==="b"||e.key==="B"||e.key==="Enter"){
+      e.preventDefault();
+      const f=active&&node(active,"forge");
+      if(f&&!f.disabled)f.click();
+    }
+    else if(e.key==="/"){
+      e.preventDefault();
+      if(onPhone())setPane("controls");
+      else setPanel(true);
+      const f=active&&node(active,"find");
+      if(f)f.focus();
+    }
+    else if(e.key==="["||e.key==="]"){
+      const list=[...el("tabs").children].filter(b=>!b.disabled);
+      const i=list.findIndex(b=>b.getAttribute("aria-pressed")==="true");
+      const j=clamp(i+(e.key==="]"?1:-1),0,list.length-1);
+      if(list[j])list[j].click();
+    }
+  });
+
+  try{
+    const w=localStorage.getItem("texture-forge-panelw");
+    if(w)document.documentElement.style.setProperty("--panel-w",w);
+  }catch(e){}
+  let pane="preview",panel="on";
+  try{
+    pane=localStorage.getItem("texture-forge-pane")||"preview";
+    panel=localStorage.getItem("texture-forge-panel")||"on";
+  }catch(e){}
+  setPane(["controls","preview","export"].indexOf(pane)>=0?pane:"preview");
+  setPanel(panel!=="off");
+  placeStructs();
+  const mq=matchMedia("(max-width:900px)");
+  (mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(()=>{
+    placeStructs();
+    if(view==="lit")drawGL();else drawFlat();
+  });
+}
+
 /* ============================ boot ============================ */
 
 function boot(){
@@ -1444,7 +1759,7 @@ function boot(){
     const st=stateFor(m);
     st.panel=buildPanel(st);
     st.panel.hidden=true;
-    el("app").insertBefore(st.panel,el("bay"));
+    el("app").insertBefore(st.panel,el("grip"));
     wireInputs(st);            // needs the panel in the document to find its ids
     readParams(st);
     const b=make("button","modetab",m.label);
@@ -1458,6 +1773,7 @@ function boot(){
     if(b)activate(b.dataset.mode);
   });
 
+  initChrome();
   initPalette();
   initWizard();
   /* best effort and silent: see the note at the top of forge-fonts.js */
@@ -1529,8 +1845,7 @@ Forge.setParam=function(modeId,id,value){
   if(st.P[id]===v)return false;
   if(d.kind==="check")n.checked=v;else n.value=v;
   st.P[id]=v;
-  const span=el(pid(st,id)+"-val");
-  if(span)span.textContent=(d.kind==="range")?(+n.value).toFixed(d.dp):n.value;
+  showVal(el(pid(st,id)+"-val"),(d.kind==="range")?(+n.value).toFixed(d.dp):n.value);
   st.built=false;                       // its last build no longer matches its parameters
   return true;
 };

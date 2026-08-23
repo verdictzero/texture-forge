@@ -745,7 +745,42 @@ readme says so rather than pretending.
 USING IT
 --------
 - The tabs along the top switch mode. Each keeps its own settings, and the URL
-  follows, so index.html#house opens straight into the house mode.
+  follows, so index.html#house opens straight into the house mode. At sixteen
+  modes the strip is a way of getting BACK to one rather than of finding one,
+  so there is also a browser: the Modes button, or K, or ctrl/cmd-K. It is the
+  same list grouped and described, and it searches the blurbs — "neon" finds
+  the diner, "hex" finds the vent, "rust" finds three of them.
+
+- Every slider's number is an INPUT. Click it and type. All of these are real
+  dimensions and somebody may have the number on a drawing in front of them;
+  dragging to 4.35 when you want 4.40 is the worst thing about a slider. A
+  typed value is held to the control's range and snapped to its step, exactly
+  as dragging is — the slider stays the single source of truth for a parameter
+  — and the box is rewritten with what it landed on when you leave it, so what
+  you see is always what the generator got.
+
+- A big mode carries forty controls behind eight collapsed groups. The Find
+  box at the top of the panel filters them by name; / jumps to it.
+
+- Keys, none of which fire while you are typing in a field: K browses the
+  modes, P shows or hides the control panel, B or Enter builds, / finds a
+  control, [ and ] step through the channel views, Esc closes the browser.
+
+- Drag the divider between the panel and the preview to resize it; double-click
+  it to put it back.
+
+- ON A PHONE it is three panes and a tab bar rather than a panel beside a
+  preview: Controls, Preview, Export. A forty-control panel and a preview
+  cannot usefully share a phone screen, and stacking them just means scrolling
+  past one to reach the other. The panes that are off screen are not unmounted,
+  so the preview keeps its build and switching back is instant. Pressing the
+  build button from the Controls pane takes you to the Preview, because that is
+  what you asked to see. The structure buttons move into the mode browser,
+  which is where you go to choose what to make anyway.
+
+- Everything sized for touch is behind a pointer query rather than a width one,
+  so a touchscreen laptop gets the big targets and a narrow desktop window does
+  not.
 
 - Switching back to a mode you have already built shows the previous result
   without regenerating it. Results above 1024 px are dropped when you leave

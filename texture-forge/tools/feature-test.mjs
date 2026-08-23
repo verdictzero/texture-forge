@@ -278,6 +278,75 @@ if (want("fonts")) {
   ok("neither path throws", errors.length === before);
 }
 
+/* ============================ the chrome ============================
+   The frame is now doing real work — a searchable mode browser, typed values,
+   a control filter — and all of it is the kind of thing that breaks silently. */
+if (want("chrome")) {
+  console.log("\n— chrome —");
+  await page.click('#modebar-tabs [data-mode="factory"]');
+  await settle();
+
+  /* a number you can type */
+  await page.fill("#factory--tileW-val", "22.5");
+  await page.dispatchEvent("#factory--tileW-val", "change");
+  await settle();
+  ok("a typed value reaches the parameters",
+     Math.abs((await page.evaluate(() => window.Forge.state("factory").P.tileW)) - 22.5) < 1e-6,
+     "P.tileW = " + (await page.evaluate(() => window.Forge.state("factory").P.tileW)));
+  /* off-step is snapped, and the box is rewritten with what it landed on, so
+     what you see is always what the generator got */
+  await page.fill("#factory--tileW-val", "13.7");
+  await page.dispatchEvent("#factory--tileW-val", "change");
+  await settle();
+  const shown = await page.inputValue("#factory--tileW-val");
+  ok("off-step is snapped and the box says so",
+     (await page.evaluate(() => window.Forge.state("factory").P.tileW)) === 13.5 &&
+     parseFloat(shown) === 13.5, "box reads " + shown);
+  /* out of range is clamped rather than accepted */
+  await page.fill("#factory--tileW-val", "999");
+  await page.dispatchEvent("#factory--tileW-val", "change");
+  await settle();
+  ok("out of range is held to the control's own limits",
+     (await page.evaluate(() => window.Forge.state("factory").P.tileW)) === 40);
+  await page.fill("#factory--tileW-val", "14");
+  await page.dispatchEvent("#factory--tileW-val", "change");
+  await settle();
+
+  /* the control filter */
+  await page.fill("#factory--find", "rivet");
+  const none = await page.$$eval("#panel-factory .row:not(.nomatch):not([hidden])", n => n.length);
+  await page.fill("#factory--find", "brick");
+  const some = await page.$$eval("#panel-factory .row:not(.nomatch):not([hidden])", n => n.length);
+  ok("the control filter hides what does not match", none === 0, none + " rows for 'rivet'");
+  ok("and keeps what does", some > 0 && some < 40, some + " rows for 'brick'");
+  await page.fill("#factory--find", "");
+
+  /* the mode browser */
+  await page.click("#browse");
+  ok("the browser opens", !(await page.$eval("#modesheet", n => n.hidden)));
+  const cards = await page.$$eval("#modegrid .modecard", n => n.length);
+  ok("every mode has a card", cards === (await page.evaluate(() => window.Forge.modes.length)),
+     cards + " cards");
+  await page.fill("#modesearch", "neon");
+  const hit = await page.$$eval("#modegrid .modecard:not([hidden])", n => n.map(c => c.dataset.mode));
+  ok("it searches the blurbs, not just the names", hit.includes("diner"),
+     "'neon' -> " + (hit.join(", ") || "nothing"));
+  await page.keyboard.press("Enter");
+  await settle();
+  ok("Enter takes the first hit",
+     (await page.evaluate(() => window.Forge.active().mode.id)) === "diner");
+  ok("and closes behind itself", await page.$eval("#modesheet", n => n.hidden));
+
+  /* the panel toggle survives a round trip */
+  await page.click("#panelbtn");
+  const off = await page.evaluate(() => document.body.dataset.panel);
+  await page.click("#panelbtn");
+  ok("the panel collapses and comes back", off === "off" &&
+     (await page.evaluate(() => document.body.dataset.panel)) === "on");
+  await page.click('#modebar-tabs [data-mode="factory"]');
+  await settle();
+}
+
 /* ============================ geometry out ============================
    The exporter's contract is that a mode's plan() is in METRES and the glTF
    it produces is at true scale — so this checks the numbers rather than that

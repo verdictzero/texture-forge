@@ -554,6 +554,7 @@ function build(params,io){
 Forge.register({
   id:"greeble",
   label:"Greeble",
+  group:"Sci-fi",
   blurb:"Machined surface clutter — stacked plates, eleven shapes, routed conduit",
   title:'Greeble <em>Field</em>',
   tagline:"Machined clutter · stacked tiers · routed conduit · seamless",

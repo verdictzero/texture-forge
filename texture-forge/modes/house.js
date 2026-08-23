@@ -18,6 +18,7 @@ const Shell=window.HouseShell;
 Forge.register({
   id:"house",
   label:"House",
+  group:"Buildings",
   blurb:"American house front elevation",
   title:'Front <em>Elevation</em>',
   tagline:"American house facade · PBR · PNG",

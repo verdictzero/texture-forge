@@ -763,6 +763,7 @@ Forge.registerStructure({
 Forge.register({
   id:"diner",
   label:"Diner",
+  group:"Buildings",
   blurb:"Chrome-and-neon diner — front, side and back",
   title:'Chrome <em>Diner</em>',
   tagline:"Stainless · porcelain enamel · plate glass · neon on emissive",
