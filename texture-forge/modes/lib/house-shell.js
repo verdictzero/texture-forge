@@ -97,9 +97,21 @@ function geometry(){
     chimTop=roofTop+(P.chimney==="gable"?2.4:1.7);
   }
   const FH=Math.max(roofTop,chimTop);
-  const TW=P.size|0;
-  const TH=Math.max(8,Math.round(TW*FH/FW/4)*4);
-  return {FW:FW,FH:FH,wallTop:wallTop,eaveBand:eaveBand,gableH:gableH,TW:TW,TH:TH,
+  /* The height follows the facade's REAL aspect, not the resolution slider, so
+     the slider alone does not bound the image: a narrow three-storey gable end
+     with a chimney is 12 ft wide and 54 ft tall, and at 4096 that is 75 million
+     texels — 1.1 GB of channel buffers before the AO pass allocates anything,
+     which is an out-of-memory on any phone. Cap the budget by taking the WIDTH
+     down rather than the height, so texel density stays uniform and the size
+     readout shows what you are actually getting. */
+  const thOf=t=>Math.max(8,Math.round(t*FH/FW/4)*4);
+  const MAXTEX=32e6;                               // ~500 MB of channel buffers
+  let TW=P.size|0;
+  const asked=TW;
+  if(TW*thOf(TW)>MAXTEX)TW=Math.max(64,Math.round(TW*Math.sqrt(MAXTEX/(TW*thOf(TW)))/4)*4);
+  const TH=thOf(TW);
+  const capped=(TW<asked);
+  return {FW:FW,FH:FH,wallTop:wallTop,eaveBand:eaveBand,gableH:gableH,TW:TW,TH:TH,capped:capped,asked:asked,
           roof:roof,roofTop:roofTop,chimX:chimX,chimW:chimW,chimTop:chimTop};
 }
 
@@ -253,12 +265,16 @@ function sashBoxes(style,lc,lr){
               {u0:0.48,u1:1,v0:0,v1:1,back:1,lc:1,lr:1}];
     case "awn":                                    // one short light, top-hung
       return [{u0:0,u1:1,v0:0,v1:1,back:0,lc:Math.max(1,lc),lr:1}];
+    /* v climbs, so v0:0 is the LOWER sash — and it is the one set back. The
+       upper sash rides the outer channel, so from outside it is the proud
+       half; a double-hung with the bottom sticking out is a window nobody
+       has ever looked at. */
     case "dh1":                                    // double-hung, unmuntined
-      return [{u0:0,u1:1,v0:0,v1:0.5,back:0,lc:1,lr:1},
-              {u0:0,u1:1,v0:0.5,v1:1,back:1,lc:1,lr:1}];
+      return [{u0:0,u1:1,v0:0,v1:0.5,back:1,lc:1,lr:1},
+              {u0:0,u1:1,v0:0.5,v1:1,back:0,lc:1,lr:1}];
     default:                                       // double-hung
-      return [{u0:0,u1:1,v0:0,v1:0.5,back:0,lc:lc,lr:lr},
-              {u0:0,u1:1,v0:0.5,v1:1,back:1,lc:lc,lr:lr}];
+      return [{u0:0,u1:1,v0:0,v1:0.5,back:1,lc:lc,lr:lr},
+              {u0:0,u1:1,v0:0.5,v1:1,back:0,lc:lc,lr:lr}];
   }
 }
 
@@ -277,9 +293,20 @@ function buildOpenings(g){
     o.partial=rng()<0.35;
     return o;
   };
-  /* "mixed" is the arrangement most American houses actually have: something
-     wide in the living room and ordinary double-hungs upstairs. */
-  const styleAt=s=>(P.winStyle==="mixed")?(s===0?"pic":"dh"):(P.winStyle||"dh");
+  /* A picture window is the LIVING-ROOM window: a house has one, it is on the
+     ground floor, and it faces the street. A row of them across every bay of
+     every storey is a shop front, and one on a first-floor bedroom is not a
+     window an American house has — so the caller says which bay is the living
+     room and every other opening falls back.
+
+     "mixed" then means what it says: something wide in the living room, the
+     rest of the ground floor sliding, and ordinary double-hungs upstairs. */
+  const styleAt=(s,picHere)=>{
+    const want=P.winStyle||"dh";
+    if(want!=="pic"&&want!=="mixed")return want;
+    if(s===0&&picHere)return "pic";
+    return (want==="mixed"&&s===0)?"slide":"dh";
+  };
   /* a picture window is not a double-hung stretched — it is a WIDER, SHORTER
      hole with a lower sill, and getting that proportion right is the difference
      between a living-room window and a shop front */
@@ -322,8 +349,7 @@ function buildOpenings(g){
         }
         /* through placeWin, so that a slider on the side is the same wide,
            short hole it is on the front — one house from every angle */
-        ops.push(placeWin(cx,floor,
-          P.winStyle==="pic"||P.winStyle==="mixed"?"dh":(P.winStyle||"dh"),span,0.9));
+        ops.push(placeWin(cx,floor,styleAt(s,false),span,0.9));
       }
     }
     if(P.storeys>1&&P.stairWin){
@@ -381,17 +407,18 @@ function buildOpenings(g){
         }
         if(s===0&&bi===kitchenIdx){                       // wide window over the sink
           ops.push(win(cx,floor,Math.min(span*0.8,P.winW*1.45),P.winH*0.78,P.sillH+0.55,
-                       P.winStyle==="dh"?"dh1":styleAt(s)));
+                       P.winStyle==="dh"?"dh1":styleAt(s,false)));
           continue;
         }
         if(rng()<0.12){continue;}                         // the odd blank bay
-        ops.push(placeWin(cx,floor,styleAt(s)==="pic"?"dh":styleAt(s),span));
+        ops.push(placeWin(cx,floor,styleAt(s,false),span));
       }
     }
     return ops;
   }
 
   const doorIdx=clamp((P.doorBay|0)-1,0,bays-1);
+  const picBay=(bays>1)?((doorIdx+2)%bays):0;       // not the bay beside the door
   for(let s=0;s<P.storeys;s++){
     const floor=P.foundH+s*P.storeyH;
     for(let bi=0;bi<bays;bi++){
@@ -403,7 +430,7 @@ function buildOpenings(g){
           hood:P.doorHood,transomH:th,rng:rng()});
         continue;
       }
-      ops.push(placeWin(cx,floor,styleAt(s),span));
+      ops.push(placeWin(cx,floor,styleAt(s,bi===picBay),span));
     }
   }
   return ops;
@@ -606,6 +633,29 @@ function build(params,io){
      malformed one, and it is a build-scope constant so that the per-texel read
      of it can never become a per-texel allocation. */
   const DEFSASH=sashesFor("dh",P.liteC|0,P.liteR|0);
+
+  /* A shutter is half the sash, so that a closed pair would cover the window —
+     but a pair of them plus the window has to fit between its neighbours, and
+     a picture window or a slider never had shutters in the first place. Taking
+     the half-width from the drawn window without checking the room is what put
+     a continuous shutter band across three bays of the vinyl preset. */
+  {
+    const gapS=P.casingW*IN+0.03;
+    for(let i=0;i<ops.length;i++){
+      const o=ops[i];
+      if(o.type!=="window"||o.style==="pic"||o.style==="slide"){o.shutW=0;continue;}
+      let room=Math.min(o.x0,FW-o.x1);
+      for(let j=0;j<ops.length;j++){
+        const q=ops[j];
+        if(q===o||q.y1<=o.y0||q.y0>=o.y1)continue;   // not in the same band
+        if(q.x1<=o.x0)room=Math.min(room,o.x0-q.x1);
+        else if(q.x0>=o.x1)room=Math.min(room,q.x0-o.x1);
+      }
+      const want=(o.x1-o.x0)*0.5;
+      o.shutW=Math.min(want,room*0.5-gapS);
+      if(o.shutW<0.42)o.shutW=0;                     // too little room to be one
+    }
+  }
   const FURN=buildFurniture(g,ops);
   const SW=Math.min(TW,1024),SH=Math.max(8,Math.round(SW*FH/FW));
   const sten=buildStencil(g,SW,SH);
@@ -650,10 +700,14 @@ function build(params,io){
      and stays there. It is a genuine material difference, not baked lighting,
      which is why it does not fight the AO map that also carries it. */
   const LAPSH=clamp(+P.lapShade,0,1);
-  function lapShade(f,r,gg,b){
+  function lapShade(f){
     if(LAPSH<=0)return 0;
-    const k=smoothstep(0.52,1.0,f)*LAPSH*0.52;
-    return k;
+    /* The top fifth of the exposure — about an inch of a five-inch board, the
+       strip actually tucked under the lap. Over half the course it stopped
+       being a shadow line and became a gradient that multiplied against the AO
+       carrying the same feature, and then against whatever the renderer casts
+       on top of that: the same darkness charged three times. */
+    return smoothstep(0.80,1.0,f)*LAPSH*0.38;
   }
 
   function cladding(x,y){
@@ -721,7 +775,12 @@ function build(params,io){
         if(Math.abs(d)<Math.abs(dg)){dg=d;sid=(d>=0)?idx:idx-1;}
       }
       const sh=hashi(sid,c,seed+17);
-      Mcourse=c;Mboard=sid;Mbu=clamp(0.5+dg/Math.max(0.05,w),0,1);Mbv=f;
+      /* dg is signed distance to the NEAREST gap, so it flips sign halfway
+         across a shingle. Fold it back into a run from one exposed edge to the
+         other, or the peel's "in from the cut ends" bonus fires in the middle
+         of every shingle and puts a seam down it. */
+      const sw=Math.max(0.05,w);
+      Mcourse=c;Mboard=sid;Mbu=clamp(dg>=0?dg/sw:1+dg/sw,0,1);Mbv=f;
       h=0.05*REL*(1-f*f*0.7)+(sh-0.5)*0.02*REL*IRR;
       h-=(1-smoothstep(0,0.018,Math.abs(dg)))*0.035*REL;
       const grain=fbm(x*30,y*6,3,seed+31);
@@ -821,10 +880,16 @@ function build(params,io){
   }
 
   /* ---------- glass ----------
-     pv runs 0 at the bottom of the lite to 1 at the top; a vertical pane
-     reflects sky up top and ground below, so it brightens upward. Grime is a
-     dielectric film: it dulls the mirror and takes the metallicity with it. */
-  function glass(pu,pv,edgeD,nx,ny,paneSeed,lit){
+     wv runs 0 at the bottom of the WINDOW to 1 at the top; a vertical pane
+     reflects sky up top and ground below, so it brightens upward. It has to be
+     the window and not the lite: coplanar panes reflect the same sky, and
+     restarting the ramp at every muntin turned a divided-light sash into a
+     checkerboard and put a dirt band along the bottom of every little pane
+     instead of on the bottom rail. edgeD stays per lite, because grime really
+     does creep in along each putty line. Grime is a dielectric film: it dulls
+     the mirror and takes the metallicity with it. */
+  function glass(pu,wv,edgeD,nx,ny,paneSeed,lit){
+    const pv=wv;
     /* Glass from outside is a dark room with a bright sky reflected on it, and
        the two do not meet in the middle: the reflection is strong at the top of
        the pane where the sky is and dies away down it. Ramping the two linearly
@@ -866,7 +931,7 @@ function build(params,io){
   /* The lean, the plank count and the panel centre are fixed for a given
      opening, and an opening's texels arrive in runs, so a one-entry memo takes
      the hash, both trig calls and the division off the per-texel path. */
-  let Bsd=NaN,Bw=-1,Bhg=-1,Bca=1,Bsa=0,Bcx=0,Bcy=0,Bn=2,Bph=1;
+  let Bsd=NaN,Bw=-1,Bhg=-1,Bca=1,Bsa=0,Bcx=0,Bcy=0,Bn=2,Bph=1,Boff=0,Bsheet=false;
   function boardPanel(lx,ly,w,hgt,sd){
     Mid=8;Mmet=0;Mwood=1;
     if(sd!==Bsd||w!==Bw||hgt!==Bhg){
@@ -875,29 +940,48 @@ function build(params,io){
       const ang=(hashi(sd,1,seed+301)-0.5)*0.13;
       Bca=Math.cos(ang);Bsa=Math.sin(ang);
       Bcx=w*0.5;Bcy=hgt*0.5;
-      const pw=(P.boardMat==="planks")?0.72:0.98;    // salvaged stock is narrower
-      Bn=Math.max(2,Math.round(hgt/pw));
-      Bph=hgt/Bn;
+      /* Salvaged stock is narrow and there is a lot of it; a sheet good is one
+         piece. Nobody rips a 4x8 into five bands to board a window, which is
+         what a shared plank width was drawing. */
+      Bsheet=(P.boardMat!=="planks");
+      const pw=Bsheet?4.0:0.72;
+      /* The lean tips a corner of the board grid out of the panel, which on a
+         stack of planks was a nick and on a single sheet was a triangle of open
+         window. Run the grid past both ends by what the lean costs and let the
+         caller's rectangle be the edge. */
+      const over=Math.abs(Math.sin(ang))*w;
+      const gh=hgt+over;
+      Bn=Math.max(Bsheet?1:2,Math.round(gh/pw));
+      Bph=gh/Bn;
+      Boff=-over*0.5;
     }
     const ux=(lx-Bcx)*Bca+(ly-Bcy)*Bsa+Bcx;
     const uy=-(lx-Bcx)*Bsa+(ly-Bcy)*Bca+Bcy;
     const n=Bn,ph=Bph;
-    const pi=Math.floor(uy/ph);
+    const gy=uy-Boff;
+    const pi=Math.floor(gy/ph);
     if(pi<0||pi>=n)return false;
-    const f=uy/ph-pi;
-    /* the gap between two planks is never zero: they were cut long ago, for
-       something else */
-    const gap=0.055+hashi(pi,3,sd+7)*0.05;
+    const f=gy/ph-pi;
+    /* The gap between two boards is never zero: they were cut long ago, for
+       something else. It is half an inch or so of daylight whatever the board
+       is — as a fraction of the piece it became a four-inch trench once a
+       sheet stopped being a stack of one-foot strips. */
+    const gapFt=0.038+hashi(pi,3,sd+7)*0.034;
+    const gap=Math.min(0.5,gapFt/ph);
     if(f<gap*0.5||f>1-gap*0.5)return false;
     /* prised off, the low ones first, because that is where a person is */
     const pry=hashi(pi,11,sd+13);
     const reach=1-smoothstep(0,hgt*0.75,uy);
     if(pry<(0.10+0.34*reach)*P.aband*(1-P.boardUp*0.55))return false;
-    /* and one plank in a set is usually just short */
-    const runIn=hashi(pi,17,sd+19)*0.30;
-    if(hashi(pi,23,sd+29)<0.22&&ux<w*runIn)return false;
+    /* and one plank in a set is usually just short — a sheet is not, so this
+       is what was cutting a full-height wedge out of a single piece of ply */
+    if(!Bsheet){
+      const runIn=hashi(pi,17,sd+19)*0.30;
+      if(hashi(pi,23,sd+29)<0.22&&ux<w*runIn)return false;
+    }
 
-    let r=150,gg=126,b=92,h=0.09,rg=0.86;
+    /* a board nailed over the casing is in front of it, not let into the hole */
+    let r=150,gg=126,b=92,h=0.16,rg=0.86;
     if(P.boardMat==="osb"){
       /* chipped strand: flakes lying flat, furring up at a cut edge once it has
          had a winter of rain on it */
@@ -910,13 +994,24 @@ function build(params,io){
       r=lerp(r,r*0.7,1-fl);gg=lerp(gg,gg*0.7,1-fl);b=lerp(b,b*0.7,1-fl);
       rg=0.9;
     }else if(P.boardMat==="ply"){
-      const grain=fbm(ux*90,uy*7,4,sd+7);
-      const t=0.85+grain*0.3;
+      /* A sheet of exterior ply is not one flat tan. It is a face veneer with
+         a long slow grain figure, patched where a knot came out, and it starts
+         going grey and blotchy from the day it goes up — a whole sheet of it
+         with only fine grain on it reads as cardboard, which is what a plank's
+         worth of variation looked like once the sheet stopped being planks. */
+      const fig=fbm(ux*3.2,uy*0.55,4,sd+7);                // veneer figure, long grain
+      const fine=fbm(ux*46,uy*5,3,sd+9);                   // the grain itself
+      const t=0.80+fig*0.24+fine*0.14;
       r=176*t;gg=142*t;b=98*t;
-      h+=(grain-0.5)*0.006;
-      const de=1-smoothstep(0,0.06,Math.min(f,1-f)*ph);   // ply delaminates at the edge first
-      h-=de*0.014;r*=1-de*0.22;gg*=1-de*0.22;b*=1-de*0.20;
-      rg=0.82;
+      h+=(fine-0.5)*0.005+(fig-0.5)*0.004;
+      /* weathering: greyed and stained, worst where the rain sits */
+      const wea=clamp(fbm(ux*1.5,uy*1.5,3,sd+11)*0.8+(1-smoothstep(0,hgt*0.5,uy))*0.35-0.22,0,1);
+      r=lerp(r,r*0.62+64,wea*0.55);gg=lerp(gg,gg*0.66+66,wea*0.55);b=lerp(b,b*0.74+66,wea*0.55);
+      /* and it delaminates at a cut edge — the sheet's own edge, not the grid's */
+      const edgeFt=Math.min(Math.min(ux,w-ux),Math.min(uy,hgt-uy));
+      const de=1-smoothstep(0,0.07,edgeFt);
+      h-=de*0.014;r*=1-de*0.24;gg*=1-de*0.24;b*=1-de*0.22;
+      rg=0.82+wea*0.1;
     }else{
       const t=0.66+hashi(pi,1,sd+11)*0.52;           // every plank off a different pile
       r=150*t;gg=124*t;b=94*t;
@@ -935,8 +1030,13 @@ function build(params,io){
        rather than scattered across the middle where there is only glass */
     const endD=Math.min(ux,w-ux);
     if(endD<0.42){
-      const ny=(0.30+hashi(pi,31,sd+37)*0.40)*ph;
-      const nx=0.14+hashi(pi,41,sd+43)*0.16;
+      /* nails go in about every fifteen inches, which on a plank is one and on
+         a sheet is four or five — spacing them per piece put a single nail in
+         the middle of a five-foot panel */
+      const ns=Math.max(1,Math.round(ph/1.25));
+      const nb=Math.min(ns-1,Math.max(0,Math.floor(f*ns)));
+      const ny=((nb+0.5)/ns+(hashi(pi*37+nb,31,sd+37)-0.5)*0.16/ns)*ph;
+      const nx=0.14+hashi(pi*37+nb,41,sd+43)*0.16;
       const dnx=endD-nx,dny=f*ph-ny;
       const dn=Math.sqrt(dnx*dnx+dny*dny);
       const sm=1-smoothstep(0.020,0.032,dn);
@@ -953,7 +1053,13 @@ function build(params,io){
     return true;
   }
 
-  const band=Math.max(2,Math.round(16384/TW));
+  /* Each hop arms the next with setTimeout, and the HTML spec clamps a nested
+     timer chain to 4 ms from the sixth level on — so the gaps, not the work,
+     set the floor. Four rows a hop at 4096 meant 1,765 hops and seven seconds
+     of pure idle on a Queen Anne; a band four times as deep spends the same
+     total work across a quarter of the gaps and still yields often enough to
+     keep the tab alive. */
+  const band=Math.max(2,Math.round(49152/TW));
   let yy=0;
 
   function pass1(){
@@ -1163,6 +1269,30 @@ function build(params,io){
             }
           }
           if(wx<o.x0-cw||wx>o.x1+cw||wy<o.y0-cw-(o.type==="door"?0:0.30)||wy>o.y1+cw)continue;
+          const sd=(seed+((o.x0*13+o.y0*7)|0)*17)|0;
+
+          /* Boarded over. This has to happen BEFORE the casing, because boards
+             go on across the hole and lap onto the casing they are nailed to.
+             Stopping them at the reveal drew a fitted panel let into the
+             opening, and put every nail in the middle of the void. */
+          if(o.boarded){
+            const ovr=Math.min(cw*0.85,0.32);
+            const cover=o.partial?0.72:1.0;
+            const bw=w+ovr*2,bhh=hh*cover+ovr;
+            const bx=lx+ovr,by=ly+ovr;
+            if(bx>=0&&bx<=bw&&by>=0&&by<=bhh){
+              if(boardPanel(bx,by,bw,bhh,sd)){
+                r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;met=Mmet;wood=1;inOpening=1;continue;
+              }
+              /* no board here: over the hole you see the dark of the room, over
+                 the casing you see the casing, so fall through to it */
+              if(lx>0&&lx<w&&ly>0&&ly<hh){
+                const dk=0.9+fbm(lx*9,ly*9,2,sd+51)*0.7;
+                r=17*dk;gg=16*dk;b=16*dk;h=-0.46;rg=0.94;id=3;met=0;wood=0;
+                inOpening=1;continue;
+              }
+            }
+          }
 
           /* casing band */
           const inX=wx>o.x0&&wx<o.x1,inY=wy>o.y0&&wy<o.y1;
@@ -1182,23 +1312,6 @@ function build(params,io){
           }
 
           inOpening=1;
-          const sd=(seed+((o.x0*13+o.y0*7)|0)*17)|0;
-
-          /* boarded over */
-          if(o.boarded){
-            const cover=o.partial?0.72:1.0;
-            if(ly<hh*cover){
-              if(boardPanel(lx,ly,w,hh*cover,sd)){
-                r=Mr;gg=Mg;b=Mb;h=Mh;rg=Mrg;id=Mid;met=Mmet;wood=1;
-                continue;
-              }
-              /* through a gap between planks you see the dark of the room, not
-                 the window that used to be in it */
-              const dk=0.9+fbm(lx*9,ly*9,2,sd+51)*0.7;
-              r=17*dk;gg=16*dk;b=16*dk;h=-0.46;rg=0.94;id=3;met=0;wood=0;
-              continue;
-            }
-          }
 
           /* the opening proper */
           if(o.type==="door"){
@@ -1330,7 +1443,8 @@ function build(params,io){
           const brokeP=(hashi(ci+S.s2,ri+S.s3,o.brokeSeed)<P.broken*AB);
           const pu=mx/cwid,pv=my/chei;
           const edgeD=Math.min(Math.min(pu,1-pu),Math.min(pv,1-pv));
-          glass(pu,pv,edgeD,gx,gy2,paneSeed,o.lit&&!brokeP);
+          /* sv, not pv: the sky ramp belongs to the window, not to the lite */
+          glass(pu,sv,edgeD,gx,gy2,paneSeed,o.lit&&!brokeP);
           let gr=Gr,gg2=Gg,gb=Gb;
           rg=Grough;met=Gmet;emis=Gemis;
           if(o.obscured){                             // a bathroom light is not clear glass
@@ -1365,7 +1479,9 @@ function build(params,io){
           for(let k=0;k<rowOps.length;k++){
             const o=rowOps[k];
             if(o.type!=="window")continue;
-            const sw=(o.x1-o.x0)*0.5,gap=casing+0.03;
+            const sw=o.shutW||0;
+            if(sw<=0)continue;
+            const gap=casing+0.03;
             const l0=o.x0-gap-sw,l1=o.x0-gap,r0=o.x1+gap,r1=o.x1+gap+sw;
             const inL=wx>l0&&wx<l1,inR=wx>r0&&wx<r1;
             if((inL||inR)&&wy>o.y0-0.02&&wy<o.y1+0.02){
@@ -1522,17 +1638,32 @@ function build(params,io){
             const bAge=hashi(Mboard,Mcourse*31+5,seed+105);
             const endIn=1-smoothstep(0,0.16,Math.min(Mbu,1-Mbu));   // in from the cut ends
             const buttUp=1-smoothstep(0,0.34,Mbv);                  // up from the wet butt
-            fieldP=bAge*0.62+endIn*0.20+buttUp*0.24+nEdge*0.16+nAge*0.08+wet*0.8;
+            /* Weighted so the BOARD's own luck can carry it on its own. With
+               the butt bonus this heavy the only thing that ever reached the
+               threshold was the bottom of a course, which drew a ruled stripe
+               along every course all the way up the wall — the old camouflage
+               blotches in a different key. Water still helps, it just no longer
+               decides. */
+            fieldP=bAge*0.80+endIn*0.16+buttUp*0.12+nEdge*0.14+nAge*0.10+wet*0.8;
           }else{
-            /* joinery peels at its own edges instead: panel bevels and board ends */
+            /* Joinery peels at its own edges instead: panel bevels and board
+               ends. At low frequency, though — a shutter losing its paint in
+               fine mid-frequency mottle is the camouflage pattern this whole
+               routine exists to avoid, just on a smaller piece of wood. */
             const jointEdge=(id===9||id===2)
-              ?smoothstep(0.55,0.85,fbm(wx*5.5,wy*5.5,2,seed+111))*0.34:0;
-            fieldP=fbm(wx*3.1,wy*3.1,3,seed+105)*0.62+nAge*0.42+nEdge*0.18+jointEdge+wet;
+              ?smoothstep(0.55,0.85,fbm(wx*5.5,wy*5.5,2,seed+111))*0.30:0;
+            fieldP=fbm(wx*1.6,wy*1.6,3,seed+105)*0.54+nAge*0.28+nEdge*0.14+jointEdge+wet;
           }
-          /* the field now centres near 0.5 with most of its spread coming from
-             the board's own draw, so the threshold is set to take roughly a
-             sixth of the boards at a quarter turn and about half at full */
-          const t1=1.00-P.peel*0.50,t2=1.14-P.peel*0.58*P.bare;
+          /* Most of the field's spread is now the board's own draw, so the
+             threshold decides how much of the wall goes — and it wants to be
+             slow at the bottom of the slider. Linear made a quarter turn strip
+             a house that is meant to look merely tired: paint fails at the cut
+             ends and the splash zone for years before it lets go of a whole
+             board. Measured on the shipped colonial: nothing on the open face
+             at 0.2, about a board in twelve at 0.35, a third of them at 0.6,
+             and effectively all of it at 1. */
+          const t1=1.02-Math.pow(P.peel,1.45)*0.74;
+          const t2=1.26-Math.pow(P.peel,1.35)*0.66*P.bare;
           const toUnder=smoothstep(t1,t1+0.018,fieldP);
           const toBare=smoothstep(t2,t2+0.018,fieldP)*P.bare;
           const lip=smoothstep(t1-0.030,t1,fieldP)*(1-toUnder);   // paint curls at the break
@@ -1710,16 +1841,29 @@ function build(params,io){
     const rCap=Math.max(8,Math.min(TW,TH)>>2);
     const r1=clamp(Math.round(pxPerFt*Math.max(expo,0.12)*0.55),2,rCap);
     const r2=clamp(Math.round(pxPerFt*0.34),3,rCap);   // 4 in — casing, sill, batten
-    const r3=clamp(Math.round(pxPerFt*1.35),8,rCap);   // 16 in — the opening as a whole
+    const r3=clamp(Math.round(pxPerFt*1.35),8,rCap);   // 16 in — a jamb and its reveal
+    const r4=clamp(Math.round(pxPerFt*2.6),12,rCap);   // 2.6 ft — the whole opening
     const sc=1/0.28;                                   // a 3-4 in recess reads as full occlusion
     const N=TW*TH;
-    /* The broad term is the one that says "you are inside a hole"; the tight
-       ones say "you are against something". Screening rather than adding them
-       keeps a texel that is both from going past black — and because screening
-       is a product, each radius can be folded in and thrown away before the
-       next one is taken. Holding all three blurs live costs 12 bytes a texel on
-       an image whose height is the facade's real aspect, not TW; folding costs
-       4, and the accumulator is released before the normal pass runs. */
+    /* The broad terms say "you are inside a hole"; the tight ones say "you are
+       against something". A window is about three feet across, so with nothing
+       wider than sixteen inches nothing ever reached the middle of one: a
+       muntin standing proud of its panes read as UNOCCLUDED, and every window
+       came out a dark frame with a bright grid floating inside it. The 2.6 ft
+       term is what tells the middle of a window that it is in a hole at all.
+
+       Screening rather than adding them keeps a texel that is both from going
+       past black, but four screened terms saturate — the product floor alone
+       put painted joinery inside a reveal at 7/255, which is not occlusion, it
+       is clipping, and nothing downstream can get it back. Hence the cap: a
+       deep shadow, still a colour.
+
+       Screening is a product, so each radius folds in and is thrown away before
+       the next is taken. Holding them all live would cost 16 bytes a texel on
+       an image whose height follows the facade's real aspect rather than the
+       resolution slider; this costs 4, and it is released before the normal
+       pass runs. */
+    const OCCMAX=0.85;
     let acc=new Float32Array(N);acc.fill(1);
     const fold=(rad,gain,w)=>{
       let b=boxBlur(HGT,TW,TH,rad);
@@ -1730,10 +1874,11 @@ function build(params,io){
       }
       b=null;
     };
-    fold(r1,2.6,0.55);fold(r2,1.9,0.70);fold(r3,1.15,0.80);
+    fold(r1,2.6,0.45);fold(r2,1.9,0.60);fold(r3,1.15,0.62);fold(r4,0.85,0.55);
     for(let i=0;i<N;i++){
       if(!ALP[i]){AOc[i]=255;continue;}
-      AOc[i]=clamp(1-(1-acc[i])*P.aoStr,0,1)*255;
+      const occ=Math.min(1-acc[i],OCCMAX)*P.aoStr;
+      AOc[i]=clamp(1-occ,0,1)*255;
     }
     acc=null;
     io.progress(0.85);
@@ -1781,7 +1926,7 @@ const CONTROLS={
       {id:"unitLen",need:"masonry",label:"Unit length",unit:"in",min:4,max:24,step:0.25,value:8},
       {id:"mortarW",need:"masonry",label:"Mortar joint",unit:"in",min:0.12,max:1.2,step:0.02,value:0.38},
       {id:"cladRelief",label:"Relief depth",min:0,max:2.5,step:0.05,value:1},
-      {id:"lapShade",label:"Course shadow line",min:0,max:1,step:0.01,value:0.6},
+      {id:"lapShade",need:["lap","batten"],label:"Course shadow line",min:0,max:1,step:0.01,value:0.6},
       {id:"cladIrreg",label:"Irregularity",min:0,max:1,step:0.01,value:0.45},
       {type:"colors",label:"Wall · trim · undercoat",items:[
         {id:"cWall",value:"#b9bcae"},{id:"cTrim",value:"#efece1"},{id:"cUnder",value:"#8f7f63"}]}
@@ -1869,9 +2014,9 @@ const CONTROLS={
         "than as curly strokes. The app ships no font: three of the six graffiti faces in this "+
         "repository's <code>fonts/</code> are personal-use cuts and three came with no licence at "+
         "all, so publishing them would be redistributing them. <b>Load…</b> takes one straight from "+
-        "its bytes — nothing is fetched and nothing is published. Served over http from the "+
-        "repository root the six are found on their own; opened as a file they cannot be, and the "+
-        "mode falls back to a scrawl."},
+        "its bytes — nothing is fetched and nothing is published. Opened from the repository "+
+        "root the six are found on their own; where the browser will not reach them the mode "+
+        "falls back to a scrawl."},
       {id:"vines",need:"ab",label:"Vines and weeds",min:0,max:1,step:0.01,value:0.4},
       {id:"missing",need:"ab",label:"Missing siding",min:0,max:1,step:0.01,value:0.3}
     ]};},
@@ -1886,7 +2031,7 @@ const CONTROLS={
    the face you happen to be looking at. Both modes offer the same names, so
    setting "colonial" on the front and on the side gives one house. */
 const PRESETS=[
-    {id:"colonial",label:"Colonial",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.30,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,lapShade:0.6,
+    {id:"colonial",label:"Colonial",set:{glassRough:0.06,glassMetal:0.85,glassGrime:0.30,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",pitch:8,clad:"clapboard",exposure:5,lapShade:0.6,
       bays:3,winStyle:"dh",winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p6",
       cWall:"#c8cabc",cTrim:"#f4f1e6",cDoor:"#5c3a2e",cShut:"#2f4438",cornerW:4,friezeH:7,waterT:5,
       fade:0.35,peel:0.2,bare:0.3,streak:0.4,splash:0.4,mildew:0.3,rust:0.3,rot:0.15,grunge:0.35,aband:0}},
@@ -1921,8 +2066,8 @@ const PRESETS=[
       cWall:"#c2bda8",cTrim:"#f2efe6",cDoor:"#2f5d54",cornerW:3,friezeH:6,waterT:3,fasciaD:11,
       fade:0.3,peel:0.1,bare:0.12,streak:0.3,splash:0.35,mildew:0.28,rust:0.15,rot:0.08,grunge:0.32,aband:0}},
 
-    {id:"vinyl",label:"Vinyl tract",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.18,facadeW:32,storeys:2,storeyH:8.5,foundH:1.4,roof:"eave",clad:"vinyl",exposure:8,lapShade:0.42,
-      bays:4,winStyle:"slide",winW:2.8,winH:4.4,sillH:2.8,liteC:1,liteR:1,shutter:"panel",doorBay:2,doorStyle:"p6",
+    {id:"vinyl",label:"Vinyl tract",set:{glassRough:0.04,glassMetal:0.9,glassGrime:0.18,facadeW:32,storeys:2,storeyH:8.5,foundH:1.4,roof:"eave",pitch:6,clad:"vinyl",exposure:8,lapShade:0.42,
+      bays:4,winStyle:"dh1",winW:2.8,winH:4.4,sillH:2.8,liteC:1,liteR:1,shutter:"panel",doorBay:2,doorStyle:"p6",
       cWall:"#d6d3c4",cTrim:"#ffffff",cDoor:"#7a3b32",cShut:"#3a3f4a",cornerW:3,friezeH:5,waterT:3,
       fade:0.25,peel:0.05,bare:0.05,streak:0.3,splash:0.35,mildew:0.3,rust:0.05,rot:0.05,grunge:0.3,aband:0}},
 
@@ -1931,17 +2076,17 @@ const PRESETS=[
       cWall:"#b8c4bd",cTrim:"#f0ece0",cDoor:"#7a4a2c",cornerW:4,friezeH:8,waterT:5,found:"brick",
       fade:0.55,peel:0.45,bare:0.45,streak:0.6,splash:0.55,mildew:0.5,rust:0.4,rot:0.35,grunge:0.55,aband:0}},
 
-    {id:"rowhouse",label:"Brick rowhouse",set:{glassRough:0.05,glassMetal:0.9,glassGrime:0.45,bandBoard:false,gutter:false,facadeW:20,storeys:3,storeyH:9.5,foundH:2.4,roof:"flat",clad:"brick",courseH:2.67,unitLen:8,lapShade:0.5,
+    {id:"rowhouse",label:"Brick rowhouse",set:{glassRough:0.05,glassMetal:0.9,glassGrime:0.45,bandBoard:false,gutter:false,facadeW:20,storeys:3,storeyH:9.5,foundH:2.4,roof:"flat",pitch:4,clad:"brick",courseH:2.67,unitLen:8,lapShade:0.5,
       mortarW:0.38,bays:2,winStyle:"dh1",winW:3.2,winH:5.4,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:1,doorStyle:"half",
       cWall:"#8d5a44",cTrim:"#e6e2d8",cDoor:"#3d4f3a",found:"stone",cornerW:0,friezeH:10,waterT:4,
       fade:0.3,peel:0.15,bare:0.2,streak:0.55,splash:0.5,mildew:0.4,rust:0.2,rot:0.1,grunge:0.5,aband:0}},
 
-    {id:"stucco",label:"Stucco & parapet",set:{glassRough:0.05,glassMetal:0.88,glassGrime:0.3,facadeW:28,storeys:2,storeyH:9.5,foundH:1.2,roof:"flat",clad:"stucco",lapShade:0.3,gutter:false,
+    {id:"stucco",label:"Stucco & parapet",set:{glassRough:0.05,glassMetal:0.88,glassGrime:0.3,facadeW:28,storeys:2,storeyH:9.5,foundH:1.2,roof:"flat",pitch:4,clad:"stucco",lapShade:0.3,gutter:false,
       bays:3,winStyle:"case",winW:2.6,winH:4.4,sillH:2.8,liteC:1,liteR:2,shutter:"none",doorBay:2,doorStyle:"p4",
       cWall:"#d8c6a8",cTrim:"#e8dcc4",cDoor:"#4a3a58",cornerW:0,friezeH:0,waterT:0,found:"poured",
       fade:0.5,peel:0.1,bare:0.05,streak:0.5,splash:0.5,mildew:0.3,rust:0.15,rot:0.05,grunge:0.45,aband:0}},
 
-    {id:"abandoned",label:"Abandoned",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.8,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",clad:"clapboard",exposure:5,lapShade:0.7,
+    {id:"abandoned",label:"Abandoned",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.8,facadeW:28,storeys:2,storeyH:9,foundH:1.8,roof:"eave",pitch:7,clad:"clapboard",exposure:5,lapShade:0.7,
       bays:3,winStyle:"dh",winW:3,winH:4.8,sillH:2.6,liteC:2,liteR:3,shutter:"louver",doorBay:2,doorStyle:"p4",
       cWall:"#a8a893",cTrim:"#ddd8c8",cDoor:"#4a3226",cShut:"#3a4438",cUnder:"#8f7f63",
       fade:0.7,peel:0.75,bare:0.65,streak:0.75,splash:0.7,mildew:0.7,rust:0.6,rot:0.6,grunge:0.7,
@@ -1956,13 +2101,13 @@ const PRESETS=[
       fade:0.85,peel:0.8,bare:0.75,streak:0.7,splash:0.65,mildew:0.75,rust:0.55,rot:0.55,grunge:0.6,
       aband:0.75,boardUp:0.15,boardMat:"planks",broken:0.45,graffiti:0.08,vines:0.85,missing:0.3}},
 
-    {id:"condemned",label:"Condemned & boarded",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.85,facadeW:22,storeys:2,storeyH:9.5,foundH:2.2,roof:"flat",clad:"clapboard",exposure:5,lapShade:0.7,
+    {id:"condemned",label:"Condemned & boarded",set:{glassRough:0.10,glassMetal:0.8,glassGrime:0.85,facadeW:22,storeys:2,storeyH:9.5,foundH:2.2,roof:"flat",pitch:6,clad:"clapboard",exposure:5,lapShade:0.7,
       bays:3,winStyle:"dh1",winW:3,winH:5.2,sillH:2.4,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"flush",
       cWall:"#8e9184",cTrim:"#c8c2b0",cDoor:"#3a3630",cUnder:"#7e7050",
       fade:0.7,peel:0.6,bare:0.5,streak:0.8,splash:0.7,mildew:0.6,rust:0.7,rot:0.4,grunge:0.75,
       aband:0.9,boardUp:0.95,boardMat:"ply",broken:0.35,graffiti:0.75,vines:0.25,missing:0.2}},
 
-    {id:"burned",label:"Derelict shell",set:{glassRough:0.14,glassMetal:0.75,glassGrime:1.0,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"flat",clad:"clapboard",exposure:5,lapShade:0.8,
+    {id:"burned",label:"Derelict shell",set:{glassRough:0.14,glassMetal:0.75,glassGrime:1.0,facadeW:26,storeys:2,storeyH:9,foundH:2,roof:"flat",pitch:6,clad:"clapboard",exposure:5,lapShade:0.8,
       bays:3,winStyle:"dh1",winW:3,winH:4.8,sillH:2.6,liteC:1,liteR:1,shutter:"none",doorBay:2,doorStyle:"flush",
       cWall:"#6b6559",cTrim:"#9a958a",cDoor:"#33291f",cUnder:"#5a4a38",
       fade:0.9,peel:0.9,bare:0.85,streak:0.85,splash:0.8,mildew:0.8,rust:0.8,rot:0.85,grunge:0.9,
@@ -1984,7 +2129,7 @@ function sizeOf(params,face,preview){
   use(params,face);
   const g=geometry();
   if(!preview)return {w:g.TW,h:g.TH};
-  const fullW=params.size|0,k=Math.min(1,PREVIEW_W/fullW);
+  const fullW=g.TW,k=Math.min(1,PREVIEW_W/fullW);
   return {w:Math.max(64,Math.round(fullW*k/4)*4),h:Math.max(64,Math.round(g.TH*k/4)*4)};
 }
 

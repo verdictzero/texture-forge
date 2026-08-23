@@ -53,7 +53,7 @@ Forge.register({
   ].concat(Roof.controls).concat([
     {title:"Maps",rows:[
       {id:"normalStr",label:"Normal strength",min:0.1,max:3,step:0.05,value:1},
-      {id:"aoStr",label:"Ambient occlusion",min:0,max:1,step:0.01,value:0.85},
+      {id:"aoStr",label:"Ambient occlusion",min:0,max:1,step:0.01,value:1},
       {type:"checks",items:[{id:"flipG",label:"Flip green (DirectX normals)",value:false}]}
     ]}
   ]),

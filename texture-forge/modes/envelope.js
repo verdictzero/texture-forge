@@ -120,10 +120,14 @@ Forge.register({
 
   readout:function(P){
     const g=Shell.geometry(P,wall(P));
-    const pxPerFt=(P.size|0)/g.FW;
-    let m="<b>"+g.FW.toFixed(1)+" × "+g.FH.toFixed(1)+" ft</b> · "+(P.size|0)+" × "+g.TH+" px<br>"+
+    const pxPerFt=g.TW/g.FW;
+    let m="<b>"+g.FW.toFixed(1)+" × "+g.FH.toFixed(1)+" ft</b> · "+g.TW+" × "+g.TH+" px<br>"+
       Math.round(pxPerFt)+" px/ft · "+(12/pxPerFt).toFixed(2)+" in per texel";
     if(pxPerFt<28)m+=' <span class="warn">— muntins and joints will be soft</span>';
+    /* the height follows the facade, not the slider, so a tall narrow face can
+       ask for more texels than a browser will hand out */
+    if(g.capped)m+='<br><span class="warn">capped from '+g.asked+' px — this face is '
+      +(g.FH/g.FW).toFixed(1)+'× taller than it is wide, and the full size would not fit in memory</span>';
     m+="<br>"+(P.face==="side"
       ? (g.gableH>0?"gable end, ridge at <b>"+g.FH.toFixed(1)+" ft</b>":"eave wall, eaves at <b>"+g.wallTop.toFixed(1)+" ft</b>")
       : "eaves at <b>"+g.wallTop.toFixed(1)+" ft</b>");
