@@ -742,7 +742,13 @@ Forge.registerStructure({
           "which is what makes the neon carry round the corner instead of stopping at it."},
     {id:"back",label:"Back",mode:"diner",set:{face:"back"},
      note:"Service. The glass goes solid, and what is left to set is the kitchen exhaust duct "+
-          "and the service door — single leaf or a pair, with or without a vision lite."}
+          "and the service door — single leaf or a pair, with or without a vision lite."},
+    {id:"roof",label:"Roof",mode:"roof",set:{rfType:"seam"},
+     note:"The lid. A body like this is standing-seam metal over a barrel — which is what this "+
+          "opens on — or flat and rolled if the parapet hides it. It takes the seed the body "+
+          "was built from, so it weathers with it. This one is a tiling material rather than a "+
+          "cut-out face, so its resolution is texel density over the roof plane rather than the "+
+          "size of an elevation."}
   ]
 });
 

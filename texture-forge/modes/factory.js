@@ -380,6 +380,115 @@ function build(params,io){
     return true;
   }
 
+  /* ---------------------------------------------------------------------------
+     THE MAN DOOR
+
+     A works is not only a building lorries reverse into — it is a building
+     people walk into, and the door they walk through is a different object
+     entirely: one or two narrow leaves in a pressed steel frame, a vision lite
+     at head height so nobody opens it into somebody's face, a kick plate at
+     the bottom because everyone shoves it with a boot, and a small canopy over
+     it so the person fumbling for a key is not standing in the rain.
+
+     It is also the one opening on the whole elevation at human scale, which is
+     what makes it worth having: the eye reads the size of the building off it.
+     --------------------------------------------------------------------------- */
+  function pdoor(dx,dy,w,hgt,sd){
+    const twin=(P.manType||"single")==="double";
+    const jamb=Math.min(0.075,w*0.10);           // the pressed frame round it
+    const dE=Math.min(Math.min(dx,w-dx),Math.min(dy,hgt-dy));
+    if(dE<jamb){
+      /* the frame: a rebated section, so it steps back into the reveal */
+      const t=clamp(dE/jamb,0,1);
+      const sh=0.86+t*0.30;
+      Mr=sashC[0]*sh*1.25;Mg=sashC[1]*sh*1.25;Mb=sashC[2]*sh*1.22;
+      Mrg=0.58;Mmet=0.35;
+      Mh=-revealD*0.30+(1-t)*revealD*0.25;
+      const rustF=clamp(fbm2(dx*4,dy*4,30,44,3,sd+3)*1.5-0.52+(1-smoothstep(0,0.30,dy))*0.5,0,1)*P.rust;
+      Mr=lerp(Mr,128,rustF*0.85);Mg=lerp(Mg,74,rustF*0.85);Mb=lerp(Mb,46,rustF*0.8);
+      Mrg=lerp(Mrg,0.95,rustF);Mmet=lerp(Mmet,0.1,rustF);
+      return;
+    }
+    const lx=dx-jamb,lw=w-jamb*2,ly=dy-jamb,lh=hgt-jamb*2;
+    /* which leaf, and how far across it we are */
+    const half=twin?lw*0.5:lw;
+    const leaf=twin?(lx<half?0:1):0;
+    const px=twin?(lx-leaf*half):lx;
+
+    let r=sashC[0]*1.42,g=sashC[1]*1.40,b=sashC[2]*1.36,rg=0.60,met=0.30;
+    Mh=-revealD*0.55;
+
+    /* the meeting stile between a pair, and the closing edge of a single */
+    const seam=twin?(1-smoothstep(0,Math.max(0.012,aa*1.5),Math.abs(lx-half))):0;
+    if(seam>0){Mh-=seam*12*MM;r*=1-seam*0.34;g*=1-seam*0.34;b*=1-seam*0.32;}
+
+    /* a flush steel leaf is not flat: it is a pressed skin with a lipped edge,
+       and that lip is the only thing that catches the light on it */
+    const lip=1-smoothstep(0,Math.max(0.020,aa*2),Math.min(Math.min(px,half-px),Math.min(ly,lh-ly)));
+    if(lip>0){Mh+=lip*4*MM;r=lerp(r,r*1.14+9,lip*0.55);g=lerp(g,g*1.14+9,lip*0.55);b=lerp(b,b*1.12+8,lip*0.55);}
+
+    /* the vision lite, at head height, in the leaf that opens */
+    if(P.manLite){
+      const vw=Math.min(half*0.44,0.26),vh=Math.min(lh*0.26,0.46);
+      const vx=half*0.5,vy=lh*0.74;
+      const inX=Math.abs(px-vx)<vw*0.5,inY=Math.abs(ly-vy)<vh*0.5;
+      if(inX&&inY){
+        const dv=Math.min(vw*0.5-Math.abs(px-vx),vh*0.5-Math.abs(ly-vy));
+        if(dv<0.018){                            // the beading round the pane
+          r=sashC[0]*1.1;g=sashC[1]*1.1;b=sashC[2]*1.08;rg=0.55;met=0.4;
+          Mh=-revealD*0.45;
+        }else{
+          const gl=clamp(fbm2(dx*3,dy*3,34,34,3,sd+7)*1.25-0.22,0,1)*P.filth;
+          r=lerp(glassC[0]*1.2,86,gl*0.7);g=lerp(glassC[1]*1.2,84,gl*0.7);
+          b=lerp(glassC[2]*1.25,80,gl*0.7);
+          rg=lerp(0.13,0.6,gl);met=0.8;Mh=-revealD*0.72;
+          /* wired glass: the chicken wire cast into it, which is what a door
+             lite in a works has instead of laminated safety glass */
+          if(P.manWired){
+            const gp=0.024;
+            const wx2=Math.abs((px-vx)/gp-Math.round((px-vx)/gp))*gp;
+            const wy2=Math.abs((ly-vy)/gp-Math.round((ly-vy)/gp))*gp;
+            const wire=Math.max(1-smoothstep(0,Math.max(aa*1.2,0.0016),wx2),
+                                1-smoothstep(0,Math.max(aa*1.2,0.0016),wy2));
+            if(wire>0){r=lerp(r,150,wire*0.5);g=lerp(g,148,wire*0.5);b=lerp(b,142,wire*0.45);
+              rg=lerp(rg,0.6,wire);met=lerp(met,0.5,wire);}
+          }
+        }
+      }
+    }
+
+    /* the kick plate, and the handle */
+    const kp=Math.min(lh*0.22,0.42);
+    if(ly<kp){
+      const t=1-smoothstep(kp-0.01,kp,ly);
+      r=lerp(r,168,t*0.8);g=lerp(g,172,t*0.8);b=lerp(b,176,t*0.78);
+      rg=lerp(rg,0.34,t*0.8);met=lerp(met,0.9,t*0.8);
+      Mh+=t*2.5*MM;
+      const scuff=clamp(fbm2(dx*5,dy*5,50,18,3,sd+11)*1.4-0.45,0,1)*t;
+      r=lerp(r,r*0.62,scuff*0.7);g=lerp(g,g*0.62,scuff*0.7);b=lerp(b,b*0.61,scuff*0.7);
+      rg=lerp(rg,0.85,scuff);
+    }
+    const hy=lh*0.42,hx=twin?(leaf?half*0.16:half*0.84):half*0.86;
+    const dh=Math.sqrt((px-hx)*(px-hx)+(ly-hy)*(ly-hy));
+    if(dh<0.045){
+      const t=clamp(dh/0.045,0,1);
+      r=196;g=198;b=200;rg=0.28;met=0.92;
+      Mh+=Math.sqrt(Math.max(0,1-t*t))*26*MM;
+    }
+
+    /* everything at boot height takes a beating, and the bottom rail rots */
+    const kick=1-smoothstep(0,0.55,dy);
+    const wear=clamp(fbm2(dx*4,dy*4,44,16,3,sd+13)*1.4-0.5,0,1)*kick;
+    r=lerp(r,r*0.58+12,wear*0.7);g=lerp(g,g*0.58+11,wear*0.7);b=lerp(b,b*0.57+10,wear*0.7);
+    const rust=clamp(fbm2(dx*2,dy*2,20,26,3,sd+17)*1.3-0.55+kick*0.45,0,1)*P.rust;
+    r=lerp(r,126,rust*0.7);g=lerp(g,76,rust*0.7);b=lerp(b,50,rust*0.65);
+    rg=lerp(rg,0.94,rust*0.8);met=lerp(met,0.1,rust*0.7);
+    const grime=clamp(fbm2(dx*1.2,dy*1.2,10,12,3,sd+19)*1.2-0.42,0,1)*P.grime;
+    r=lerp(r,r*0.66+7,grime*0.6);g=lerp(g,g*0.66+7,grime*0.6);b=lerp(b,b*0.64+6,grime*0.6);
+
+    Mr=r;Mg=g;Mb=b;Mrg=clamp(rg,0.05,1);Mmet=clamp(met,0,1);
+  }
+
   function stone(u,v,shade){
     const n=fbm2(u,v,96,96,3,seed+53);
     const t=(0.90+n*0.22)*shade;
@@ -393,6 +502,22 @@ function build(params,io){
   const doorRun=WALL?0:clamp(P.doorBays|0,0,G.bays);
   const doorFrom=WALL?0:clamp((P.doorFrom|0)-1,0,Math.max(0,G.bays-doorRun));
   const isDoorBay=b=>doorRun>0&&b>=doorFrom&&b<doorFrom+doorRun;
+
+  /* Personnel doors go in the bays the lorries are NOT using, and they are
+     spread rather than run: a works has one at each end and one by the office,
+     not four in a row. Chosen off the seed so the same building comes back the
+     same way, and evenly spaced through whatever bays are left. */
+  const MANBAY={};
+  if(!WALL&&(P.manDoors|0)>0){
+    const free=[];
+    for(let b=0;b<G.bays;b++)if(!isDoorBay(b))free.push(b);
+    const want=Math.min(P.manDoors|0,free.length);
+    if(want>0){
+      const step=free.length/want,off=hashi(7,11,seed+911)*step;
+      for(let k=0;k<want;k++)MANBAY[free[Math.floor(k*step+off)%free.length]]=1;
+    }
+  }
+  const isManBay=b=>!!MANBAY[b];
 
   const band=Math.max(4,Math.round(65536/SW));
   let y=0;
@@ -491,6 +616,42 @@ function build(params,io){
           }
           /* a storey above the top one is roof, not another floor */
           else if(storeyTop)noOpening=true;
+          /* a bay with a personnel door has one at human scale instead of a
+             window, because a door 2.1 m tall and a sill 1.1 m up cannot both
+             be in the same storey of the same bay */
+          else if(si===0&&isManBay(bi)){
+            noOpening=true;
+            const leaves=(P.manType||"single")==="double"?2:1;
+            const dw=Math.min(G.bayW*0.7,leaves*Math.max(0.6,(+P.manWmm||900)*0.001)+0.16);
+            const dh=Math.min(G.storeyH-0.35,Math.max(1.9,(+P.manHmm||2100)*0.001));
+            const dx=lx-(G.bayW-dw)*0.5,dy=wy-G.plinth;
+            const sd=(seed+bi*104729+271)|0;
+            const canH=P.manCanopy?Math.min(0.22,G.storeyH*0.06):0;
+            const canOut=P.manCanopy?0.26:0;
+            if(dx>=0&&dx<=dw&&dy>=0&&dy<dh){
+              pdoor(dx,dy,dw,dh,sd);
+              r=Mr;g=Mg;b=Mb;h=Mh;rg=Mrg;met=Mmet;
+            }else if(canH>0&&dx>=-canOut&&dx<=dw+canOut&&dy>=dh+0.06&&dy<dh+0.06+canH){
+              /* the canopy: a small pressed hood on two brackets. It is only a
+                 band of proud metal here — the shadow it throws down the wall
+                 is the AO pass's job, and it does it for free. */
+              const t=(dy-dh-0.06)/canH;
+              r=sashC[0]*1.5;g=sashC[1]*1.48;b=sashC[2]*1.44;
+              rg=0.55;met=0.4;h=sillOut*2.4*(1-t*0.35);
+              const wash=1-smoothstep(0,0.4,t);
+              r*=1-wash*0.22;g*=1-wash*0.22;b*=1-wash*0.21;
+              const rust3=clamp(fbm2(u,v,42,58,3,seed+59)*1.4-0.45,0,1)*P.rust;
+              r=lerp(r,132,rust3*0.85);g=lerp(g,74,rust3*0.85);b=lerp(b,44,rust3*0.8);
+              rg=lerp(rg,0.95,rust3);met=lerp(met,0.1,rust3);
+            }else if(dx>=-0.06&&dx<=dw+0.06&&dy>=dh&&dy<dh+0.16){
+              /* the steel angle over the opening, same as the vehicle doors get */
+              const t=(dy-dh)/0.16;
+              r=lerp(sashC[0]*1.1,sashC[0]*1.35+16,t);
+              g=lerp(sashC[1]*1.1,sashC[1]*1.35+16,t);
+              b=lerp(sashC[2]*1.1,sashC[2]*1.3+14,t);
+              rg=0.6;met=0.4;h=revealD*0.35;
+            }
+          }
           /* and a bay with a vehicle door in it has no window at grade — it has
              an opening that goes to the ground instead */
           else if(si===0&&isDoorBay(bi)){
@@ -837,7 +998,14 @@ Forge.registerStructure({
           "This is usually where the loading doors are, so the door run is worth setting again."},
     {id:"back",label:"Back",mode:"factory",set:{piece:"back"},
      note:"Service. Same width as the front, and the place to put the rest of the vehicle doors, "+
-          "the worst of the soot and the windows nobody has cleaned."}
+          "the worst of the soot and the windows nobody has cleaned."},
+    {id:"roof",label:"Roof",mode:"roof",set:{rfType:"rolled"},
+     note:"What is behind the parapet. A works of this period is flat and felted with gravel "+
+          "ballast on it, which is what this opens on — corrugated or standing-seam metal if "+
+          "the roofline is sawtooth or monitor instead. It arrives with the seed the walls "+
+          "were built from, so the weathering belongs to the same building. Unlike the three "+
+          "elevations this one is a tiling material rather than a cut-out face, so its "+
+          "resolution is about texel density over the roof plane."}
   ]
 });
 
@@ -904,6 +1072,7 @@ Forge.register({
       piece:"front",bays:7,bayW:4.2,storeys:3,storeyH:4.4,plinthM:0.9,
       roofStyle:"parapet",parapetM:1.2,
       doorBays:2,doorFrom:3,doorType:"rollup",doorH:3.8,slatMm:95,dockM:0,doorLites:true,
+      manDoors:2,manType:"double",manWmm:900,manHmm:2150,manLite:true,manWired:true,manCanopy:true,
       bond:"common",headerEvery:6,brickL:215,brickH:65,jointMm:10,jointDmm:5,brickIrreg:.5,
       pierMm:900,pierMmProud:30,beltMm:340,sillMm:1100,openMm:2600,lintelMm:280,
       lintel:"soldier",sillTMm:160,sillOutMm:45,revealMm:130,
@@ -916,6 +1085,7 @@ Forge.register({
       piece:"front",bays:8,bayW:4.6,storeys:1,storeyH:6.2,plinthM:1.1,
       roofStyle:"sawtooth",parapetM:0.7,toothM:2.6,
       doorBays:3,doorFrom:3,doorType:"sliding",doorH:4.6,dockM:0,doorLites:false,
+      manDoors:2,manType:"single",manWmm:900,manHmm:2100,manLite:true,manWired:true,manCanopy:true,
       bond:"running",headerEvery:6,brickL:215,brickH:65,jointMm:10,jointDmm:5,brickIrreg:.45,
       pierMm:750,pierMmProud:20,beltMm:0,sillMm:2000,openMm:3000,lintelMm:260,
       lintel:"steel",sillTMm:150,sillOutMm:40,revealMm:120,
@@ -928,6 +1098,7 @@ Forge.register({
       piece:"side",depthM:38,bayW:4.4,storeys:2,storeyH:4.8,plinthM:0.7,
       roofStyle:"parapet",parapetM:1.0,
       doorBays:4,doorFrom:2,doorType:"sectional",doorH:4.0,dockM:1.15,doorLites:true,
+      manDoors:1,manType:"single",manWmm:950,manHmm:2100,manLite:true,manWired:true,manCanopy:true,
       bond:"common",headerEvery:6,brickL:215,brickH:65,jointMm:10,jointDmm:6,brickIrreg:.55,
       pierMm:850,pierMmProud:25,beltMm:300,sillMm:1200,openMm:2400,lintelMm:280,
       lintel:"steel",sillTMm:160,sillOutMm:45,revealMm:120,
@@ -940,6 +1111,7 @@ Forge.register({
       piece:"back",bays:6,bayW:4.2,storeys:3,storeyH:4.4,plinthM:0.9,
       roofStyle:"monitor",parapetM:1.0,monitorM:2.0,
       doorBays:2,doorFrom:1,doorType:"rollup",doorH:3.6,slatMm:90,dockM:0.9,doorLites:false,
+      manDoors:2,manType:"single",manWmm:900,manHmm:2100,manLite:true,manWired:false,manCanopy:false,
       bond:"common",headerEvery:7,brickL:215,brickH:65,jointMm:11,jointDmm:9,brickIrreg:.85,
       pierMm:950,pierMmProud:30,beltMm:360,sillMm:1050,openMm:2700,lintelMm:300,
       lintel:"steel",sillTMm:170,sillOutMm:50,revealMm:135,
@@ -990,6 +1162,21 @@ Forge.register({
       {type:"note",need:"door",html:"A works is a building lorries reverse into. Give the dock a "+
         "height and the opening lifts off the ground onto a concrete apron with rubber bumpers "+
         "either side — which is what a loading bay actually is."}
+    ]},
+    {title:"Personnel doors",need:"bldg",open:true,rows:[
+      {id:"manDoors",label:"Doors people use",min:0,max:5,step:1,value:1},
+      {id:"manType",need:"man",type:"select",label:"Leaves",value:"single",options:[
+        ["single","Single leaf"],["double","Double leaf"]]},
+      {id:"manWmm",need:"man",label:"Leaf width",unit:"mm",min:600,max:1200,step:25,value:900},
+      {id:"manHmm",need:"man",label:"Door height",unit:"mm",min:1900,max:2600,step:25,value:2100},
+      {type:"checks",need:"man",items:[
+        {id:"manLite",label:"Vision lite at head height",value:true},
+        {id:"manWired",label:"Wired glass in the lite",value:true},
+        {id:"manCanopy",label:"Canopy over the door",value:true}]},
+      {type:"note",need:"man",html:"They go in the bays the lorries are <b>not</b> using, spread "+
+        "through them rather than run together, and which bays get one is taken off the seed. "+
+        "This is the only opening on the elevation at human scale — the eye reads the size of "+
+        "the whole building off it, so it is worth having even on a face that is mostly doors."}
     ]},
     {title:"Bays & storeys",open:true,rows:[
       {id:"rows",need:"wall",label:"Window rows",min:1,max:8,step:1,value:3},
@@ -1064,6 +1251,7 @@ Forge.register({
       n.push(r);
       if(r!=="none")n.push("para");
       if((P.doorBays|0)>0)n.push("door");
+      if((P.manDoors|0)>0)n.push("man");
     }
     return n;
   },
@@ -1098,6 +1286,14 @@ Forge.register({
         ? "<b>"+dr+"</b> vehicle "+(dr===1?"door":"doors")+" at grade from bay "+
           clamp(P.doorFrom|0,1,Math.max(1,g.bays-dr+1))
         : "no vehicle doors at grade");
+      const mn=Math.min(P.manDoors|0,Math.max(0,g.bays-dr));
+      m+=" · "+(mn>0
+        ? "<b>"+mn+"</b> "+((P.manType||"single")==="double"?"double":"single")+"-leaf "+
+          (mn===1?"door":"doors")+" at "+((+P.manHmm||2100)/1000).toFixed(2)+" m"
+        : "no doors people can use");
+      if((P.manDoors|0)>mn&&(P.manDoors|0)>0)
+        m+=' <span class="warn">— only '+mn+" of "+(P.manDoors|0)+" fit: the rest of the bays "+
+           "are vehicle openings</span>";
     }
     const barPx=P.muntinMm/1000*pxPerM;
     if(barPx<1.2)m+="<br><b>glazing bar "+barPx.toFixed(2)+" px</b> — held at one texel; raise the "+
