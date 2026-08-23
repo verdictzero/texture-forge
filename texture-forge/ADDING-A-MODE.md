@@ -364,9 +364,10 @@ pins always beats anything carried. Inherited rows are marked in the panel and
 un-mark themselves the moment you touch one, and what you put there is what the
 later steps inherit instead.
 
-Two ids are never carried: `size`, because how many texels a face needs is a
-property of the export rather than of the building, and `face`, because that is
-the one thing a step exists to pin.
+Three ids are never carried: `size`, because how many texels a face needs is a
+property of the export rather than of the building, and `face` and `piece`,
+because naming which side of the thing this step draws is the one job a step
+exists to do.
 
 Steps may repeat a mode (`side` and `back` are both the envelope) — the runtime
 just re-enters it with different pinned values. The last button on the wizard bar

@@ -399,10 +399,14 @@ Greeble — machined surface clutter
   bay (coarse), reactor face (lit), service panel (shallow), pipe works
   (conduit heavy).
 
-Factory — 1940s brick factory wall
-  A whole wall panel rather than a material: three storeys by four bays of steel
-  industrial sash set into brick, tiling in both axes so the panel repeats into
-  an elevation.
+Factory — 1940s brick works, panel or whole building
+  Two pieces off one generator. WALL is a seamless panel: three storeys by four
+  bays of steel industrial sash set into brick, tiling in both axes so the panel
+  repeats into an elevation. FRONT, SIDE and BACK are one whole building
+  instead — grade at the bottom, a roofline at the top, alpha outside the
+  silhouette, and a ground floor that lorries reverse into. The brickwork, the
+  sash and the weathering are the same code either way; what changes is whether
+  the storey and bay grid wraps.
 
   The window is the point. A factory sash of this period is a grid of small
   panes in thin steel bars, split across the middle by a heavier transom into an
@@ -419,14 +423,29 @@ Factory — 1940s brick factory wall
   and stack bonds, with flashed headers, spalled faces and lost pointing.
 
   Around the openings: cast stone sills, a choice of soldier course, painted
-  steel angle or cast stone lintel, pilasters between bays, and a belt course at
-  every floor line — which is the one horizontal detail that can repeat
-  honestly, so there is no plinth and no parapet. Cap it with your own geometry.
+  steel angle or cast stone lintel, pilasters between bays, a belt course at
+  every floor line, and the reveal RETURN — the brick that turns the corner and
+  runs back into the hole. That last one is small and does most of the work:
+  without it the wall has no thickness and an opening is a dark rectangle
+  pasted on flat brick.
+
+  As a whole building it also gets what a panel cannot have: an engineering
+  brick plinth at grade taking the splash and the rising damp, and a roofline —
+  parapet and coping, sawtooth north lights with glazing in the steep face, or
+  a raised monitor down the middle.
+
+  And vehicle doors, because a works is a building lorries reverse into. Roll-up
+  corrugated slats on guide channels, dented and rusting in the troughs;
+  sectional panels hinged together with a row of lites above head height; or a
+  pair of braced sliding leaves. Any run of ground-floor bays can be doors, over
+  a loading dock with rubber bumpers if you give the dock a height.
 
   Glass runs from filthy through painted out — the wartime habit — to broken and
   gone, and any pane can be lit from inside, which drives the emissive map.
 
-  Presets: red brick works, sooted mill, whitewashed warehouse, derelict plant.
+  Presets: red brick works, sooted mill, whitewashed warehouse and derelict
+  plant as panels; works street front, sawtooth shed, loading bay and derelict
+  plant back as whole buildings.
 
 Diner — American chrome and neon, every face
   One prefabricated streamline diner drawn from the front, the long side or the
@@ -488,7 +507,8 @@ not matching. There are two ways round that, for the two situations you are
 actually in.
 
 THE WIZARD, for when you do not yet know what the building is. The buttons
-beside the mode tabs — "Whole structure: House · Diner" — walk you through the
+beside the mode tabs — "Whole structure: House · Diner · Factory" — walk you
+through the
 faces in the order you would really decide them, and every step OPENS with what
 the steps before it settled on — every setting its mode declares that an earlier
 step also declared. The side elevation already knows the width, the storeys, the

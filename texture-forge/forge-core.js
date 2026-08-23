@@ -1022,7 +1022,11 @@ Forge.registerStructure=function(s){
 };
 Forge.structures=STRUCTURES;
 
-const WIZ_NEVER={size:1,face:1};
+/* Never carried between wizard steps: `size`, because how many texels a face
+   needs is a property of the export rather than of the building, and `face` /
+   `piece`, because naming which side of the thing this step draws is the one
+   job a step exists to do. */
+const WIZ_NEVER={size:1,face:1,piece:1};
 let wiz=null;                                    // {s, i, vals, reached}
 
 function wizSteps(){return wiz?wiz.s.steps:[];}
