@@ -273,6 +273,24 @@ body[data-wizard=on] #modebar-tabs,body[data-wizard=on] #browse{opacity:.35;poin
 .palswatch{display:flex;height:16px;min-width:0;flex:0 1 260px;border:1px solid #2e3237;
   background:#0a0b0c;overflow:hidden;border-radius:2px}
 .palswatch i{flex:1 1 0;min-width:1px;display:block}
+.bakebar{background:#101317;border-bottom:1px solid var(--rule)}
+/* Two nested rows: a SET is a named cluster (Key, Ambient…), a GRP is one
+   control inside it. The gap between controls has to be clearly bigger than
+   the gap inside one, or a value readout and the next control's label read as
+   a single label — "315° EL" instead of "315°" then "EL". */
+.bakeset{display:flex;align-items:center;gap:12px}
+.bakeset>span{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--accent);white-space:nowrap;opacity:.85}
+.bakegrp{display:flex;align-items:center;gap:5px}
+.bakegrp>span{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.08em;color:#7f858d;white-space:nowrap}
+.bakegrp em{font-family:var(--mono);font-size:9.5px;color:#c8cdd3;font-style:normal;
+  min-width:34px;text-align:right}
+.bakegrp input[type=range]{width:74px}
+.bakebar input[type=color]{width:26px;height:19px;padding:0;border:1px solid #2e3237;
+  background:none;border-radius:2px;cursor:pointer}
+.bakebar select{width:auto;max-width:190px;font-size:10.5px}
+.bakesep{width:1px;align-self:stretch;background:var(--rule);margin:0 2px}
 .palswatch[hidden]{display:none}
 body[data-nearest=on] .stage canvas,
 body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:crisp-edges}
@@ -366,6 +384,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
   body[data-pane=preview] .bay,body[data-pane=export] .bay{display:flex}
   body[data-pane=export] .bay-head,
   body[data-pane=export] .palbar,
+  body[data-pane=export] .bakebar,
   body[data-pane=export] .stage{display:none}
   body[data-pane=preview] .tray{display:none}
   body[data-pane=export] .tray{flex:1;min-height:0;overflow-y:auto}
@@ -482,6 +501,11 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
         <div class="palswatch" id="pal-swatch" aria-hidden="true"></div>
       </div>
 
+      <!-- Filled by the runtime from one spec, the way a mode panel is: there
+           are a dozen controls here and hand-written markup for them would be
+           a dozen places to forget to update. Shown only on the Unlit tab. -->
+      <div class="palbar bakebar" id="bakebar" hidden></div>
+
       <div class="stage" id="stage">
         <canvas id="gl" class="on" width="900" height="900"></canvas>
         <canvas id="flat" width="900" height="900"></canvas>
@@ -526,6 +550,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
      here plus modes/<name>.js — nothing else in the app needs to change. -->
 <script src="forge-math.js"></script>
 <script src="forge-palette.js"></script>
+<script src="forge-unlit.js"></script>
 <script src="forge-fonts.js"></script>
 <script src="forge-gpu.js"></script>
 <script src="forge-model.js"></script>

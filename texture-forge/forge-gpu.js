@@ -58,6 +58,9 @@ uniform int uCh;
 uniform int uHasP,uHasE;
 uniform float uHLo,uHInv;
 uniform vec3 uEmiC;
+/* the unlit bake's settings — see forge-unlit.js, which owns this arithmetic */
+uniform vec3 uL,uSky,uGnd;
+uniform float uGain,uAmb,uAoK,uSpec,uEmiK,uCon,uSat;
 out vec4 o;
 
 /* the same texel the CPU path picks: floor((x+0.5)*srcW/dstW), and the row
@@ -73,6 +76,7 @@ ivec2 src(){
 float q(float v){return floor(clamp(v,0.0,1.0)*255.0+0.5)/255.0;}
 vec3 q3(vec3 v){return vec3(q(v.r),q(v.g),q(v.b));}
 
+BAKE_SRC
 void main(){
   ivec2 s=src();
   float a=(uHasP==1)?texelFetch(uP,s,0).r:1.0;
@@ -85,10 +89,82 @@ void main(){
   else if(uCh==6) o=vec4(q(texelFetch(uO,s,0).r),q(texelFetch(uR,s,0).r),
                          q(texelFetch(uM,s,0).r),1.0);
   else if(uCh==7) o=vec4(vec3(q(a)),1.0);
-  else            o=vec4(q3(((uHasE==1)?texelFetch(uE,s,0).r:0.0)*uEmiC),1.0);
+  else if(uCh==8) o=vec4(q3(((uHasE==1)?texelFetch(uE,s,0).r:0.0)*uEmiC),1.0);
+  else            o=vec4(bake(s),q(a));
 }`;
 
-const CH={basecolor:0,normal:1,roughness:2,metallic:3,ao:4,height:5,orm:6,opacity:7,emissive:8};
+/* THE BAKE, second time. This is a transcription of the per-texel function in
+   forge-unlit.js and it has to stay one: the CPU path is what runs when the
+   bake is palettised or the mode owns its emissive ramp, so the same build can
+   produce the channel either way and the two must agree.
+
+   They agree to about a code value, not to the bit. Every other channel here is
+   a copy, a scale or a round — integer-exact on both sides — but this one runs
+   pow, sqrt and a divide, and a GPU's highp float is not a double. That is
+   acceptable HERE and nowhere else in this file, because the bake is a picture
+   rather than data: nothing downstream reads a specific value out of it, the
+   way a material-id map or a height field is read. The harness allows it two
+   code values and no more.
+
+   The order of operations below is deliberately the order the JS is in, so the
+   two accumulate their rounding the same way. */
+const BAKE=`
+vec3 dec3(vec3 c){return pow(c,vec3(2.2));}
+float encf(float v){return pow(clamp(v,0.0,1.0),1.0/2.2)*255.0;}
+
+vec3 bake(ivec2 s){
+  vec3 base=dec3(texelFetch(uA,s,0).rgb);
+  vec3 N=normalize(texelFetch(uN,s,0).rgb*2.0-1.0);
+  float rough=clamp(texelFetch(uR,s,0).r,0.05,1.0);
+  float metal=texelFetch(uM,s,0).r;
+  float ao=clamp(1.0-(1.0-texelFetch(uO,s,0).r)*uAoK,0.0,1.0);
+
+  vec3 H=normalize(uL+vec3(0.0,0.0,1.0));
+  float VoH=clamp(H.z,0.0,1.0);
+  float fres=pow(1.0-VoH,5.0);
+  float NoL=dot(N,uL), NoH=dot(N,H), NoV=max(N.z,1e-4);
+
+  vec3 F0=vec3(0.04)+(base-vec3(0.04))*metal;
+  vec3 F=F0+(vec3(1.0)-F0)*fres;
+
+  vec3 col=vec3(0.0);
+  if(NoL>0.0){
+    float a=rough*rough, a2=a*a;
+    float nh=max(NoH,0.0);
+    float d=nh*nh*(a2-1.0)+1.0;
+    float D=a2/(3.14159265*d*d);
+    float gv=NoL*sqrt(NoV*NoV*(1.0-a2)+a2);
+    float gl2=NoV*sqrt(NoL*NoL*(1.0-a2)+a2);
+    float Vs=0.5/max(gv+gl2,1e-4);
+    float sp=D*Vs*uSpec;
+    float kd=(1.0-metal)/3.14159265;
+    col=((vec3(1.0)-F)*kd*base+F*sp)*NoL*uGain;
+  }
+
+  float t=N.z*0.5+0.5;
+  vec3 sh=mix(uGnd,uSky,t)*ao;
+  col+=base*sh*((1.0-metal)*uAmb);
+  col+=F0*sh*(uSpec*0.55/(rough+0.55));
+
+  if(uHasE==1){
+    /* the runtime's default emissive writer ROUNDS to bytes before the ramp is
+       decoded, and the CPU bake reads those bytes — so this rounds too */
+    float e=texelFetch(uE,s,0).r*255.0;
+    vec3 eb=floor(e*uEmiC+0.5);
+    col+=dec3(eb/255.0)*uEmiK;
+  }
+
+  vec3 c=vec3(encf(col.r/(col.r+1.0)),encf(col.g/(col.g+1.0)),encf(col.b/(col.b+1.0)));
+  if(uSat!=1.0){
+    float y=0.2126*c.r+0.7152*c.g+0.0722*c.b;
+    c=vec3(y)+(c-vec3(y))*uSat;
+  }
+  if(uCon!=1.0)c=vec3(128.0)+(c-vec3(128.0))*uCon;
+  return floor(clamp(c,0.0,255.0)+0.5)/255.0;
+}`;
+
+const CH={basecolor:0,normal:1,roughness:2,metallic:3,ao:4,height:5,orm:6,opacity:7,
+          emissive:8,unlit:9};
 
 let gl=null,prog=null,U={},vao=null,cv=null,ready=null;
 let tex={},bound=null,boundW=0,boundH=0;
@@ -119,7 +195,8 @@ function init(){
     gl=cv.getContext("webgl2",{antialias:false,depth:false,stencil:false,
                                premultipliedAlpha:false,preserveDrawingBuffer:true});
     if(!gl)return ready;
-    const vs=compile(gl.VERTEX_SHADER,VS),fs=compile(gl.FRAGMENT_SHADER,FS);
+    const vs=compile(gl.VERTEX_SHADER,VS),
+          fs=compile(gl.FRAGMENT_SHADER,FS.replace("BAKE_SRC",BAKE));
     if(!vs||!fs)return ready;
     prog=gl.createProgram();
     gl.attachShader(prog,vs);gl.attachShader(prog,fs);
@@ -131,7 +208,8 @@ function init(){
     }
     gl.useProgram(prog);
     for(const n of ["uA","uN","uR","uM","uO","uP","uE","uH","uSrc","uDst","uCh",
-                    "uHasP","uHasE","uHLo","uHInv","uEmiC"])
+                    "uHasP","uHasE","uHLo","uHInv","uEmiC",
+                    "uL","uSky","uGnd","uGain","uAmb","uAoK","uSpec","uEmiK","uCon","uSat"])
       U[n]=gl.getUniformLocation(prog,n);
     /* the samplers are bound to fixed units once and never move */
     const units={uA:0,uN:1,uR:2,uM:3,uO:4,uP:5,uE:6,uH:7};
@@ -215,6 +293,19 @@ function channel(B,key,w,h,emiC){
     gl.uniform1f(U.uHInv,1/span);
     const c=emiC||[1,0.86,0.6];
     gl.uniform3f(U.uEmiC,c[0],c[1],c[2]);
+    if(key==="unlit"){
+      /* read straight off the bake module rather than threaded through every
+         caller: it is a single global setting, exactly as the palette is */
+      if(!window.ForgeUnlit)return null;
+      const p=ForgeUnlit.params();
+      gl.uniform3f(U.uL,p.Lx,p.Ly,p.Lz);
+      gl.uniform3f(U.uSky,p.skyR,p.skyG,p.skyB);
+      gl.uniform3f(U.uGnd,p.gndR,p.gndG,p.gndB);
+      gl.uniform1f(U.uGain,p.gain);gl.uniform1f(U.uAmb,p.amb);
+      gl.uniform1f(U.uAoK,p.aoK);gl.uniform1f(U.uSpec,p.specK);
+      gl.uniform1f(U.uEmiK,p.emiK);
+      gl.uniform1f(U.uCon,p.contrast);gl.uniform1f(U.uSat,p.sat);
+    }
     gl.drawArrays(gl.TRIANGLES,0,3);
     if(gl.getError()!==gl.NO_ERROR)return null;
     /* Straight into a fresh 2D canvas: one blit, not two. The caller owns what

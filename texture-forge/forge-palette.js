@@ -134,12 +134,13 @@ function get(id){
   for(const p of list())if(p.id===id)return p;
   return BUILTIN[0];
 }
-function colors(){
-  const p=get(state.id);
+function colorsOf(id){
+  const p=get(id);
   if(!p)return null;
   const c=p.colors||cubeColors(p);
   return c&&c.length?c:null;
 }
+function colors(){return colorsOf(state.id);}
 function on(fn){listeners.push(fn);}
 function fire(){for(const fn of listeners)fn();}
 function set(k,v){
@@ -215,26 +216,34 @@ function bayer(n){
 const BAYER={2:bayer(2),4:bayer(4),8:bayer(8)};
 
 /* Compiled once per palette rather than per map: a mode being dragged rebuilds
-   its preview many times a second and the O(n²) step measurement is not free. */
-let CACHE={id:null,find:null,cols:null,step:0,lut:null};
-function compiled(){
-  const p=get(state.id);
+   its preview many times a second and the O(n²) step measurement is not free.
+
+   KEYED BY PALETTE ID, NOT BY "the current one". Two profiles are live at once
+   — the base colour has its palette and the unlit bake has its own, separate
+   one — and a single-slot cache holding whichever was asked for last would
+   recompile a finder on every alternation, which for a loaded palette is the
+   O(n²) step measurement again, twice a channel. */
+const CACHE={};
+function compiled(id){
+  id=id||state.id;
+  const p=get(id);
   if(!p)return null;
+  let C=CACHE[id];
   if(p.cube){
     /* one 256-entry lookup a channel, and the dither step is exactly the gap
        between levels — no search, no O(n²) measurement of it */
-    if(CACHE.id!==state.id||!CACHE.lut){
+    if(!C||!C.lut){
       const n=p.cube,lut=new Uint8Array(256);
       for(let v=0;v<256;v++)lut[v]=Math.round(Math.round(v*(n-1)/255)*255/(n-1));
-      CACHE={id:state.id,cols:null,find:null,step:255/(n-1),lut:lut};
+      C=CACHE[id]={id:id,cols:null,find:null,step:255/(n-1),lut:lut};
     }
-    return CACHE;
+    return C;
   }
-  const cols=colors();
+  const cols=colorsOf(id);
   if(!cols)return null;
-  if(CACHE.id!==state.id||CACHE.cols!==cols)
-    CACHE={id:state.id,cols:cols,find:makeFinder(cols),step:stepOf(cols),lut:null};
-  return CACHE;
+  if(!C||C.cols!==cols)
+    C=CACHE[id]={id:id,cols:cols,find:makeFinder(cols),step:stepOf(cols),lut:null};
+  return C;
 }
 
 const SKIP=8;                                    // alpha at or under this is not a pixel
@@ -243,11 +252,16 @@ const SKIP=8;                                    // alpha at or under this is no
    into: on a cut-out face the colour under a transparent texel is whatever the
    generator happened to leave there, and diffusing that into the visible edge
    would fringe the silhouette. */
-function quantise(data,w,h){
-  const C=compiled();
+/* `prof` is {id,dither,strength}; omitted, it is the global palette bar. The
+   unlit bake passes its own, because a full-colour albedo next to a sixteen-
+   level pre-lit map is a thing somebody wants and one shared setting cannot
+   express it. */
+function quantise(data,w,h,prof){
+  prof=prof||state;
+  const C=compiled(prof.id);
   if(!C)return false;
   const find=C.find,cols=C.cols,lut=C.lut;
-  const amt=C.step*clamp(+state.strength||0,0,2);
+  const amt=C.step*clamp(+prof.strength||0,0,2);
   /* one call shape whichever kind of palette this is; `out` is reused, so the
      per-texel path allocates nothing either way */
   const snap=lut
@@ -255,7 +269,7 @@ function quantise(data,w,h){
     :function(r,g,b,out){const p=cols[find(r,g,b)];out[0]=p[0];out[1]=p[1];out[2]=p[2];};
   const out=[0,0,0];
 
-  if(state.dither==="fs"&&amt>0){
+  if(prof.dither==="fs"&&amt>0){
     /* Floyd–Steinberg, serpentine so the error does not comb in one direction.
        The working buffer is float: rounding the error at every step is what
        makes a naive implementation band. */
@@ -265,7 +279,7 @@ function quantise(data,w,h){
     }
     /* the classic sixteenths, scaled by the amount: at 1 this is textbook
        Floyd-Steinberg, below it the error is partly swallowed instead */
-    const k16=clamp(+state.strength||0,0,2)/16;
+    const k16=clamp(+prof.strength||0,0,2)/16;
     for(let y=0;y<h;y++){
       const rev=(y&1)===1;
       for(let n=0;n<w;n++){
@@ -290,7 +304,7 @@ function quantise(data,w,h){
     return true;
   }
 
-  const n=state.dither==="bayer2"?2:state.dither==="bayer8"?8:state.dither==="bayer4"?4:0;
+  const n=prof.dither==="bayer2"?2:prof.dither==="bayer8"?8:prof.dither==="bayer4"?4:0;
   const M=n?BAYER[n]:null;
   const norm=n?1/(n*n):0;
   for(let y=0;y<h;y++){
@@ -422,7 +436,7 @@ restore();
 window.Palette={
   DITHERS:DITHERS,
   state:state,
-  list:list,get:get,colors:colors,
+  list:list,get:get,colors:colors,colorsOf:colorsOf,
   set:set,on:on,
   quantise:quantise,
   parse:parse,fromImageData:fromImageData,
@@ -430,6 +444,18 @@ window.Palette={
   /* the channels a palette may touch: pictures, not data */
   affects:function(key){return key==="basecolor";},
   active:function(){return !!colors();},
+  /* does THIS profile quantise anything, whatever the palette bar is set to */
+  profileActive:function(prof){return !!(prof&&colorsOf(prof.id));},
+  describeProfile:function(prof){
+    const cols=prof&&colorsOf(prof.id);
+    if(!cols)return null;
+    const p=get(prof.id);
+    const d=DITHERS.find(x=>x[0]===prof.dither);
+    const count=/\d colours$/.test(p.label)?"":" ("+cols.length+" colours)";
+    return p.label+count+", "+
+      (prof.dither==="none"?"no dither":(d?d[1].split(" — ")[0]:prof.dither)+
+      " at "+(+prof.strength).toFixed(2));
+  },
   describe:function(){
     const p=get(state.id);
     const cols=colors();

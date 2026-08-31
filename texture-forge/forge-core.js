@@ -500,11 +500,34 @@ function makeWriters(st){
   st.custom=st.mode.writers?st.mode.writers(B,P):null;
   if(st.custom)Object.assign(w,st.custom);
   st.writers=w;
+  freshenBake(st);
+}
+
+/* THE BAKE'S WRITER IS THE ONE THAT GOES STALE. Every other writer is a
+   function of the build, which does not change until the next one; this one is
+   also a function of the bake bar, which changes while you drag a slider —
+   including on modes that are built but not on screen.
+
+   So it is rebuilt whenever the settings it closed over no longer match, rather
+   than reading the settings per texel (sixteen million property lookups a
+   channel) or being refreshed by whoever happened to change something (which
+   is every call site that could ever set a bake value, forever).
+
+   It is built AFTER the mode's own writers because it reads the emissive
+   channel as the mode finally defined it — a mode with its own emissive ramp
+   gets baked in its own colours rather than in this file's guess at them. */
+function freshenBake(st){
+  if(!window.ForgeUnlit||!st.writers||!st.B)return;
+  const sig=ForgeUnlit.signature();
+  if(st.bakeSig===sig&&st.writers.unlit)return;
+  st.writers.unlit=ForgeUnlit.writer(st.B,st.writers.emissive||null);
+  st.bakeSig=sig;
 }
 
 /* one channel rendered to a canvas, optionally downscaled by nearest neighbour */
 function makeMap(st,key,maxW){
   const B=st.B,TW=B.W,TH=B.H;
+  if(key==="unlit")freshenBake(st);
   let w=TW,h=TH;
   if(maxW&&maxW<TW){const k=maxW/TW;w=Math.max(1,Math.round(TW*k));h=Math.max(1,Math.round(TH*k));}
 
@@ -515,7 +538,14 @@ function makeMap(st,key,maxW){
      a channel the MODE writes itself (arbitrary JS), a palettised base colour
      (the quantiser wants the pixels back, and reading them back would give
      away what was gained), and no usable WebGL2. */
-  const palettised=!!(window.Palette&&Palette.affects(key)&&Palette.active());
+  let palettised=!!(window.Palette&&Palette.affects(key)&&Palette.active());
+  /* the bake goes back to the loop for the same reason the base colour does —
+     the quantiser wants the pixels back — and also whenever the mode owns the
+     emissive ramp the bake is reading, which the shader cannot know about */
+  if(key==="unlit"){
+    if(window.ForgeUnlit&&ForgeUnlit.palettised())palettised=true;
+    if(st.custom&&("emissive" in st.custom))palettised=true;
+  }
   const owned=!!(st.custom&&(key in st.custom));
   if(window.ForgeGPU&&!palettised&&!owned&&ForgeGPU.handles(key)&&ForgeGPU.available()){
     const v=gpuVerdict();
@@ -605,6 +635,10 @@ function cpuMap(st,key,w,h){
      on screen is exactly what lands in the file. Data channels are left alone —
      see the note at the top of forge-palette.js. */
   if(window.Palette&&Palette.affects(key))Palette.quantise(o,w,h);
+  /* the bake carries its own palette, so a full-colour albedo and a sixteen-
+     level pre-lit map can come out of the same build */
+  else if(key==="unlit"&&window.Palette&&window.ForgeUnlit&&ForgeUnlit.palettised())
+    Palette.quantise(o,w,h,ForgeUnlit.profile());
   ctx.putImageData(img,0,0);
   return cv;
 }
@@ -768,6 +802,10 @@ function renderView(){
   glc.classList.toggle("on",lit);
   flat.classList.toggle("on",!lit);
   el("hint").style.display=lit?"block":"none";
+  /* the bake's dozen controls belong to one channel, so they appear with it
+     and are out of the way the rest of the time */
+  const bb=el("bakebar");
+  if(bb)bb.hidden=(view!=="unlit");
   if(lit)refreshGL();else drawFlat();
 }
 
@@ -980,6 +1018,16 @@ function readmeText(st){
   if(pal)txt+="\n\nPALETTE\nbasecolor.png was snapped to "+pal+".\n"+
     "Every other channel is untouched full-range data — normal, roughness,\n"+
     "metallic, AO, height and ORM are never quantised.";
+  /* the bake is the one channel you cannot re-derive from the others without
+     knowing the numbers, so they go in the file next to it */
+  if(window.ForgeUnlit)txt+="\n\nUNLIT BAKE\n"+
+    "unlit.png is the whole material with one lighting solution already in it:\n"+
+    "base colour, normal, roughness, metallic, AO and emissive resolved through\n"+
+    "the same GGX model the lit preview uses. Use it as an unlit / emissive\n"+
+    "base colour on a target with no lighting, and ignore the other maps.\n"+
+    "It is not a replacement for basecolor.png — feeding a baked map back into\n"+
+    "a lit shader lights it twice.\n"+
+    "Settings: "+ForgeUnlit.describe()+".";
   return txt;
 }
 
@@ -1566,6 +1614,136 @@ function initPalette(){
   palSync();
 }
 
+/* ============================ the bake bar ============================
+   The unlit bake's own controls. Same argument as the palette bar above — none
+   of this touches a generator, so changing any of it re-derives the channel
+   from buffers that are already built and nothing is forged again.
+
+   It is a SEPARATE bar from the palette one, and the palette control in it is a
+   second, independent profile, because "quantise the albedo" and "quantise the
+   pre-lit map" are different decisions: a full-colour albedo feeding a
+   sixteen-level bake is a thing somebody wants, and one shared setting cannot
+   say it. */
+
+const BAKEROWS=[
+  {g:"Key",rows:[
+    {k:"az",lab:"Az",min:0,max:360,step:5,unit:"°"},
+    {k:"el",lab:"El",min:0,max:90,step:1,unit:"°"},
+    {k:"gain",lab:"Exp",min:0,max:6,step:0.05}]},
+  {g:"Ambient",rows:[
+    {k:"amb",lab:"Amt",min:0,max:3,step:0.05},
+    {k:"cSky",lab:"Sky",type:"color"},
+    {k:"cGnd",lab:"Gnd",type:"color"}]},
+  {g:"Surface",rows:[
+    {k:"ao",lab:"AO",min:0,max:2,step:0.05},
+    {k:"spec",lab:"Spec",min:0,max:2,step:0.05}]},
+  {g:"Grade",rows:[
+    {k:"contrast",lab:"Con",min:0,max:2,step:0.05},
+    {k:"sat",lab:"Sat",min:0,max:2,step:0.05}]}
+];
+
+function bakeRepaint(){
+  bakeSync();
+  if(active&&active.built&&active.B){buildChips();renderView();}
+}
+function bakeSync(){
+  const bar=el("bakebar");
+  if(!bar)return;
+  for(const n of bar.querySelectorAll("[data-bake]")){
+    const k=n.dataset.bake;
+    if(n.type==="color"){if(n.value!==ForgeUnlit.state[k])n.value=ForgeUnlit.state[k];}
+    else if(n.tagName==="SELECT"){n.value=ForgeUnlit.state[k];}
+    else n.value=ForgeUnlit.state[k];
+  }
+  for(const n of bar.querySelectorAll("[data-bakeval]")){
+    const k=n.dataset.bakeval,r=BAKEROWS.reduce((a,g)=>a||g.rows.find(x=>x.k===k),null);
+    const v=+ForgeUnlit.state[k];
+    n.textContent=r&&r.unit?Math.round(v)+r.unit:v.toFixed(2);
+  }
+  const on=Palette.profileActive(ForgeUnlit.profile());
+  el("bake-dither").disabled=!on;
+  el("bake-strength").disabled=!on||ForgeUnlit.state.palDither==="none";
+}
+function initBake(){
+  const bar=el("bakebar");
+  if(!bar||!window.ForgeUnlit)return;
+  const add=(parent,tag,cls,txt)=>{const n=make(tag,cls,txt);parent.appendChild(n);return n;};
+  let first=true;
+  for(const grp of BAKEROWS){
+    if(!first)add(bar,"div","bakesep");
+    first=false;
+    const g=add(bar,"div","bakeset");
+    add(g,"span",null,grp.g);
+    for(const r of grp.rows){
+      const lab=make("label","bakegrp");
+      lab.title=r.lab;
+      lab.appendChild(make("span",null,r.lab));
+      const inp=make("input");
+      inp.dataset.bake=r.k;
+      if(r.type==="color"){inp.type="color";}
+      else{
+        inp.type="range";inp.min=r.min;inp.max=r.max;inp.step=r.step;
+        const em=make("em");em.dataset.bakeval=r.k;
+        lab.appendChild(inp);lab.appendChild(em);
+        g.appendChild(lab);
+        continue;
+      }
+      lab.appendChild(inp);
+      g.appendChild(lab);
+    }
+  }
+  add(bar,"div","bakesep");
+  const pg=add(bar,"div","bakeset");
+  add(pg,"span",null,"Retro");
+  const sel=make("select");sel.id="bake-pal";sel.dataset.bake="palId";
+  sel.title="Quantise the bake — independent of the palette bar above";
+  for(const p of Palette.list()){
+    const o=make("option",null,p.label);o.value=p.id;sel.appendChild(o);
+  }
+  pg.appendChild(sel);
+  const dith=make("select");dith.id="bake-dither";dith.dataset.bake="palDither";
+  for(const [v,label] of Palette.DITHERS){
+    const o=make("option",null,label);o.value=v;dith.appendChild(o);
+  }
+  pg.appendChild(dith);
+  const sl=make("label","palrange");sl.title="Dither amount";
+  const si=make("input");si.id="bake-strength";si.dataset.bake="palStrength";
+  si.type="range";si.min=0;si.max=1.6;si.step=0.05;
+  sl.appendChild(si);pg.appendChild(sl);
+
+  add(bar,"div","bakesep");
+  const rst=make("button","tab","Reset bake");
+  rst.type="button";
+  rst.addEventListener("click",()=>ForgeUnlit.reset());
+  bar.appendChild(rst);
+
+  /* one listener for the lot: the target names the key it sets */
+  bar.addEventListener("input",e=>{
+    const n=e.target;
+    if(!n.dataset||!n.dataset.bake)return;
+    const k=n.dataset.bake;
+    ForgeUnlit.set(k,(n.type==="color"||n.tagName==="SELECT")?n.value:+n.value);
+  });
+  bar.addEventListener("change",e=>{
+    const n=e.target;
+    if(n.dataset&&n.dataset.bake&&n.tagName==="SELECT")
+      ForgeUnlit.set(n.dataset.bake,n.value);
+  });
+
+  ForgeUnlit.on(()=>bakeRepaint());
+  /* a palette loaded from a file has to appear in BOTH pickers */
+  Palette.on(()=>{
+    const keep=ForgeUnlit.state.palId;
+    sel.innerHTML="";
+    for(const p of Palette.list()){
+      const o=make("option",null,p.label);o.value=p.id;sel.appendChild(o);
+    }
+    sel.value=keep;
+    bakeSync();
+  });
+  bakeSync();
+}
+
 /* ============================ mode switching ============================ */
 
 function activate(id){
@@ -1903,6 +2081,7 @@ function boot(){
 
   initChrome();
   initPalette();
+  initBake();
   initWizard();
   /* best effort and silent: see the note at the top of forge-fonts.js */
   if(window.ForgeFonts)ForgeFonts.scan().catch(()=>{});

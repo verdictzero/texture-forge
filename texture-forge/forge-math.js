@@ -135,6 +135,17 @@ const Forge={
   byId:BY_ID,
   register:function(mode){
     if(BY_ID[mode.id]){console.warn("Texture Forge: duplicate mode id "+mode.id);return;}
+    /* THE UNLIT BAKE IS EVERY MODE'S, and it is added here rather than in
+       seventeen channel lists, because it is derived from maps every mode
+       already produces — base colour, normal, roughness, metallic, AO and
+       whatever emissive it has. A mode that had to remember to declare it
+       would eventually be a mode that forgot.
+
+       The list is COPIED before the entry goes on. Three of the panel modes
+       share one channels array between them, and pushing into it would give
+       that array three unlit entries and the other modes none. */
+    if(mode.channels&&!mode.channels.some(function(c){return c.key==="unlit";}))
+      mode.channels=mode.channels.concat([{key:"unlit",label:"Unlit bake"}]);
     BY_ID[mode.id]=mode;MODES.push(mode);
   }
 };
