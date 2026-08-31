@@ -496,10 +496,19 @@ if (want("gpu")) {
      !info.software || info.available === false,
      "software=" + info.software + " available=" + info.available);
 
-  await page.click('#modebar-tabs [data-mode="factory"]');
+  /* TWO MODES, and the second one is not padding. The factory writes its own
+     emissive ramp, and the runtime therefore never sends its unlit bake to the
+     GPU — the shader has no way to know a mode has replaced the ramp the bake
+     reads. Checking the bake on the factory alone would either be skipped or,
+     if the guard were bypassed, would compare the factory's ramp against the
+     shader's default and fail for a reason that cannot reach a user. So the
+     bake is checked on a mode that does NOT own its emissive, which is the
+     only case the GPU ever actually renders it in. */
+  for (const mode of ["factory", "conduit"]) {
+  await page.click(`#modebar-tabs [data-mode="${mode}"]`);
   await settle();
-  await page.evaluate(() => window.Forge.setParam("factory", "size", 256));
-  await page.click("#factory--forge");
+  await page.evaluate(m => window.Forge.setParam(m, "size", 256), mode);
+  await page.click(`#${mode}--forge`);
   await settle();
 
   const r = await page.evaluate(() => {
@@ -509,6 +518,8 @@ if (want("gpu")) {
       const k = c.key;
       if (!window.ForgeGPU.handles(k)) continue;
       if (st.custom && (k in st.custom)) continue;
+      /* the same rule the runtime applies in makeMap */
+      if (k === "unlit" && st.custom && ("emissive" in st.custom)) continue;
       window.ForgeGPU.force(true);
       const g = window.ForgeGPU.channel(st.B, k, st.B.W, st.B.H);
       window.ForgeGPU.force(null);
@@ -534,9 +545,15 @@ if (want("gpu")) {
     /* the height field is the one channel where the two arithmetics can
        disagree — a float divide on the GPU against a double one in JS — and a
        single least-significant bit on a handful of texels is the whole of it */
-    const bar = d.k === "height" ? 1 : 0;
-    ok(d.k + ": GPU matches the CPU path", d.worst <= bar,
+    /* Two channels are allowed to disagree, and only these two. The height
+       field by one code value — a float divide on the GPU against a double one
+       in JS. The unlit bake by two, because it is the one channel running pow,
+       sqrt and a divide where the rest are copies, scales and rounds; it is a
+       picture rather than data anybody reads a value out of. */
+    const bar = d.k === "height" ? 1 : d.k === "unlit" ? 2 : 0;
+    ok(mode + " " + d.k + ": GPU matches the CPU path", d.worst <= bar,
        d.n + " of " + d.of + " bytes differ, worst by " + d.worst);
+  }
   }
 }
 
@@ -613,6 +630,181 @@ if (want("model")) {
     console.log("       no declared size (1 m plane, and the readme says so): " +
                 (R.guessed.join(", ") || "none"));
   }
+}
+
+/* ============================ the unlit bake ============================
+   The bake is the one channel derived from the OTHERS rather than from the
+   generator, so what is checked here is that it is on every mode, that it
+   answers its own controls rather than the preview's, that its palette is
+   genuinely independent of the palette bar, and that it is not quietly the
+   base colour with a curve on it. */
+if (want("bake")) {
+  console.log("\n— the unlit bake —");
+  const there = await page.evaluate(() => !!window.ForgeUnlit);
+  ok("the bake module is loaded", there);
+
+  const missing = await page.evaluate(() =>
+    window.Forge.modes.filter(m => m.channels.filter(c => c.key === "unlit").length !== 1)
+      .map(m => m.id));
+  ok("every mode carries exactly one unlit channel", missing.length === 0,
+     missing.length ? "missing or duplicated on: " + missing.join(", ") : "");
+
+  await page.click('#modebar-tabs [data-mode="vent"]');
+  await settle();
+  await page.evaluate(() => window.Forge.setParam("vent", "size", 256));
+  await page.click("#vent--forge");
+  await settle();
+
+  /* a bake that does not move when the key moves is a stale closure, which is
+     exactly what this was the first time it was written */
+  const sig = () => page.evaluate(() => {
+    const cv = window.Forge.makeMap("unlit", 96);
+    return cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data.join(",");
+  });
+  const a0 = await sig();
+  await page.evaluate(() => window.ForgeUnlit.set("az", 135));
+  const a1 = await sig();
+  await page.evaluate(() => window.ForgeUnlit.set("az", 315));
+  const a2 = await sig();
+  ok("the bake follows its own key light", a0 !== a1);
+  ok("and comes back when the key does", a0 === a2);
+
+  /* it must not simply be the albedo: if AO, the normal and the sky are doing
+     nothing then this is a tone curve, not a bake */
+  const differs = await page.evaluate(() => {
+    const u = window.Forge.makeMap("unlit", 96).getContext("2d")
+      .getImageData(0, 0, 96, 96).data;
+    const a = window.Forge.makeMap("basecolor", 96).getContext("2d")
+      .getImageData(0, 0, 96, 96).data;
+    let n = 0;
+    for (let i = 0; i < u.length; i += 4) if (Math.abs(u[i] - a[i]) > 6) n++;
+    return n / (u.length / 4);
+  });
+  ok("the bake is a render, not a curve on the albedo", differs > 0.35,
+     (differs * 100).toFixed(0) + "% of texels differ from base colour");
+
+  /* the AO amount has to reach the picture, since on an unlit target it is
+     doing the work every runtime darkening trick would otherwise do */
+  const aoMoves = await page.evaluate(async () => {
+    const s = () => window.Forge.makeMap("unlit", 64).getContext("2d")
+      .getImageData(0, 0, 64, 64).data.join(",");
+    const before = s();
+    window.ForgeUnlit.set("ao", 2);
+    const after = s();
+    window.ForgeUnlit.set("ao", 1);
+    return before !== after;
+  });
+  ok("the AO amount reaches the bake", aoMoves);
+
+  /* the whole point of a separate profile: quantise one, not the other */
+  const pal = await page.evaluate(async () => {
+    window.ForgeUnlit.set("palId", "rgb8");
+    window.ForgeUnlit.set("palDither", "none");
+    const count = k => {
+      const cv = window.Forge.makeMap(k, 96);
+      const d = cv.getContext("2d").getImageData(0, 0, 96, 96).data;
+      const set = new Set();
+      for (let i = 0; i < d.length; i += 4) set.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+      return set.size;
+    };
+    const r = { unlit: count("unlit"), base: count("basecolor") };
+    window.ForgeUnlit.set("palId", "none");
+    return r;
+  });
+  ok("the bake's palette quantises the bake", pal.unlit <= 512,
+     pal.unlit + " colours in unlit.png at RGB 8·8·8");
+  ok("and leaves the base colour alone", pal.base > 512,
+     pal.base + " colours still in basecolor.png");
+
+  const said = await page.evaluate(() => window.ForgeUnlit.describe());
+  ok("the settings are written down for the readme", /az/.test(said) && /exposure/.test(said),
+     said.slice(0, 60) + "…");
+}
+
+/* ============================ the conduit loom ============================
+   A mode whose subject is depth, so the checks are about depth: that the
+   layers actually occupy different heights, that a group is a group, and that
+   the seamless piece closes.  */
+if (want("conduit")) {
+  console.log("\n— the conduit loom —");
+  await page.click('#modebar-tabs [data-mode="conduit"]');
+  await settle();
+  await page.evaluate(() => window.Forge.setParam("conduit", "size", 512));
+  await page.click("#conduit--forge");
+  const st = await settle();
+  ok("the loom builds", st !== "TIMEOUT", st);
+
+  const R = await page.evaluate(() => {
+    const B = window.Forge.active().B, W = B.W, H = B.H, N = W * H;
+    /* how much of the cavity depth the height field actually uses, and how
+       evenly — a loom that came out as one layer would have a spike */
+    const lo = B.hMin, hi = B.hMax, span = hi - lo;
+    const bins = new Array(10).fill(0);
+    for (let i = 0; i < N; i++) {
+      const t = (B.HGT[i] - lo) / (span || 1);
+      bins[Math.min(9, Math.max(0, Math.floor(t * 10)))]++;
+    }
+    const used = bins.filter(b => b > N * 0.01).length;
+    /* the seam, against a typical interior column */
+    const d = (a, st2, x1, x2) => {
+      let s = 0;
+      for (let y = 0; y < H; y++) s += Math.abs(a[(y * W + x1) * st2] - a[(y * W + x2) * st2]);
+      return s / H;
+    };
+    const dr = (a, st2, y1, y2) => {
+      let s = 0;
+      for (let x = 0; x < W; x++) s += Math.abs(a[(y1 * W + x) * st2] - a[(y2 * W + x) * st2]);
+      return s / W;
+    };
+    let inX = 0, inY = 0;
+    for (let k = 1; k <= 8; k++) { inX += d(B.A, 3, k * 50, k * 50 + 1); inY += dr(B.A, 3, k * 50, k * 50 + 1); }
+    return {
+      span, used,
+      wrapX: d(B.A, 3, W - 1, 0), inX: inX / 8,
+      wrapY: dr(B.A, 3, H - 1, 0), inY: inY / 8,
+      plan: window.Forge.byId["conduit"].plan(window.Forge.active().P)
+    };
+  });
+  /* the cavity is 95 mm by default and the loom has to be spread through it,
+     not sitting in one plane at the bottom of it */
+  ok("the loom occupies the whole cavity", R.span > 0.05 && R.span < 0.30,
+     (R.span * 1000).toFixed(0) + " mm of relief");
+  ok("the layers are spread through it, not stacked in one plane", R.used >= 5,
+     R.used + " of 10 height bands carry real area");
+
+  /* a seam that is no worse than any other pair of neighbouring columns is not
+     a seam; comparing it against a fixed threshold would only measure how busy
+     the mode is */
+  ok("the tile wraps left to right", R.wrapX <= R.inX * 1.35,
+     R.wrapX.toFixed(1) + " across the wrap vs " + R.inX.toFixed(1) + " inside");
+  ok("and top to bottom", R.wrapY <= R.inY * 1.35,
+     R.wrapY.toFixed(1) + " across the wrap vs " + R.inY.toFixed(1) + " inside");
+  ok("it reports a real panel size in metres", R.plan.w > 0.15 && R.plan.w < 2.5,
+     R.plan.w.toFixed(3) + " m");
+  ok("the seamless piece is not a cut-out", R.plan.cutout === false);
+
+  /* and the framed piece is, with a silhouette that is actually cut */
+  await page.selectOption("#conduit--piece", "bay");
+  await page.click("#conduit--forge");
+  await settle();
+  const bay = await page.evaluate(() => {
+    const st2 = window.Forge.active(), B = st2.B, N = B.W * B.H;
+    let clear = 0, solid = 0;
+    for (let i = 0; i < N; i++) { if (B.ALP[i] < 8) clear++; else if (B.ALP[i] > 247) solid++; }
+    return {
+      clear: clear / N, solid: solid / N,
+      cutout: window.Forge.byId["conduit"].plan(st2.P).cutout
+    };
+  });
+  ok("the bay is a cut-out piece", bay.cutout === true);
+  /* the bug this is here for: a silhouette seeded at zero rather than −1 puts
+     every texel in the middle of the anti-aliasing band, and the whole piece
+     comes out a uniform ghost */
+  ok("the bay silhouette is opaque in the middle", bay.solid > 0.5,
+     (bay.solid * 100).toFixed(1) + "% fully opaque");
+  ok("and cut away at the corners", bay.clear > 0.001 && bay.clear < 0.25,
+     (bay.clear * 100).toFixed(2) + "% fully clear");
+  await page.selectOption("#conduit--piece", "tile");
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }

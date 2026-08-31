@@ -104,7 +104,15 @@ void main(){
    acceptable HERE and nowhere else in this file, because the bake is a picture
    rather than data: nothing downstream reads a specific value out of it, the
    way a material-id map or a height field is read. The harness allows it two
-   code values and no more.
+   code values; measured, it uses one, on a handful of texels in a quarter of a
+   million.
+
+   WHAT IT CANNOT DO is render the bake for a mode that writes its own emissive
+   ramp. The bake reads emissive, an arbitrary JS writer can turn one byte into
+   any colour it likes, and this shader only knows the runtime's default ramp —
+   so the caller sends those modes to the CPU instead. Getting that wrong is
+   silent: the picture still renders, in the wrong colours, and only on the
+   channels where the mode's ramp differs from the default.
 
    The order of operations below is deliberately the order the JS is in, so the
    two accumulate their rounding the same way. */

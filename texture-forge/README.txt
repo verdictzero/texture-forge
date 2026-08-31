@@ -530,6 +530,57 @@ Vent — louvres, grilles, intakes and heatsinks
   turbine intake, aluminium heatsink, reactor heatsink, pin-fin core, rusted
   extract louvre.
 
+Conduit — the loom behind an access panel
+  Undo a row of quarter-turn fasteners, lift the panel off an engine nacelle or
+  an equipment bay, and what is behind it is not a thing, it is STRATA — and the
+  strata are the subject. A ribbed backplane with flanged lightening holes, in
+  shadow. The fat items that went in first: lagged pipe, flexible duct, coolant
+  lines. Groups of smaller conduits routed together over them. And on top, the
+  things that were meant to be reached.
+
+  A GROUP, NOT A PIPE. Every route carries a BUNDLE: several conduits laid
+  parallel at a fixed pitch, riding one path, so the whole ribbon snakes as one
+  and on a bend the inner conduits take a tighter radius than the outer ones.
+  That difference is most of what tells a loom from some pipes that happen to be
+  near each other. Clamps span the whole bundle and cable ties fall between
+  them, which is the reason a group stays a group.
+
+  Routes are INTEGRATED rather than plotted: a heading plus a smoothly varying
+  turn, with the turn clamped so the curvature never exceeds one over the
+  minimum bend radius — a real constraint, and one a loom that violates looks
+  wrong before you can say why. Occasionally a route takes a corner, spending a
+  stretch turning at the limit, which is what a loom does when it reaches the
+  end of a bay. Every run comes from somewhere and goes somewhere: the last few
+  centimetres at each end sink away behind the layers below, with a collar where
+  they go, rather than stopping in a flat disc in mid-air.
+
+  Six finishes, and each one is GEOMETRY rather than a decal — the rings, the
+  weave and the spiral go into the height field before the normal is differenced
+  out of it, so they survive being lit from any direction. Rigid tube with
+  jointing collars, corrugated flex, braided hose, spiral wrap, flat ribbon
+  (wide and thin, not a slab), and lagged pipe with its cloth and banding.
+  Ident sleeving in six colours, whole runs of coloured sleeve, and indicator
+  lamps in emissive.
+
+  Two pieces off the one generator. A seamless FIELD is an endless equipment bay
+  or hull interior; one framed BAY is a single access opening with a lip,
+  fasteners and an alpha silhouette, to drop onto a hull so the hull shows
+  through around it.
+
+  THE AO DOES TWO JOBS here. Local occlusion the way every mode does it, AND a
+  depth term: how far into the cavity a texel sits, independent of its
+  neighbours. A blur cannot see that — a conduit four layers down is dark
+  because it is four layers down, not because the texel beside it is higher —
+  and without it the strata all read at one brightness, which is the whole
+  subject gone.
+
+  Presets: engine bay, wiring harness, hydraulic run, access hatch, reactor
+  conduit, crawlspace.
+
+  Capped at 2048: the mode carries an extra word a texel for the stamp, and its
+  subject is a panel a few hundred millimetres across, where 2048 is already
+  better than three texels to the millimetre.
+
 Sheet · Plate · Slab — three panels off one generator
   What they have in common is that they are all a PANEL: a piece of material
   with a real thickness, real edges and real fixings, rather than a pattern
@@ -701,10 +752,10 @@ rather than aliasing it, and every readout already names what it had to let go.
 
 EXPORTED MAPS
 -------------
-Base colour, normal, roughness, metallic, AO, height, ORM (packed), plus
-per-mode extras: a markings alpha decal (street), a paint alpha decal and
-material ID (hazard), material ID / emissive / opacity (house and envelope),
-material ID / opacity / an infill mask (fence), and a pre-lit bake (ruins).
+Base colour, normal, roughness, metallic, AO, height, ORM (packed) and the
+UNLIT BAKE — see below — plus per-mode extras: a markings alpha decal (street),
+a paint alpha decal and material ID (hazard), material ID / emissive / opacity
+(house and envelope), material ID / opacity / an infill mask (fence).
 Each zip also contains a 16-bit height PNG and
 a readme giving the real-world size of the tile so displacement comes out true
 to life.
@@ -731,6 +782,58 @@ Notes worth knowing:
 
 - If a download does not start, click the orange Save button that appears next
   to it — that path cannot be blocked by the browser.
+
+
+THE UNLIT BAKE
+--------------
+A PBR set is a description of a material. It says how the surface answers
+light, and it needs a renderer holding a light to mean anything. Plenty of work
+has no renderer holding anything: a retro or stylised target, a sprite sheet, a
+low-end platform, an engine set to unlit or emissive, a viewport with no
+lighting rig at all. So every mode also exports unlit.png — the whole material
+with one lighting solution already frozen into the colour.
+
+It is the SAME shading model as the lit preview: GGX specular, Smith
+visibility, Schlick Fresnel, a two-colour hemisphere ambient, AO, emissive,
+Reinhard and gamma. That is deliberate. A bake computed some other way would be
+a second opinion rather than a render, and you would have no way to judge it
+before exporting it.
+
+What it does NOT share is the preview's light. The preview light is a thing you
+drag to inspect a surface — it moves constantly and has no numbers on it. A
+bake is an artefact you ship, so it gets its own controls, on their own bar
+that appears when you select the Unlit tab:
+
+  key           direction in degrees, azimuth and elevation, and an exposure
+  ambient       an amount, plus the sky colour and the ground bounce under it
+  surface       how hard AO bakes in, and how much specular to allow
+  grade         contrast and saturation, applied after the curve
+  retro         the bake's OWN palette, dither and amount
+
+That last one is separate from the palette bar above it on purpose. "Quantise
+the albedo" and "quantise the pre-lit map" are different decisions, and a
+full-colour base colour feeding a sixteen-level pre-lit map is a thing people
+want — one shared setting cannot say it. It defaults to off.
+
+The settings are written into the zip's readme, so a bake can be reproduced
+from the file six months later.
+
+Two things worth knowing:
+
+- MORE AMBIENT THAN LOOKS RIGHT. A strong key and little ambient is punchy on
+  screen and wrong in a bake: every texel facing away from the key goes to near
+  black and STAYS there, because on an unlit target no fill light is coming
+  later to open it up. The defaults carry more ambient than the preview does.
+
+- IT IS NOT A REPLACEMENT FOR basecolor.png. Feeding a baked map into a lit
+  shader lights it twice. Use one or the other.
+
+Nothing in a mode declares it. The channel is added centrally, because it is
+derived from maps every mode already produces — base colour, normal, roughness,
+metallic, AO and whatever emissive it has — and a mode that had to remember to
+declare it would eventually be a mode that forgot. Where a mode writes its own
+emissive ramp, the bake reads THAT, so a heatsink glowing orange and a sign
+glowing green bake in their own colours rather than in a guess at them.
 
 
 THREADS AND THE GPU
@@ -785,9 +888,25 @@ race. The line under Channels says which path is live.
 
 A channel a MODE writes itself stays on the CPU, because it is arbitrary
 JavaScript. So does a palettised base colour, because the quantiser wants the
-pixels back and reading them back would give away what was gained; only the
-base colour is ever palettised, so the other eight channels take the fast path
-regardless. The GPU output is checked against the CPU output byte for byte.
+pixels back and reading them back would give away what was gained. The unlit
+bake goes back to the CPU for both of those reasons: whenever its own palette
+is on, and whenever the mode owns the emissive ramp the bake is reading, which
+the shader cannot know about.
+
+The GPU output is checked against the CPU output byte for byte. Two channels
+are allowed to disagree slightly, because they are the only two doing
+arithmetic rather than copying, scaling and rounding: the height field by one
+least-significant bit (a float divide on the GPU against a double one in JS),
+and the unlit bake by two (pow, sqrt and a divide, and a GPU's highp float is
+not a double). In practice both come in well under that — the bake differs on
+about three bytes in a quarter of a million, by one.
+
+The bake's real constraint is not precision, it is knowledge. Where a mode
+writes its own emissive ramp, the shader has no way to know what that ramp is,
+so the bake for that mode is rendered on the CPU. That is most of the modes
+here, and it is the reason the packer's parity check runs over two of them: one
+that owns its emissive and one that does not, since only the second is a case
+the GPU ever actually renders.
 
 
 MICRO DETAIL
@@ -971,7 +1090,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the four things that are easy to break silently:
+It also covers the six things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -983,11 +1102,22 @@ It also covers the four things that are easy to break silently:
             from file:// and the rest of the suite stays there on purpose.
   gpu       the GPU channel packer's output matches the CPU path byte for byte
             (the height field is allowed one least-significant bit, which is a
-            float divide against a double one), and a software renderer is
-            never offered as a fast path
+            float divide against a double one, and the unlit bake two, which is
+            pow and sqrt; both come in under it), and a software renderer is
+            never offered as a fast path. It runs over a mode that writes its
+            own emissive ramp and one that does not, because the bake only
+            reaches the GPU in the second case
   model     a mode's plan() is in METRES whatever it counts in — a house is
             about eight metres wide, not eight — and the glTF a building
             produces stands on the ground with its roof closing the gable
+  bake      the unlit channel is on every mode exactly once, it answers its
+            OWN key rather than the preview's (a stale closure here is silent
+            and total), it is a render rather than a tone curve on the albedo,
+            and its palette quantises the bake while leaving base colour alone
+  conduit   the loom spreads through the whole cavity instead of stacking in
+            one plane, the seamless piece wraps, and the framed one is opaque
+            in the middle — the check that catches a silhouette seeded at zero
+            rather than −1, which makes a whole piece a uniform ghost
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them

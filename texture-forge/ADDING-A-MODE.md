@@ -109,6 +109,23 @@ These keys are written for you if the corresponding buffer is present:
 `opacity` (needs `ALP`), `emissive` (needs `EMI`). Anything else needs a
 writer — see **Custom channels**.
 
+**Do not declare `unlit`.** The unlit bake is appended to every mode's channel
+list by `Forge.register`, because it is derived from maps you already produce —
+base colour, normal, roughness, metallic, AO, and whatever emissive you have —
+and a mode that had to remember to declare it would eventually be a mode that
+forgot. Declaring it yourself is harmless (the registry checks) but pointless.
+
+Two things you *can* do for it:
+
+- Write a good `AO`. On an unlit target the AO map is doing the work that
+  ambient occlusion, contact shadow and every other runtime darkening trick
+  would otherwise do, and the bake gives it its own amount so people can push
+  it. A mode with a lazy AO bakes flat.
+- If you write your own `emissive` writer (see **Custom channels**), the bake
+  reads *that* rather than the runtime's default ramp, so your glow bakes in
+  your colours. The cost is that the channel falls back to the CPU path for
+  your mode, since the GPU packer cannot know what your writer does.
+
 ### Controls
 
 ```js
@@ -480,6 +497,15 @@ edges in it).
 ```
 node tools/smoke-test.mjs            # every mode
 node tools/smoke-test.mjs mymode     # just yours
+```
+
+`tools/feature-test.mjs` covers the things that are not per-mode — the
+resolution ladder, the palette, the wizard, typefaces, the chrome, worker
+threads, the GPU packer, the geometry export and the unlit bake:
+
+```
+node tools/feature-test.mjs          # all of it
+node tools/feature-test.mjs bake     # one section
 ```
 
 The other half is your eyes. Load `index.html` from disk — no server needed —
