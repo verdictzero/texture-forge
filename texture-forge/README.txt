@@ -581,6 +581,48 @@ Conduit — the loom behind an access panel
   subject is a panel a few hundred millimetres across, where 2048 is already
   better than three texels to the millimetre.
 
+
+Raceway — conduit dressed to a lattice, braced at intervals
+  The other way a bundle of conduit gets from one end of a machine to the
+  other. Not hand-dressed and following the shape of what it passes — that is
+  the conduit mode above — but INSTALLED: everything runs along one of two
+  axes, every direction change is a right angle, and every right angle is a
+  radiused bend rather than a mitre, because conduit does not fold.
+
+  Three things make it read as installed work rather than as pipes. THE
+  LATTICE: runs start on a grid and their legs are whole multiples of it, so
+  parallel runs line up with each other instead of merely being parallel, and
+  the grid is snapped so a whole number of cells fits the tile. THE FILLET: a
+  corner is a quarter-circle of a radius you could put on a drawing, and a
+  group taking it keeps its pitch, so the inner conduits ride a tighter arc
+  than the outer ones and the whole group fans slightly through the turn —
+  which is what a real one does and what a mitre can never look like. THE
+  BRACE: groups are held at intervals by a spacer comb rather than strapped
+  down — a bracket that stands BETWEEN the conduits and posts up at each edge
+  of the group, holding them at their spacing without hiding any of them.
+
+  THE BEND RADIUS IS NOT A STYLE SETTING. Below about the group's own
+  half-width plus a couple of conduit radii, the innermost conduit's arc turns
+  inside out — its centre passes the centre of the turn — and the group crosses
+  over itself in the corner. So the radius you ask for is a floor: the widest
+  group opens it up as far as it has to, and the readout says so rather than
+  quietly ignoring you.
+
+  JUNCTIONS. A run can branch, and the branch is smooth: a child starts at a
+  point on its parent CARRYING THE PARENT'S HEADING and then immediately takes
+  a fillet, so its conduits leave the group parallel to the ones staying behind
+  and peel away through the bend. Started square instead, it would be a pipe
+  butted against another pipe.
+
+  Presets: cable tray, cooling manifold, server backplane, bulkhead run,
+  reactor spine, braced access panel.
+
+  Same two pieces, same materials, same finishes, same backplane and framed bay
+  as the conduit mode — all of that is modes/lib/loom.js, shared between them.
+  The only thing either mode contributes is where the runs go and what holds
+  them: one integrates a heading with a wandering turn, the other walks a
+  lattice and fillets every corner, and the stamp cannot tell them apart.
+
 Sheet · Plate · Slab — three panels off one generator
   What they have in common is that they are all a PANEL: a piece of material
   with a real thickness, real edges and real fixings, rather than a pattern
@@ -1090,7 +1132,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the six things that are easy to break silently:
+It also covers the seven things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -1118,6 +1160,11 @@ It also covers the six things that are easy to break silently:
             one plane, the seamless piece wraps, and the framed one is opaque
             in the middle — the check that catches a silhouette seeded at zero
             rather than −1, which makes a whole piece a uniform ghost
+  raceway   the runs really are axis-aligned, measured against the wandering
+            mode next door rather than against a number picked out of the air,
+            since "how orthogonal is this picture" has no absolute scale; and
+            the bracing reaches the HEIGHT field rather than only the
+            parameters
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them

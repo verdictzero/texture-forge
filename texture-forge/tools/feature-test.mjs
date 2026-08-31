@@ -807,6 +807,130 @@ if (want("conduit")) {
   await page.selectOption("#conduit--piece", "tile");
 }
 
+/* ============================ the raceway ============================
+   The second routing model over the same loom library. What makes it a
+   different mode is that everything is axis-aligned between filleted corners,
+   so that is what gets measured — and measured against the wandering one next
+   door rather than against a number picked out of the air, because "how
+   orthogonal is this picture" has no absolute scale. */
+if (want("raceway")) {
+  console.log("\n— the conduit raceway —");
+
+  /* the fraction of strongly-sloped texels whose height gradient points within
+     12° of an axis. A raceway's straights are all axis-aligned, so their edges
+     are too; a hand-dressed loom's runs point anywhere. */
+  const axisness = async id => {
+    await page.click(`#modebar-tabs [data-mode="${id}"]`);
+    await settle();
+    await page.evaluate(m => window.Forge.setParam(m, "size", 512), id);
+    await page.click(`#${id}--forge`);
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, W = B.W, H = B.H, HGT = B.HGT;
+      let on = 0, tot = 0;
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x;
+        const dx = HGT[i + 1] - HGT[i - 1], dy = HGT[i + W] - HGT[i - W];
+        const m = Math.hypot(dx, dy);
+        if (m < 1e-4) continue;
+        tot++;
+        let a = Math.atan2(dy, dx) * 180 / Math.PI;
+        a = Math.abs(((a % 90) + 90) % 90);      // fold onto 0..90
+        if (a < 12 || a > 78) on++;
+      }
+      return tot ? on / tot : 0;
+    });
+  };
+  const race = await axisness("raceway");
+  const loom = await axisness("conduit");
+  ok("the raceway builds", race > 0);
+  ok("its runs are axis-aligned, and the loom's are not",
+     race > loom * 1.25,
+     "within 12° of an axis: raceway " + (race * 100).toFixed(1) +
+     "%, conduit " + (loom * 100).toFixed(1) + "%");
+
+  await page.click('#modebar-tabs [data-mode="raceway"]');
+  await settle();
+  const R = await page.evaluate(() => {
+    const B = window.Forge.active().B, W = B.W, H = B.H;
+    const d = (a, st, x1, x2) => {
+      let s = 0;
+      for (let y = 0; y < H; y++) s += Math.abs(a[(y * W + x1) * st] - a[(y * W + x2) * st]);
+      return s / H;
+    };
+    const dr = (a, st, y1, y2) => {
+      let s = 0;
+      for (let x = 0; x < W; x++) s += Math.abs(a[(y1 * W + x) * st] - a[(y2 * W + x) * st]);
+      return s / W;
+    };
+    let inX = 0, inY = 0;
+    for (let k = 1; k <= 8; k++) { inX += d(B.A, 3, k * 50, k * 50 + 1); inY += dr(B.A, 3, k * 50, k * 50 + 1); }
+    return { wrapX: d(B.A, 3, W - 1, 0), inX: inX / 8,
+             wrapY: dr(B.A, 3, H - 1, 0), inY: inY / 8,
+             span: B.hMax - B.hMin };
+  });
+  ok("the tile wraps left to right", R.wrapX <= R.inX * 1.35,
+     R.wrapX.toFixed(1) + " across the wrap vs " + R.inX.toFixed(1) + " inside");
+  ok("and top to bottom", R.wrapY <= R.inY * 1.35,
+     R.wrapY.toFixed(1) + " across the wrap vs " + R.inY.toFixed(1) + " inside");
+  ok("the run occupies the cavity", R.span > 0.04 && R.span < 0.30,
+     (R.span * 1000).toFixed(0) + " mm of relief");
+
+  /* THE BRACING IS THE OTHER HALF OF THE MODE, so it has to reach the picture
+     — and the check has to be that the picture CHANGED, not that the parameter
+     was written. Comparing height rather than colour, because a brace is a
+     piece of geometry and would still count as present if it were only a
+     different shade of grey. */
+  const braceSig = async v => {
+    await page.evaluate(x => window.Forge.setParam("raceway", "braceAmt", x), v);
+    await page.click("#raceway--forge");
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, N = B.W * B.H;
+      let sum = 0;
+      for (let i = 0; i < N; i += 7) sum += B.HGT[i];
+      return { sum, hi: B.hMax };
+    });
+  };
+  const on = await braceSig(1), off = await braceSig(0);
+  ok("bracing reaches the height field, not just the parameters",
+     Math.abs(on.sum - off.sum) > Math.abs(off.sum) * 1e-4 && on.hi > off.hi,
+     "peak " + (on.hi * 1000).toFixed(1) + " mm braced vs " +
+     (off.hi * 1000).toFixed(1) + " mm bare");
+  await page.evaluate(() => window.Forge.setParam("raceway", "braceAmt", 1));
+  await page.click("#raceway--forge");
+  await settle();
+
+  /* the bend radius is a floor rather than a setting, and the readout has to
+     say when it bound — a silently ignored control is worse than no control */
+  const said = await page.evaluate(async () => {
+    window.Forge.setParam("raceway", "bendMm", 4);
+    window.Forge.setParam("raceway", "groupMax", 8);
+    document.getElementById("raceway--forge").click();
+    await new Promise(r => setTimeout(r, 400));
+    return document.getElementById("raceway--readout").textContent;
+  });
+  await settle();
+  ok("it says when the bend radius had to be opened up", /opened to \d+/.test(said),
+     said.replace(/\s+/g, " ").slice(-96));
+
+  /* the framed piece, same contract as the loom's */
+  await page.selectOption("#raceway--piece", "bay");
+  await page.click("#raceway--forge");
+  await settle();
+  const bay = await page.evaluate(() => {
+    const st = window.Forge.active(), B = st.B, N = B.W * B.H;
+    let clear = 0, solid = 0;
+    for (let i = 0; i < N; i++) { if (B.ALP[i] < 8) clear++; else if (B.ALP[i] > 247) solid++; }
+    return { clear: clear / N, solid: solid / N,
+             cutout: window.Forge.byId["raceway"].plan(st.P).cutout };
+  });
+  ok("the bay is a cut-out piece", bay.cutout === true);
+  ok("the bay silhouette is opaque in the middle", bay.solid > 0.5,
+     (bay.solid * 100).toFixed(1) + "% fully opaque");
+  await page.selectOption("#raceway--piece", "tile");
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();

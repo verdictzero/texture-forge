@@ -358,6 +358,33 @@ modes that use it. Two rules earn their keep:
 - **Key any cache by what varies.** One geometry slot shared by three faces
   means the front's readme prints the side's dimensions.
 
+
+### A worked one: two routing models, one loom
+
+`modes/lib/loom.js` is the sharpest example of where the line goes. Two modes
+draw bundles of conduit on a backplane: `conduit` integrates a heading with a
+wandering turn, `raceway` walks a lattice and fillets every corner. Everything
+else — the materials, the cross-section tables, the stamp, the backplane, the
+framed bay, the shading, the occlusion — is identical, so it lives in the
+library and the modes contribute one function each.
+
+The interface is a **polyline**, not a callback. A mode hands over positions and
+tangents already resampled at `ForgeLoom.stepM(g)`, plus a description of what
+holds the bundle down; the library never asks the mode a question during the
+stamp. Two reasons that shape is worth copying:
+
+- the hot loop stays monomorphic. A per-step callback into mode code would be
+  called a few million times a build and would defeat every hoist in it.
+- the tangent travels *with* the position. On a seamless tile the position
+  wraps, so differencing consecutive points reads the wrap as a jump a whole
+  tile wide — the library would have to know which mode wrapped and where.
+
+The cost of sharing is that **parameter names become an interface**. The library
+reads `cavityMm`, `ribMm`, `oil`, `aoStr` and a dozen more straight off the
+mode's parameters, so both modes declare controls with those ids. That is
+written down at the top of the library, and it is the thing to check first when
+a mode built on a shared file comes out wrong.
+
 ## Talking to another mode
 
 Modes are otherwise sealed from each other, with one exception:
