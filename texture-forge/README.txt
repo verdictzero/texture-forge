@@ -378,14 +378,27 @@ Greeble — machined surface clutter
 
   CONDUIT, routed rather than ruled. A walker starts at a node of a coarse
   lattice, lays a random number of cells in one direction, turns ninety degrees
-  and goes again, until its length is spent. Several walkers share the lattice,
-  so where two runs meet at a node the meeting is a real tee or cross with a
-  cast body on it; a bend is an elbow, a run that stops is a capped stub, and
-  couplings and clamps sit along the runs between. Runs come in up to three
-  diameters and ride on standoffs at a height you set, so they pass over the low
-  blocks and behind the tall ones — which is what stops the pipes reading as
-  decals. Only the lattice EDGES are stored, which is what keeps the lookup one
-  step per texel however long the routes get.
+  and goes again, until its length is spent. A bend is an elbow, a run that
+  stops is a capped stub, and couplings and clamps sit along the runs between.
+  Runs come in up to three diameters and ride on standoffs at a height you set,
+  so they pass over the low blocks and behind the tall ones — which is what
+  stops the pipes reading as decals. Only the lattice EDGES are stored, which is
+  what keeps the lookup one step per texel however long the routes get.
+
+  AND IT IS STACKED. Every route belongs to a LAYER, and a layer is a real
+  height: layer 1 is the fattest and sits on its standoffs, and each layer above
+  it clears the one below by a whole pipe width. Two things follow. A route may
+  only meet a route ON ITS OWN LAYER — the walker will not enter ground another
+  route on its layer holds — so what is left at a node is one run's own doubling
+  back, which is a genuine tee or cross and gets a cast body. And a route
+  crossing a route on ANOTHER layer needs no agreement at all: the upper one is
+  a clear pipe-width above and passes over it. That is the only kind of crossing
+  left in the picture, and it reads as one. Before this, every run was in one
+  plane and a crossing came out as a lump of casting rather than as two pipes.
+
+  Conduit density is PER LAYER, since each layer is its own lattice with its own
+  capacity; adding layers adds conduit rather than thinning what is there over
+  more planes.
 
   This one is the opposite of the hull mode next door: nearly all of its
   character is in HEIGHT, and the colour map is mostly dirt. Blocks stand tens
@@ -554,6 +567,26 @@ Conduit — the loom behind an access panel
   centimetres at each end sink away behind the layers below, with a collar where
   they go, rather than stopping in a flat disc in mid-air.
 
+  THE STRATA ARE WORKED OUT, NOT SPACED OUT. A layer's floor is the layer below
+  it plus the tallest thing standing on that layer, so every layer clears the
+  one under it by construction. Spread evenly through the cavity instead —
+  which is the obvious thing, and was the first thing — a 46 mm duct on the
+  bottom stratum of a 95 mm bay four layers deep has its crown ten millimetres
+  up through the next layer and ten through the one after, so the fat runs stand
+  out of the stratum they belong to and the layering, which is the subject,
+  never reads. If the stack comes out deeper than the cavity, every gauge in it
+  is scaled until it fits, and the readout says by how much: that is the honest
+  answer to five layers in sixty millimetres.
+
+  AND NOTHING IN A LAYER PASSES THROUGH ANYTHING ELSE IN IT. Two bundles at one
+  height that cross do not read as one over the other — the stamp Z-tests, so
+  there is nothing to separate them and the join comes out a lumpy mass. So each
+  layer keeps a claims grid: a route marks the ground it takes as it lays it
+  down, and every later route in that layer steers around it, the way a person
+  dressing a loom does. A route with nowhere left to go ends there, and its tail
+  dives under whatever stopped it. Crossing BETWEEN layers is untouched — it is
+  what the strata are for.
+
   Six finishes, and each one is GEOMETRY rather than a decal — the rings, the
   weave and the spiral go into the height field before the normal is differenced
   out of it, so they survive being lit from any direction. Rigid tube with
@@ -614,14 +647,25 @@ Raceway — conduit dressed to a lattice, braced at intervals
   and peel away through the bend. Started square instead, it would be a pipe
   butted against another pipe.
 
+  KEEPING OUT OF EACH OTHER. Same rule as the loom next door — nothing in a
+  layer passes through anything else in it — but a raceway cannot swerve, since
+  every leg is on an axis and a lean would cost it the only thing it is for. So
+  it turns EARLY instead: it sights one full fillet ahead, which is exactly the
+  distance it needs in order to have turned by the time it arrives, and when
+  that ground is taken the corner it was going to make further along happens
+  here, towards whichever side is open. Mid-fillet there is nothing to be done,
+  so a run boxed in there ends and its tail dives under what boxed it in. A
+  branch is exempt where it leaves its parent: a junction is not a collision.
+
   Presets: cable tray, cooling manifold, server backplane, bulkhead run,
   reactor spine, braced access panel.
 
-  Same two pieces, same materials, same finishes, same backplane and framed bay
-  as the conduit mode — all of that is modes/lib/loom.js, shared between them.
-  The only thing either mode contributes is where the runs go and what holds
-  them: one integrates a heading with a wandering turn, the other walks a
-  lattice and fillets every corner, and the stamp cannot tell them apart.
+  Same two pieces, same materials, same finishes, same backplane, framed bay,
+  strata and claims grid as the conduit mode — all of that is
+  modes/lib/loom.js, shared between them. The only thing either mode
+  contributes is where the runs go and what holds them: one integrates a
+  heading with a wandering turn, the other walks a lattice and fillets every
+  corner, and the stamp cannot tell them apart.
 
 Sheet · Plate · Slab — three panels off one generator
   What they have in common is that they are all a PANEL: a piece of material
@@ -1132,7 +1176,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the seven things that are easy to break silently:
+It also covers the nine things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -1159,7 +1203,25 @@ It also covers the seven things that are easy to break silently:
   conduit   the loom spreads through the whole cavity instead of stacking in
             one plane, the seamless piece wraps, and the framed one is opaque
             in the middle — the check that catches a silhouette seeded at zero
-            rather than −1, which makes a whole piece a uniform ghost
+            rather than −1, which makes a whole piece a uniform ghost. The wrap
+            is measured against a DELIBERATELY WRONG PAIRING of rows rather
+            than a multiple of a handful of interior ones: a fixed multiple
+            measures how busy the mode is more than whether it closes, and a
+            loom is quiet plate with a few busy rows through it, so any row
+            carrying a run along it clears that bar, seam or no seam
+  greeble   a second conduit layer is a second HEIGHT rather than a painting
+            order, and it carries conduit standing above anything a flat build
+            can reach
+  strata    the two guarantees the loom library exists for, on both routing
+            models: that a layer's floor clears the crown of the layer under
+            it, and that nothing in a layer passes through anything else in it.
+            The second is TOPOLOGICAL, because it has to be — the stamp
+            Z-tests, so a crossing at one height leaves no extra relief to
+            measure, only a MERGE — so it builds one layer of eight single
+            conduits on a flat backplane and counts the islands standing above
+            the layer floor. Separate runs leave six or seven; fused, and
+            measured on the code before this change, they leave exactly one.
+            The claims grid and the stack are also exercised directly
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale; and

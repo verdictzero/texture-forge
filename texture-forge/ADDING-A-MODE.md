@@ -379,11 +379,36 @@ stamp. Two reasons that shape is worth copying:
   wraps, so differencing consecutive points reads the wrap as a jump a whole
   tile wide — the library would have to know which mode wrapped and where.
 
+The library also owns two things the *routers* use rather than the stamp, and
+they are worth knowing about because they are the difference between layers and
+a pile:
+
+- `ForgeLoom.strata(specs, layers, cav, seat, air)` works out where each layer
+  sits from the tallest thing actually standing on the layer below, and scales
+  every gauge if the stack comes out deeper than the cavity. Spreading layers
+  evenly through the cavity looks equivalent and is not: a fat run on a low
+  stratum then stands up through two layers above it.
+- `ForgeLoom.claims(g, cellM)` is a grid of ground already taken, cleared
+  between layers. A router marks what it lays down — lagged, so it does not
+  trip over its own feet — and steers around what is already there. It has to,
+  because the stamp's Z-test separates two bundles only when they are at
+  different heights, and two at the same height that cross come out as one lump.
+
+Both take a mode's own decisions as input rather than making them: `conduit`
+dodges by leaning on its heading, `raceway` cannot and turns a corner early
+instead.
+
 The cost of sharing is that **parameter names become an interface**. The library
 reads `cavityMm`, `ribMm`, `oil`, `aoStr` and a dozen more straight off the
 mode's parameters, so both modes declare controls with those ids. That is
 written down at the top of the library, and it is the thing to check first when
 a mode built on a shared file comes out wrong.
+
+One trap it is worth naming, because both of those numbers have a legitimate
+zero: read a parameter with a real default rather than `+p.x || d`. `ribHMm` at
+zero means *no ribs*, and `0 || 7` is seven millimetres of rib with a row of
+rivets down it — a slider whose own minimum silently does the opposite of what
+it says.
 
 ## Talking to another mode
 

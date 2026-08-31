@@ -35,6 +35,21 @@
    cross the higher one wins by arithmetic rather than by draw order,
    which is why a run can pass over one neighbour and under the next.
 
+   WHICH IS ALSO WHY THE Z-TEST IS NOT ENOUGH ON ITS OWN. It separates
+   two bundles only when they are at different heights; two at the SAME
+   height that cross have nothing to separate them and their join comes
+   out a lumpy mass rather than one thing over another. So this file
+   also owns the two things that make a layer a layer, and both are used
+   by the routers rather than by the stamp:
+
+     strata()  where each layer sits, worked out from the tallest thing
+               actually standing on the layer below rather than spread
+               evenly through the cavity
+     claims()  a grid of ground already taken, one layer at a time, so a
+               router can steer around what is already there
+
+   A route may cross anything BELOW it and nothing beside it.
+
    THE CROSS-SECTION IS A FUNCTION OF THE PERPENDICULAR INDEX ALONE, and
    that is the whole performance argument for this file. Nothing about
    how far across a conduit a sample sits changes as the route travels —
@@ -140,6 +155,10 @@ function geom(p){
    repeats along a route */
 function edgeDist(t,p){const f=t/p;return Math.abs(f-Math.round(f))*p;}
 
+/* a number off the parameters, with a default that a legitimate ZERO does not
+   trip over the way `+p.x||d` does */
+function num(v,d){const n=+v;return isFinite(n)?n:d;}
+
 /* Smooth noise along ONE axis. The shared fbm is a two-dimensional field in
    unit tile space that wraps at an integer period, which is exactly right for
    a surface and no use at all for a route: a route is parameterised by arc
@@ -157,6 +176,154 @@ function fbm1(t,oct,seed){
   let amp=1,sum=0,norm=0,p=1;
   for(let k=0;k<oct;k++){sum+=amp*n1(t*p,seed+k*7919);norm+=amp;amp*=0.5;p*=2;}
   return sum/norm;
+}
+
+/* ================== KEEPING TWO HARNESSES OUT OF EACH OTHER ==================
+   A LAYER IS A LAYER ONLY IF NOTHING IN IT PASSES THROUGH ANYTHING ELSE IN IT.
+   Two bundles at the same z0 that cross do not read as one passing over the
+   other — the Z-test has nothing to separate them, so the two half-cylinders
+   merge into one lumpy mass at the join, and the eye reads a casting rather
+   than a pair of harnesses. Crossing between LAYERS is the opposite: it is the
+   whole subject, and the stack below is what guarantees the upper one clears.
+
+   So every layer keeps a claims grid. A route marks the ground it has taken as
+   it lays it down and every later route in that layer steers around it, which
+   is also what a person dressing a loom does: you do not cross a run you have
+   already tied down, you follow it.
+
+   Cells rather than distances. Exact separation between two polylines is a
+   thousand segment tests a step; a coarse grid marked with the bundle's own
+   width answers the only question a router actually asks — "is the ground in
+   front of me taken" — in one array read, and its error is on the side of
+   leaving a gap, which is what a loom looks like anyway.
+
+   MARKED AS A SPAN, NOT AS A DISC. Stamping the whole width at every step is
+   the same cells over and over; a route moves a fraction of a cell a step, so
+   marking one perpendicular line of cells a step covers the same ground for a
+   twentieth of the work. On the outside of the tightest bend the line fans by
+   about a texel and a half between steps, which is a small fraction of a cell,
+   so nothing leaks through the gaps. */
+function claims(g,cellM){
+  const bay=g.bay;
+  const GW=clamp(Math.round(g.Wm/cellM),8,384)|0;
+  const GH=clamp(Math.round(g.Hm/cellM),8,384)|0;
+  const cw=g.Wm/GW,ch=g.Hm/GH;
+  const A=new Uint8Array(GW*GH);
+  /* a bay has edges to fall off; a tile is a torus and has none */
+  function at(gx,gy){
+    if(bay){if(gx<0||gx>=GW||gy<0||gy>=GH)return -1;}
+    else{
+      gx=gx%GW;if(gx<0)gx+=GW;
+      gy=gy%GH;if(gy<0)gy+=GH;
+    }
+    return gy*GW+gx;
+  }
+  const cell=Math.min(cw,ch);
+  const C={
+    cell:cell,
+    clear:function(){A.fill(0);},
+    /* one point. Off a bay is FREE, not taken: a route that leaves the
+       aperture has gone somewhere else in the airframe and the walk ends
+       there on its own terms rather than by collision. */
+    taken:function(x,y){
+      const k=at(Math.floor(x/cw),Math.floor(y/ch));
+      return k>=0&&A[k]!==0;
+    },
+    /* the bundle's own width at a point, sampled ACROSS THE WIDTH AT CELL
+       RESOLUTION. Three samples — the centre and the two edges — is the
+       tempting version and it is wrong: a claimed band a couple of cells wide
+       fits comfortably between the centre sample and an edge sample of a
+       bundle any wider than that, so a run reads open ground where another run
+       is lying, walks into it, and the two fuse exactly as they did before any
+       of this. The step has to be no coarser than the grid it is reading. */
+    clearAt:function(x,y,nx,ny,w){
+      if(C.taken(x,y))return false;
+      if(w<=0)return true;
+      const nS=Math.max(1,Math.ceil(w/(cell*0.8)));
+      for(let k=1;k<=nS;k++){
+        const t=k*w/nS;
+        if(C.taken(x+nx*t,y+ny*t))return false;
+        if(C.taken(x-nx*t,y-ny*t))return false;
+      }
+      return true;
+    },
+    span:function(x,y,nx,ny,rad){
+      const st=Math.min(cw,ch)*0.6;
+      const nS=Math.max(1,Math.ceil(rad/st));
+      for(let k=-nS;k<=nS;k++){
+        const t=k*rad/nS;
+        const i=at(Math.floor((x+nx*t)/cw),Math.floor((y+ny*t)/ch));
+        if(i>=0)A[i]=1;
+      }
+    },
+    /* MARKING HAS TO LAG THE HEAD, or a route's own last step is the thing
+       its lookahead trips over and every run stops after one bend. The trail
+       is held back by more than the lookahead reaches, so a route sees its
+       own older self — which is right, a loom does not cross itself either —
+       and never the ground it is standing on. */
+    trail:function(rad,lagSteps){
+      const L2=Math.max(1,lagSteps|0),BX=new Float64Array(L2),BY=new Float64Array(L2),
+            NX=new Float64Array(L2),NY=new Float64Array(L2);
+      let n=0;
+      return {
+        push:function(x,y,nx,ny){
+          const i=n%L2;
+          if(n>=L2)C.span(BX[i],BY[i],NX[i],NY[i],rad);
+          BX[i]=x;BY[i]=y;NX[i]=nx;NY[i]=ny;n++;
+        },
+        flush:function(){
+          const from=n>L2?n-L2:0;
+          for(let k=from;k<n;k++){const i=k%L2;C.span(BX[i],BY[i],NX[i],NY[i],rad);}
+        }
+      };
+    }
+  };
+  return C;
+}
+
+/* ============================== THE STACK ==============================
+   WHERE EACH LAYER SITS, WORKED OUT FROM WHAT IS IN IT. Spreading the layers
+   evenly across the cavity — which is the obvious thing, and was the first
+   thing — puts a 46 mm duct on the bottom stratum of a 95 mm bay four layers
+   deep and then puts the next layer 13 mm above it. The duct's crown is 10 mm
+   through that layer and 10 mm through the one after, so the fat runs stand up
+   out of the strata they belong to and the layering, which is the subject,
+   never reads at all.
+
+   The bands come off the geometry instead: a layer's floor is the layer below
+   it plus the tallest thing standing on it. That cannot overflow silently
+   either — if the stack comes out deeper than the cavity, everything in it is
+   scaled to fit, which is the honest answer to "five layers in 60 mm": the
+   conduits have to be thinner.
+
+     specs   [{layer, kind, r, fitK}] — fitK is how many of its OWN radii the
+             fitting on it stands above the underside, 0 for none
+   returns {z, h, scale, top}: z[l] the underside of layer l and h[l] the
+   tallest thing standing on it, both AFTER any scaling. */
+function standing(kind,r,fitK){
+  const K=KIND[kind|0]||KIND[0];
+  /* crown, plus whatever the finish adds to it, plus the collar */
+  const own=r*(K.hs+K.det+0.20);
+  const fit=r*(fitK||0);
+  return own>fit?own:fit;
+}
+function strata(specs,layers,cav,seat,air){
+  const L2=Math.max(1,layers|0);
+  const H=new Float64Array(L2);
+  for(let i=0;i<specs.length;i++){
+    const B=specs[i],l=clamp(B.layer|0,0,L2-1);
+    const h=standing(B.kind,B.r,B.fitK);
+    if(h>H[l])H[l]=h;
+  }
+  const z=new Float64Array(L2);
+  const gap=1+Math.max(0,air===undefined?0.12:air);
+  let acc=Math.max(0,seat||0);
+  for(let l=0;l<L2;l++){z[l]=acc;acc+=H[l]*gap;}
+  const room=Math.max(0.001,cav*0.94);
+  const k=acc>room?room/acc:1;
+  if(k<1)for(let l=0;l<L2;l++)z[l]*=k;
+  if(k<1)for(let l=0;l<L2;l++)H[l]*=k;
+  return {z:z,h:H,scale:k,top:acc*k};
 }
 
 /* ============================ the backplane ============================
@@ -183,7 +350,10 @@ function backplane(HGT,g,p,N){
     ribX=g.Wm/Math.max(1,Math.round(g.Wm/ribX));
   }
   const ribW=Math.max(0.004,(+p.ribWMm||16)/1000);
-  const ribH=Math.max(0,(+p.ribHMm||7)/1000);
+  /* NOT (+p.ribHMm||7). Zero is a setting here — the slider's own minimum, and
+     the way a person turns the ribs off — and a falsy default silently turns it
+     back into seven millimetres of rib with a row of rivets down it. */
+  const ribH=Math.max(0,num(p.ribHMm,7)/1000);
   const holeR=Math.max(0,(+p.holeMm||0)/2000);
   const holeOn=holeR>0.002;
   const flange=Math.max(0.0015,holeR*0.16);
@@ -480,7 +650,7 @@ function frame(BUF,g,p,N){
   const HGT=BUF.HGT,ALP=BUF.ALP,TAG=BUF.TAG;
   const fw=Math.max(0.004,(+p.frameMm||26)/1000);
   const cav=Math.max(0.01,(+p.cavityMm||95)/1000);
-  const rad=Math.max(0,(+p.cornerMm||18)/1000);
+  const rad=Math.max(0,num(p.cornerMm,18)/1000);   // zero is a square corner, not the default
   const fast=!!p.fasteners;
   const aa=mpp*1.1;
   const W=g.Wm,H=g.Hm;
@@ -815,6 +985,7 @@ function build(p,io,spec){
 window.ForgeLoom={
   MAT:MAT,MATBY:MATBY,KIND:KIND,IDENT:IDENT,
   isBay:isBay,geom:geom,edgeDist:edgeDist,n1:n1,fbm1:fbm1,
+  claims:claims,strata:strata,standing:standing,
   /* the spacing every router must resample its polyline at */
   stepM:function(g){return g.mpp*0.8;},
   build:build

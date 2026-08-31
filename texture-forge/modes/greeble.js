@@ -58,52 +58,82 @@ function edgeDist(t,p){const f=t/p;return Math.abs(f-Math.round(f))*p;}
 /* ============================ the conduit network ============================
    Conduit is ROUTED rather than ruled. A walker starts at a node of an Ng x Ng
    lattice, lays a random number of cells in one direction, turns ninety degrees
-   and goes again, until its length is spent; several walkers share the lattice,
-   so where two runs meet at a node the meeting is a real tee or cross. The
-   lattice is on the torus, so every route wraps with it.
+   and goes again, until its length is spent; several walkers share the lattice.
+   The lattice is on the torus, so every route wraps with it.
+
+   IT IS ALSO STACKED. Every route belongs to a LAYER, and a layer is a real
+   height: layer 0 sits on its standoffs off the plate, layer 1 sits a fat
+   pipe's clearance above that, and so on. Two things follow, and they are the
+   whole point of the arrangement.
+
+   First, a route may only ever meet a route ON ITS OWN LAYER. Runs on one
+   layer are all at one height, so where two of them met the Z-test had nothing
+   to separate them and the join came out as a lump of casting rather than as
+   two pipes — so the walker will not enter a node another route on its layer
+   already holds, and turns or stops instead. What is left at a node is one
+   route's own doubling back, which is a genuine tee or cross and gets a body.
+
+   Second, a route crossing a route on ANOTHER layer needs no agreement at all:
+   the upper one is a clear pipe-width above and passes over it. That is the
+   only kind of crossing left in the picture, and it reads as one.
 
    Only the EDGES are stored, one byte each, which is what keeps the lookup O(1)
    per texel: the nearest horizontal run can only be on the nearest lattice ROW
    and the nearest vertical run on the nearest COLUMN, provided no pipe is
    fatter than half the lattice spacing. That is enforced where the radii are
    chosen, and the fittings — which are fatter — are looked up against the four
-   corners of the cell the texel sits in instead. */
+   corners of the cell the texel sits in instead. A node can carry a fitting on
+   more than one layer, so those are stored per layer behind a bitmask of which
+   layers have one, and the texel loop walks the set bits rather than all of
+   them: nearly every node has none or one. */
 function buildPipes(o){
-  const N=o.n,rng=mulberry32((o.seed|0)*2654435761+31);
-  const HE=new Uint8Array(N*N),VE=new Uint8Array(N*N);   // route id + 1; 0 = bare
-  const deg=new Uint8Array(N*N),nodeG=new Uint8Array(N*N);
-  nodeG.fill(255);                                       // gauge 0 is the FATTEST pipe
-  const gauge=[];
+  const N=o.n,NN=N*N,L=Math.max(1,o.layers|0);
+  const rng=mulberry32((o.seed|0)*2654435761+31);
+  const HE=new Uint8Array(NN),VE=new Uint8Array(NN);      // route id + 1; 0 = bare
+  const occ=new Uint8Array(L*NN);                         // who holds a node, per layer
+  const fdeg=new Uint8Array(L*NN),fg=new Uint8Array(L*NN);
+  const fmask=new Uint8Array(NN);
+  const gauge=[],rlayer=[];
   const DX=[1,0,-1,0],DY=[0,1,0,-1];
   const wrap=k=>((k%N)+N)%N;
   for(let r=0;r<o.routes&&r<250;r++){
-    const id=r+1,g=Math.floor(rng()*o.gauges);
-    gauge.push(g);
+    const id=r+1;
+    /* LAYERS ROUND-ROBIN AND THE GAUGE FOLLOWS THE LAYER. The fat runs went in
+       first and are at the bottom; the fine ones were threaded over them
+       afterwards. Drawn independently, half the fat pipes end up on top and
+       the stack reads as a pile rather than as an order of assembly. */
+    const Ly=r%L;
+    const g=Math.min(o.gauges-1,Math.floor((Ly+rng())*o.gauges/L));
+    gauge.push(g);rlayer.push(Ly);
+    const base=Ly*NN;
     let i=Math.floor(rng()*N),j=Math.floor(rng()*N),d=Math.floor(rng()*4);
+    if(occ[base+j*N+i])continue;                          // somebody else's ground
     let budget=Math.max(3,Math.round(N*(0.8+rng()*1.7)));
     let stuck=0;
     while(budget>0&&stuck<8){
       let run=1+Math.floor(rng()*o.maxRun),moved=0;
       while(run>0&&budget>0){
         const dx=DX[d],dy=DY[d];
+        const ni=wrap(i+dx),nj=wrap(j+dy),nk=nj*N+ni;
+        /* the node it is about to stand on, on its own layer only */
+        if(occ[base+nk]&&occ[base+nk]!==id)break;
         let ei;
         if(dy===0){ei=j*N+(dx>0?i:wrap(i-1));if(HE[ei])break;HE[ei]=id;}
         else      {ei=(dy>0?j:wrap(j-1))*N+i;if(VE[ei])break;VE[ei]=id;}
         let k=j*N+i;
-        if(deg[k]<255)deg[k]++;if(g<nodeG[k])nodeG[k]=g;
-        i=wrap(i+dx);j=wrap(j+dy);
-        k=j*N+i;
-        if(deg[k]<255)deg[k]++;if(g<nodeG[k])nodeG[k]=g;
+        occ[base+k]=id;fg[base+k]=g;fmask[k]|=1<<Ly;
+        if(fdeg[base+k]<255)fdeg[base+k]++;
+        i=ni;j=nj;k=nk;
+        occ[base+k]=id;fg[base+k]=g;fmask[k]|=1<<Ly;
+        if(fdeg[base+k]<255)fdeg[base+k]++;
         run--;budget--;moved++;
       }
       stuck=moved?0:stuck+1;
       d=(d+(rng()<0.5?1:3))&3;                             // ninety degrees, either way
     }
   }
-  /* a fitting is sized off the fattest run reaching its node; bare nodes are
-     never looked at, but leaving 255 in them would index off the radius table */
-  for(let k=0;k<N*N;k++)if(nodeG[k]===255)nodeG[k]=0;
-  return {n:N,HE:HE,VE:VE,deg:deg,nodeG:nodeG,gauge:gauge};
+  return {n:N,layers:L,HE:HE,VE:VE,fdeg:fdeg,fg:fg,fmask:fmask,
+          gauge:gauge,rlayer:rlayer};
 }
 
 /* ============================ the generator ============================ */
@@ -166,9 +196,29 @@ function build(params,io){
   const RAD=[R0,R0*0.68,R0*0.45];
   const pipeOn=P.pipes>0&&R0>px;
   const pipeSeat=blockH*clamp(+P.pipeRise,0,2);    // on standoffs, not lying on the plate
-  const PN=pipeOn?buildPipes({n:Ng,seed:seed+601,gauges:nGauge,
-                              routes:Math.max(1,Math.round(P.pipes*Ng*0.75)),
+  const nLay=clamp(P.pipeLayers|0,1,4);
+  /* DENSITY IS PER LAYER. Each layer is its own lattice at its own height with
+     its own capacity, so the same number of routes spread over three of them
+     would be a third of the conduit on each and the picture would empty out as
+     you added layers — which is the opposite of what the control says. */
+  const PN=pipeOn?buildPipes({n:Ng,seed:seed+601,gauges:nGauge,layers:nLay,
+                              routes:nLay*Math.max(1,Math.round(P.pipes*Ng*0.75)),
                               maxRun:Math.max(1,P.pipeRun|0)}):null;
+  /* WHERE EACH LAYER STANDS, off the fattest pipe actually on the layer below
+     rather than off a fixed step. A fitting reaches 1.06 of its own radius
+     above its seat, so 1.3 of the radius under it is what a run needs in order
+     to pass over the layer below rather than through its couplings. */
+  const SEAT=new Float64Array(nLay);
+  if(PN){
+    const LR=new Float64Array(nLay);
+    for(let r=0;r<PN.rlayer.length;r++){
+      const rr2=RAD[PN.gauge[r]];
+      if(rr2>LR[PN.rlayer[r]])LR[PN.rlayer[r]]=rr2;
+    }
+    SEAT[0]=pipeSeat;
+    for(let l=1;l<nLay;l++)SEAT[l]=SEAT[l-1]+Math.max(LR[l-1]*1.30,px*2);
+  }
+  const layK=nLay>1?1/(nLay-1):0;
   /* the clamp pitch has to divide the tile exactly or the last collar before
      the edge is cut in half and the run does not wrap */
   const clampPitch=1/(Ng*2);
@@ -387,7 +437,7 @@ function build(params,io){
         }
 
         /* ---------------- routed conduit ---------------- */
-        let pipe=0,fit=0,gsel=0;
+        let pipe=0,fit=0,gsel=0,lsel=0;
         if(pipeOn){
           let top=-1e30,mask=0;
 
@@ -396,62 +446,77 @@ function build(params,io){
              at either node of it */
           const jr=Math.round(v*Ng),jw=((jr%Ng)+Ng)%Ng,dv=Math.abs(v-jr/Ng);
           const ic=Math.floor(u*Ng),icw=((ic%Ng)+Ng)%Ng;
-          let d=1e9,g=0;
+          let d=1e9,g=0,ly=0;
           const eH=PN.HE[jw*Ng+icw];
-          if(eH){d=dv;g=PN.gauge[eH-1];}
+          if(eH){d=dv;g=PN.gauge[eH-1];ly=PN.rlayer[eH-1];}
           else{
             const eL=PN.HE[jw*Ng+((icw+Ng-1)%Ng)];
-            if(eL){const du=u-ic/Ng,dd=Math.sqrt(du*du+dv*dv);if(dd<d){d=dd;g=PN.gauge[eL-1];}}
+            if(eL){const du=u-ic/Ng,dd=Math.sqrt(du*du+dv*dv);
+                   if(dd<d){d=dd;g=PN.gauge[eL-1];ly=PN.rlayer[eL-1];}}
             const eR=PN.HE[jw*Ng+((icw+1)%Ng)];
-            if(eR){const du=(ic+1)/Ng-u,dd=Math.sqrt(du*du+dv*dv);if(dd<d){d=dd;g=PN.gauge[eR-1];}}
+            if(eR){const du=(ic+1)/Ng-u,dd=Math.sqrt(du*du+dv*dv);
+                   if(dd<d){d=dd;g=PN.gauge[eR-1];ly=PN.rlayer[eR-1];}}
           }
           if(d<RAD[g]){
             const R=RAD[g];
-            let ph=pipeSeat+Math.sqrt(1-(d/R)*(d/R))*R;
+            let ph=SEAT[ly]+Math.sqrt(1-(d/R)*(d/R))*R;
             ph+=(1-smoothstep(clampPitch*0.09,clampPitch*0.15,edgeDist(u,clampPitch)))*R*0.15*P.pipeFit;
-            if(ph>top){top=ph;mask=1-smoothstep(R*0.86,R,d);gsel=g;}
+            if(ph>top){top=ph;mask=1-smoothstep(R*0.86,R,d);gsel=g;lsel=ly;}
           }
 
           /* vertical runs, the same way down the nearest lattice column */
           const ir=Math.round(u*Ng),iw=((ir%Ng)+Ng)%Ng,du2=Math.abs(u-ir/Ng);
           const jc=Math.floor(v*Ng),jcw=((jc%Ng)+Ng)%Ng;
-          d=1e9;g=0;
+          d=1e9;g=0;ly=0;
           const eV=PN.VE[jcw*Ng+iw];
-          if(eV){d=du2;g=PN.gauge[eV-1];}
+          if(eV){d=du2;g=PN.gauge[eV-1];ly=PN.rlayer[eV-1];}
           else{
             const eD=PN.VE[((jcw+Ng-1)%Ng)*Ng+iw];
-            if(eD){const dvv=v-jc/Ng,dd=Math.sqrt(du2*du2+dvv*dvv);if(dd<d){d=dd;g=PN.gauge[eD-1];}}
+            if(eD){const dvv=v-jc/Ng,dd=Math.sqrt(du2*du2+dvv*dvv);
+                   if(dd<d){d=dd;g=PN.gauge[eD-1];ly=PN.rlayer[eD-1];}}
             const eU=PN.VE[((jcw+1)%Ng)*Ng+iw];
-            if(eU){const dvv=(jc+1)/Ng-v,dd=Math.sqrt(du2*du2+dvv*dvv);if(dd<d){d=dd;g=PN.gauge[eU-1];}}
+            if(eU){const dvv=(jc+1)/Ng-v,dd=Math.sqrt(du2*du2+dvv*dvv);
+                   if(dd<d){d=dd;g=PN.gauge[eU-1];ly=PN.rlayer[eU-1];}}
           }
           if(d<RAD[g]){
             const R=RAD[g];
-            let ph=pipeSeat+Math.sqrt(1-(d/R)*(d/R))*R;
+            let ph=SEAT[ly]+Math.sqrt(1-(d/R)*(d/R))*R;
             ph+=(1-smoothstep(clampPitch*0.09,clampPitch*0.15,edgeDist(v,clampPitch)))*R*0.15*P.pipeFit;
-            if(ph>top){top=ph;mask=1-smoothstep(R*0.86,R,d);gsel=g;}
+            if(ph>top){top=ph;mask=1-smoothstep(R*0.86,R,d);gsel=g;lsel=ly;}
           }
 
           /* fittings sit ON a node and are fatter than the pipe, so they are
              looked up against all four corners of the cell rather than against
-             the nearest node alone */
+             the nearest node alone — and against every LAYER that has one
+             there, since a node under a crossing carries a coupling below and
+             a bare run over it. The mask is walked a set bit at a time because
+             a node with a fitting on more than one layer is rare. */
+          let fitFace=0;
           for(let c=0;c<4;c++){
             const ni=ic+(c&1),nj=jc+(c>>1);
             const k=(((nj%Ng)+Ng)%Ng)*Ng+(((ni%Ng)+Ng)%Ng);
-            const dg=PN.deg[k];
-            if(!dg)continue;
-            /* a tee or a cross always gets a body; an elbow or a coupling gets
-               one only sometimes, or every joint on the run reads as machined
-               out of one billet */
-            if(dg<3&&hashi(ni,nj,seed+809)>=P.pipeFit*0.32)continue;
-            const R=RAD[PN.nodeG[k]];
-            const Rf=Math.min(R*(dg>=3?1.44:(dg===1?1.30:1.22)),fitCap);
-            const ddx=u-ni/Ng,ddy=v-nj/Ng,dr=Math.sqrt(ddx*ddx+ddy*ddy);
-            if(dr>=Rf)continue;
-            const face=1-smoothstep(Rf-bev,Rf,dr);
-            const ph=pipeSeat+R*(dg===1?0.95:1.06)*face;
-            if(ph>top){top=ph;mask=face;gsel=PN.nodeG[k];}
-            if(face>fit)fit=face;
+            let msk=PN.fmask[k];
+            while(msk){
+              const lo=msk&-msk,Ly=31-Math.clz32(lo);
+              msk^=lo;
+              const dg=PN.fdeg[Ly*Ng*Ng+k];
+              if(!dg)continue;
+              /* a tee or a cross always gets a body; an elbow or a coupling gets
+                 one only sometimes, or every joint on the run reads as machined
+                 out of one billet */
+              if(dg<3&&hashi(ni,nj,seed+809+Ly*911)>=P.pipeFit*0.32)continue;
+              const R=RAD[PN.fg[Ly*Ng*Ng+k]];
+              const Rf=Math.min(R*(dg>=3?1.44:(dg===1?1.30:1.22)),fitCap);
+              const ddx=u-ni/Ng,ddy=v-nj/Ng,dr=Math.sqrt(ddx*ddx+ddy*ddy);
+              if(dr>=Rf)continue;
+              const face=1-smoothstep(Rf-bev,Rf,dr);
+              const ph=SEAT[Ly]+R*(dg===1?0.95:1.06)*face;
+              /* only the fitting that WINS the height test may tint the
+                 surface — one buried under the run over it is not visible */
+              if(ph>top){top=ph;mask=face;gsel=PN.fg[Ly*Ng*Ng+k];lsel=Ly;fitFace=face;}
+            }
           }
+          fit=fitFace;
 
           if(top>h){h=top;pipe=mask;}
           else fit=0;
@@ -472,7 +537,12 @@ function build(params,io){
         const recess=clamp((1-plate)*0.9+subGap*0.30+boreM*0.7+cutM*0.85+rimM*0.6,0,1);
         r=lerp(r,dark[0],recess*0.8);g2=lerp(g2,dark[1],recess*0.8);b=lerp(b,dark[2],recess*0.8);
         if(pipe>0){
-          const pk=pipe*0.9,ps=0.88+hashi(gsel,7,seed+821)*0.3;
+          /* the deeper a run sits the duller it is. The occlusion pass already
+             darkens what is down in the stack, but a flat tint on top of it is
+             what makes two runs crossing read as one over the other at a glance
+             rather than only under raking light. */
+          const lt=0.84+0.16*(lsel*layK);
+          const pk=pipe*0.9,ps=(0.88+hashi(gsel,7,seed+821)*0.3)*lt;
           r=lerp(r,metal[0]*ps*1.06,pk);g2=lerp(g2,metal[1]*ps*1.06,pk);b=lerp(b,metal[2]*ps*1.04,pk);
         }
         if(fit>0){                                       // fittings are a duller casting
@@ -580,7 +650,7 @@ Forge.register({
       featDens:.72,vents:.3,ports:.22,pockets:.3,caps:.3,fins:.22,hexb:.2,
       grille:.18,steps:.2,hatch:.16,drum:.12,wedge:.12,
       bolts:.45,boltD:7,lamps:.1,
-      pipes:.4,pipeD:16,pipeRise:.7,pipeGrid:10,pipeRun:4,pipeGauge:3,pipeFit:.7,
+      pipes:.4,pipeD:16,pipeRise:.7,pipeGrid:10,pipeRun:4,pipeGauge:3,pipeLayers:2,pipeFit:.7,
       accent:.06,grime:.4,scratch:.35,rough:.46,metalness:.9,
       cMetal:"#8d9297",cDark:"#33373b",cAccent:"#9a7c33",cLamp:"#ff7a3c"}},
     {id:"machinebay",label:"Machine bay — coarse",set:{
@@ -590,7 +660,7 @@ Forge.register({
       featDens:.8,vents:.4,ports:.3,pockets:.25,caps:.3,fins:.3,hexb:.25,
       grille:.25,steps:.25,hatch:.3,drum:.28,wedge:.15,
       bolts:.55,boltD:14,lamps:.16,
-      pipes:.85,pipeD:48,pipeRise:.55,pipeGrid:7,pipeRun:3,pipeGauge:3,pipeFit:.85,
+      pipes:.85,pipeD:48,pipeRise:.55,pipeGrid:7,pipeRun:3,pipeGauge:3,pipeLayers:2,pipeFit:.85,
       accent:.1,grime:.62,scratch:.4,rough:.55,metalness:.85,
       cMetal:"#7f858a",cDark:"#2b2e31",cAccent:"#b08a1e",cLamp:"#ffb02e"}},
     {id:"reactor",label:"Reactor face — lit",set:{
@@ -600,7 +670,7 @@ Forge.register({
       featDens:.85,vents:.28,ports:.45,pockets:.28,caps:.2,fins:.35,hexb:.3,
       grille:.3,steps:.2,hatch:.35,drum:.2,wedge:.1,
       bolts:.4,boltD:10,lamps:.55,
-      pipes:.6,pipeD:30,pipeRise:.6,pipeGrid:9,pipeRun:2,pipeGauge:3,pipeFit:.9,
+      pipes:.6,pipeD:30,pipeRise:.6,pipeGrid:9,pipeRun:2,pipeGauge:3,pipeLayers:3,pipeFit:.9,
       accent:.08,grime:.3,scratch:.2,rough:.38,metalness:.92,
       cMetal:"#6f767d",cDark:"#202428",cAccent:"#7a4a2a",cLamp:"#49d8ff"}},
     {id:"servicepanel",label:"Service panel — shallow",set:{
@@ -610,7 +680,7 @@ Forge.register({
       featDens:.7,vents:.5,ports:.15,pockets:.4,caps:.1,fins:.15,hexb:.15,
       grille:.3,steps:.15,hatch:.2,drum:.08,wedge:.08,
       bolts:.7,boltD:9,lamps:.05,
-      pipes:.2,pipeD:18,pipeRise:.75,pipeGrid:12,pipeRun:5,pipeGauge:2,pipeFit:.5,
+      pipes:.2,pipeD:18,pipeRise:.75,pipeGrid:12,pipeRun:5,pipeGauge:2,pipeLayers:1,pipeFit:.5,
       accent:.1,grime:.5,scratch:.5,rough:.6,metalness:.75,
       cMetal:"#96999b",cDark:"#3a3d40",cAccent:"#8c8f93",cLamp:"#66ff9c"}},
     {id:"pipeworks",label:"Pipe works — conduit heavy",set:{
@@ -620,7 +690,7 @@ Forge.register({
       featDens:.55,vents:.25,ports:.35,pockets:.3,caps:.15,fins:.15,hexb:.2,
       grille:.15,steps:.1,hatch:.25,drum:.3,wedge:.1,
       bolts:.35,boltD:11,lamps:.12,
-      pipes:1,pipeD:60,pipeRise:.85,pipeGrid:6,pipeRun:2,pipeGauge:3,pipeFit:1,
+      pipes:1,pipeD:60,pipeRise:.85,pipeGrid:6,pipeRun:2,pipeGauge:3,pipeLayers:3,pipeFit:1,
       accent:.07,grime:.55,scratch:.3,rough:.5,metalness:.88,
       cMetal:"#828a90",cDark:"#2a2e32",cAccent:"#9c6f2a",cLamp:"#ff9d3c"}}
   ],
@@ -679,17 +749,23 @@ Forge.register({
       {type:"note",html:"Independent of the shape, and skipped on any face too small to hold them."}
     ]},
     {title:"Conduit",open:true,rows:[
-      {id:"pipes",label:"Conduit density",min:0,max:1,step:0.01,value:0.45},
+      {id:"pipes",label:"Conduit density",unit:"per layer",min:0,max:1,step:0.01,value:0.45},
       {id:"pipeGrid",label:"Route grid",unit:"cells",min:2,max:32,step:1,value:9},
       {id:"pipeRun",label:"Cells before a turn",min:1,max:10,step:1,value:3},
       {id:"pipeD",label:"Largest conduit",unit:"mm",min:3,max:200,step:1,value:30},
       {id:"pipeRise",label:"Standoff height",min:0,max:1.6,step:0.02,value:0.6},
       {id:"pipeGauge",label:"Diameters in use",min:1,max:3,step:1,value:3},
+      {id:"pipeLayers",label:"Conduit layers",min:1,max:4,step:1,value:2},
       {id:"pipeFit",label:"Couplings & clamps",min:0,max:1,step:0.01,value:0.75},
       {type:"note",html:"Runs are <b>routed</b>: a walker lays a random number of cells, turns "+
-        "ninety degrees and goes again. Where two runs meet at a node you get a real tee or "+
-        "cross with a cast body; a run that stops gets a capped stub. Conduit passes over the "+
-        "low blocks and behind the tall ones."}
+        "ninety degrees and goes again. Conduit passes over the low blocks and behind the "+
+        "tall ones."},
+      {type:"note",html:"<b>Layers</b> are heights, not just an ordering. Layer 1 is the "+
+        "fattest and sits on its standoffs; each layer above clears the one below by a whole "+
+        "pipe width. Two runs on the <b>same</b> layer never meet — a route will not enter "+
+        "ground another route on its layer holds, so what you get at a node is one run's own "+
+        "tee or cross with a cast body. Two runs on <b>different</b> layers cross freely, and "+
+        "the upper one passes over."}
     ]},
     {title:"Colour & wear",rows:[
       {type:"colors",label:"Metal · recess · accent · lamp",items:[
@@ -745,7 +821,8 @@ Forge.register({
       const Ng=clamp(P.pipeGrid|0,2,64);
       const capMm=0.76/Ng*T*1000;                       // the lattice caps the diameter
       const dMm=Math.min(+P.pipeD,capMm);
-      m+="<br>conduit cell <b>"+(T/Ng*100).toFixed(0)+" cm</b> · largest run <b>"+dMm.toFixed(0)+" mm</b>";
+      m+="<br>conduit cell <b>"+(T/Ng*100).toFixed(0)+" cm</b> · largest run <b>"+dMm.toFixed(0)+" mm</b>"+
+        " · <b>"+clamp(P.pipeLayers|0,1,4)+"</b> layer(s)";
       if(dMm<+P.pipeD-0.5)m+=" — capped by the route grid";
       const pipePx=dMm/1000*pxPerM;
       if(pipePx<2.5)m+="<br><b>conduit "+pipePx.toFixed(1)+" px</b> — it will not read; widen it or coarsen the grid";
@@ -789,7 +866,9 @@ Forge.register({
       "occlusion, if the surface is ever seen from the side.",
       "",
       tiers+" plate tier(s); conduit routed on a "+Ng+"x"+Ng+" lattice, turning ninety",
-      "degrees at most every "+(P.pipeRun|0)+" cell(s), in "+clamp(P.pipeGauge|0,1,3)+" diameter(s).",
+      "degrees at most every "+(P.pipeRun|0)+" cell(s), in "+clamp(P.pipeGauge|0,1,3)+" diameter(s)",
+      "over "+clamp(P.pipeLayers|0,1,4)+" layer(s). A layer is a height: nothing on one layer",
+      "passes through anything else on it, and a run on a layer above crosses over.",
       "",
       "basecolor.png  sRGB albedo. Import as sRGB / colour data.",
       "normal.png     Tangent space, "+info.normalNote+". Non-colour.",

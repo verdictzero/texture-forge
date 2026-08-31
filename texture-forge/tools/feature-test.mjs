@@ -756,12 +756,21 @@ if (want("conduit")) {
       for (let x = 0; x < W; x++) s += Math.abs(a[(y1 * W + x) * st2] - a[(y2 * W + x) * st2]);
       return s / W;
     };
-    let inX = 0, inY = 0;
-    for (let k = 1; k <= 8; k++) { inX += d(B.A, 3, k * 50, k * 50 + 1); inY += dr(B.A, 3, k * 50, k * 50 + 1); }
+    /* THE WRAP AGAINST A DELIBERATELY WRONG PAIRING, which is what a broken
+       wrap would BE: the last row against rows it has nothing to do with. A
+       fixed multiple of a handful of interior pairs measures how busy the mode
+       is more than whether it wraps — a loom is quiet plate with a few busy
+       rows through it, so eight arbitrary rows are a low bar that any row
+       carrying a run along it clears, seam or no seam. Measured over eight
+       seeds and both modes, a wrap that closes comes out at 0.1–0.6 of the
+       wrong pairing and a wrong pairing is 1.0 by construction. */
+    const mism = (a, st2, f, at) => (at.reduce((t, k) => t + f(a, st2, k[0], k[1]), 0)) / at.length;
     return {
       span, used,
-      wrapX: d(B.A, 3, W - 1, 0), inX: inX / 8,
-      wrapY: dr(B.A, 3, H - 1, 0), inY: inY / 8,
+      wrapX: d(B.A, 3, W - 1, 0),
+      bogX: mism(B.A, 3, d, [[W - 1, W >> 1], [W - 1, W >> 2], [W - 1, (3 * W) >> 2]]),
+      wrapY: dr(B.A, 3, H - 1, 0),
+      bogY: mism(B.A, 3, dr, [[H - 1, H >> 1], [H - 1, H >> 2], [H - 1, (3 * H) >> 2]]),
       plan: window.Forge.byId["conduit"].plan(window.Forge.active().P)
     };
   });
@@ -772,13 +781,14 @@ if (want("conduit")) {
   ok("the layers are spread through it, not stacked in one plane", R.used >= 5,
      R.used + " of 10 height bands carry real area");
 
-  /* a seam that is no worse than any other pair of neighbouring columns is not
-     a seam; comparing it against a fixed threshold would only measure how busy
-     the mode is */
-  ok("the tile wraps left to right", R.wrapX <= R.inX * 1.35,
-     R.wrapX.toFixed(1) + " across the wrap vs " + R.inX.toFixed(1) + " inside");
-  ok("and top to bottom", R.wrapY <= R.inY * 1.35,
-     R.wrapY.toFixed(1) + " across the wrap vs " + R.inY.toFixed(1) + " inside");
+  /* a wrap that closes agrees with itself far better than two rows picked at
+     random do; a wrap that does not is exactly a pair picked at random */
+  ok("the tile wraps left to right", R.wrapX <= R.bogX * 0.65,
+     R.wrapX.toFixed(1) + " across the wrap vs " + R.bogX.toFixed(1) +
+     " for columns that do not belong together");
+  ok("and top to bottom", R.wrapY <= R.bogY * 0.65,
+     R.wrapY.toFixed(1) + " across the wrap vs " + R.bogY.toFixed(1) +
+     " for rows that do not belong together");
   ok("it reports a real panel size in metres", R.plan.w > 0.15 && R.plan.w < 2.5,
      R.plan.w.toFixed(3) + " m");
   ok("the seamless piece is not a cut-out", R.plan.cutout === false);
@@ -805,6 +815,185 @@ if (want("conduit")) {
   ok("and cut away at the corners", bay.clear > 0.001 && bay.clear < 0.25,
      (bay.clear * 100).toFixed(2) + "% fully clear");
   await page.selectOption("#conduit--piece", "tile");
+}
+
+/* ==================== greeble's conduit, stacked ====================
+   The third routing model, and the oldest: a walker on a lattice rather than a
+   polyline. It gained the same two properties by a different mechanism — a
+   route may not enter a node another route ON ITS LAYER holds, and each layer
+   stands a fat pipe's clearance above the one below — so what is checked here
+   is that the second height is real and carries conduit, which a single-layer
+   build cannot produce however dense it is. */
+if (want("greeble")) {
+  console.log("\n— greeble's stacked conduit —");
+  await page.click('#modebar-tabs [data-mode="greeble"]');
+  await settle();
+  const set = async o => {
+    await page.evaluate(c => { for (const k in c) window.Forge.setParam("greeble", k, c[k]); }, o);
+    await page.click("#greeble--forge");
+    await settle();
+  };
+  const above = cut => page.evaluate(c => {
+    const B = window.Forge.active().B, HG = B.HGT;
+    let a = 0;
+    for (let i = 0; i < HG.length; i++) if (HG[i] > c) a++;
+    return a / HG.length;
+  }, cut);
+  const hMax = () => page.evaluate(() => window.Forge.active().B.hMax);
+
+  const base = { size: 512, tileM: 2, pipes: 1, pipeGrid: 6, pipeD: 60,
+                 pipeGauge: 3, pipeFit: 0.9 };
+
+  await set({ ...base, pipeLayers: 1 });
+  const h1 = await hMax();
+
+  await set({ ...base, pipeLayers: 3 });
+  const h3 = await hMax(), over = await above(h1);
+
+  /* the bug this is here for: layers that are only a painting order and not a
+     height, which leaves every run in one plane and every crossing a fused
+     lump — the whole point of the change */
+  ok("greeble: a second layer is a second height", h3 > h1 * 1.15,
+     "tallest thing " + (h1 * 1000).toFixed(1) + " → " + (h3 * 1000).toFixed(1) +
+     " tile-thousandths");
+  /* and it is not just headroom: a real fraction of the tile is conduit sitting
+     ABOVE everything a flat build can reach, blocks and all */
+  ok("greeble: the upper layers carry conduit, not just headroom", over > 0.003,
+     (over * 100).toFixed(1) + "% of the tile stands above anything a " +
+     "single-layer build reaches");
+}
+
+/* ==================== the strata, and keeping out of each other ====================
+   The two properties the loom library exists to guarantee, checked on both
+   routing models: that a layer clears the one under it, and that nothing in a
+   layer passes through anything else in it.
+
+   THE SECOND ONE IS TOPOLOGICAL, because it has to be. Two bundles crossing at
+   the same height do not stack — the stamp Z-tests, so the taller sample wins
+   and the crossing leaves no extra relief to measure. What it leaves is a
+   MERGE: two islands of conduit become one. So the check builds a deliberately
+   bare configuration — one layer, eight single conduits, no clamps, no braces,
+   a flat backplane — and counts the connected islands standing above the
+   layer's floor. Eight runs that never touch leave separate islands; the same
+   eight before this work fused into one, measured. */
+if (want("strata")) {
+  console.log("\n— the strata, and keeping out of each other —");
+
+  const bare = {
+    size: 512, piece: "tile", layers: 1, bundles: 8, groupMax: 1,
+    clampAmt: 0, tieAmt: 0, braceAmt: 0, branches: 0, lamps: 0,
+    ribHMm: 0, holeMm: 0, mCurve: 0, mGrain: 0, mDust: 0
+  };
+
+  for (const mode of ["conduit", "raceway"]) {
+    await page.click(`#modebar-tabs [data-mode="${mode}"]`);
+    await settle();
+
+    /* first the stack, at the mode's own defaults */
+    const st = await page.evaluate(m => {
+      const P = window.Forge.active().P;
+      return window.Forge.byId[m].plan(P);
+    }, mode);
+    let clears = true, rising = true;
+    for (let l = 1; l < st.strata.length; l++) {
+      if (st.strata[l] <= st.strata[l - 1]) rising = false;
+      if (st.strata[l] < st.strata[l - 1] + st.crowns[l - 1] - 1e-9) clears = false;
+    }
+    ok(mode + ": the layers rise", rising,
+       st.strata.map(z => (z * 1000).toFixed(0)).join(", ") + " mm");
+    /* the bug this is here for: spreading the layers evenly over the cavity
+       puts a 23 mm conduit on a stratum 13 mm below the next one, so the fat
+       runs stand up through two layers and the strata never read */
+    ok(mode + ": each layer clears the tallest thing under it", clears,
+       "crowns " + st.crowns.map(h => (h * 1000).toFixed(0)).join(", ") + " mm");
+
+    const cav = await page.evaluate(() => +window.Forge.active().P.cavityMm / 1000);
+    ok(mode + ": the stack fits the cavity", st.stackM <= cav + 1e-9,
+       (st.stackM * 1000).toFixed(0) + " mm of stack in a " +
+       (cav * 1000).toFixed(0) + " mm cavity" +
+       (st.gaugeScale < 0.995 ? " (gauges cut to " + Math.round(st.gaugeScale * 100) + "%)" : ""));
+
+    /* then the islands, on a deliberately bare configuration — and put the
+       mode back afterwards, because the sections below share these modes and
+       inherit whatever is left set on them */
+    const was = await page.evaluate(([m, c]) => {
+      const P = window.Forge.active().P, keep = {};
+      for (const k in c) { keep[k] = P[k]; window.Forge.setParam(m, k, c[k]); }
+      return keep;
+    }, [mode, bare]);
+    await page.click(`#${mode}--forge`);
+    await settle();
+    const isl = await page.evaluate(m => {
+      const stt = window.Forge.active(), B = stt.B, W = B.W, H = B.H, HG = B.HGT;
+      const pl = window.Forge.byId[m].plan(stt.P);
+      const cut = pl.strata[0] + pl.crowns[0] * 0.15;
+      const mask = new Uint8Array(W * H);
+      let area = 0;
+      for (let i = 0; i < W * H; i++) if (HG[i] > cut) { mask[i] = 1; area++; }
+      /* four-connected, ON THE TORUS: a run that leaves one edge and arrives at
+         the other is one island, not two */
+      const seen = new Uint8Array(W * H), stack = new Int32Array(W * H), sizes = [];
+      for (let s0 = 0; s0 < W * H; s0++) {
+        if (!mask[s0] || seen[s0]) continue;
+        let sp = 0; stack[sp++] = s0; seen[s0] = 1; let n = 0;
+        while (sp > 0) {
+          const i = stack[--sp]; n++;
+          const x = i % W, y = (i / W) | 0;
+          const nb = [((x + 1) % W) + y * W, ((x + W - 1) % W) + y * W,
+                      x + ((y + 1) % H) * W, x + ((y + H - 1) % H) * W];
+          for (const j of nb) if (mask[j] && !seen[j]) { seen[j] = 1; stack[sp++] = j; }
+        }
+        sizes.push(n);
+      }
+      return { area: area / (W * H), big: sizes.filter(n => n > W * H * 0.002).length };
+    }, mode);
+    ok(mode + ": eight runs on one layer stay eight things", isl.big >= 5,
+       isl.big + " separate islands over " + (isl.area * 100).toFixed(1) +
+       "% of the tile — fused, this is 1");
+    await page.evaluate(([m, c]) => { for (const k in c) window.Forge.setParam(m, k, c[k]); },
+                        [mode, was]);
+  }
+
+  /* and the machinery underneath, on its own terms */
+  const lib = await page.evaluate(() => {
+    const L = window.ForgeLoom;
+    const g = { bay: false, Wm: 0.62, Hm: 0.62, TW: 512, TH: 512, pxM: 512 / 0.62, mpp: 0.62 / 512 };
+    const C = L.claims(g, 0.004);
+    const o = {};
+    C.span(0.30, 0.30, 1, 0, 0.01);
+    o.marks = C.taken(0.30, 0.30) && !C.taken(0.30, 0.34);
+    /* the width test has to find a claimed band lying between its samples */
+    o.width = !C.clearAt(0.30, 0.28, 0, 1, 0.03);
+    C.clear();
+    /* the tile is a torus: a span laid across x = 0 is claimed at x = Wm too */
+    C.span(0.001, 0.5, 0, 1, 0.006);
+    o.wraps = C.taken(0.001, 0.5) && C.taken(0.001, 0.4945);
+    C.clear();
+    o.cleared = !C.taken(0.30, 0.30);
+    /* the trail holds its marks back so a route does not trip over its own feet */
+    const T = C.trail(0.01, 10);
+    for (let i = 0; i < 5; i++) T.push(0.1 + i * 0.001, 0.1, 0, 1);
+    o.lagged = !C.taken(0.1, 0.1);
+    T.flush();
+    o.flushed = C.taken(0.1, 0.1);
+
+    /* the stack: a fat layer under a thin one has to push it up by the fat one */
+    const S = L.strata([{ layer: 0, kind: 0, r: 0.020, fitK: 0 },
+                        { layer: 1, kind: 0, r: 0.004, fitK: 0 }], 2, 0.30, 0, 0);
+    o.stacked = S.z[1] >= S.z[0] + L.standing(0, 0.020, 0) - 1e-9 && S.scale === 1;
+    /* and a stack that does not fit is scaled until it does */
+    const T2 = L.strata([{ layer: 0, kind: 0, r: 0.050, fitK: 0 },
+                         { layer: 1, kind: 0, r: 0.050, fitK: 0 }], 2, 0.05, 0, 0);
+    o.scaled = T2.scale < 1 && T2.top <= 0.05 + 1e-9;
+    return o;
+  });
+  ok("claims: a span marks the ground it covers and nothing else", lib.marks);
+  ok("claims: a band between the width samples is still found", lib.width);
+  ok("claims: the grid wraps with the tile", lib.wraps);
+  ok("claims: clearing empties it", lib.cleared);
+  ok("claims: the trail lags, then flushes", lib.lagged && lib.flushed);
+  ok("strata: a layer starts above the crown of the one below", lib.stacked);
+  ok("strata: a stack too deep for the cavity is scaled to fit", lib.scaled);
 }
 
 /* ============================ the raceway ============================
@@ -863,16 +1052,19 @@ if (want("raceway")) {
       for (let x = 0; x < W; x++) s += Math.abs(a[(y1 * W + x) * st] - a[(y2 * W + x) * st]);
       return s / W;
     };
-    let inX = 0, inY = 0;
-    for (let k = 1; k <= 8; k++) { inX += d(B.A, 3, k * 50, k * 50 + 1); inY += dr(B.A, 3, k * 50, k * 50 + 1); }
-    return { wrapX: d(B.A, 3, W - 1, 0), inX: inX / 8,
-             wrapY: dr(B.A, 3, H - 1, 0), inY: inY / 8,
+    const mism = (a, st, f, at) => (at.reduce((t, k) => t + f(a, st, k[0], k[1]), 0)) / at.length;
+    return { wrapX: d(B.A, 3, W - 1, 0),
+             bogX: mism(B.A, 3, d, [[W - 1, W >> 1], [W - 1, W >> 2], [W - 1, (3 * W) >> 2]]),
+             wrapY: dr(B.A, 3, H - 1, 0),
+             bogY: mism(B.A, 3, dr, [[H - 1, H >> 1], [H - 1, H >> 2], [H - 1, (3 * H) >> 2]]),
              span: B.hMax - B.hMin };
   });
-  ok("the tile wraps left to right", R.wrapX <= R.inX * 1.35,
-     R.wrapX.toFixed(1) + " across the wrap vs " + R.inX.toFixed(1) + " inside");
-  ok("and top to bottom", R.wrapY <= R.inY * 1.35,
-     R.wrapY.toFixed(1) + " across the wrap vs " + R.inY.toFixed(1) + " inside");
+  ok("the tile wraps left to right", R.wrapX <= R.bogX * 0.65,
+     R.wrapX.toFixed(1) + " across the wrap vs " + R.bogX.toFixed(1) +
+     " for columns that do not belong together");
+  ok("and top to bottom", R.wrapY <= R.bogY * 0.65,
+     R.wrapY.toFixed(1) + " across the wrap vs " + R.bogY.toFixed(1) +
+     " for rows that do not belong together");
   ok("the run occupies the cavity", R.span > 0.04 && R.span < 0.30,
      (R.span * 1000).toFixed(0) + " mm of relief");
 

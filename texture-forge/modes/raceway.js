@@ -83,12 +83,43 @@ function walk(g,o){
   const cap=Math.min(200000,Math.round(o.len/stepM));
   const pts=new Float64Array(cap*4);
 
+  /* WHAT A RACEWAY DOES INSTEAD OF SWERVING. A loom dodges by leaning on the
+     heading; this one cannot, because every leg is on an axis and a lean would
+     cost it the only thing it is for. So it turns EARLY instead: the ground a
+     full fillet ahead is the thing it watches, and when that is taken the
+     corner it was going to make somewhere further along happens here, towards
+     whichever side is open. Sighting one fillet ahead is not a margin picked
+     to be safe — it is the distance the run needs in order to have turned by
+     the time it arrives, so a shorter sight line would see the obstruction
+     only once it was already committed to hitting it.
+
+     Mid-fillet there is nothing to be done: the arc is a fixed number of steps
+     and abandoning it half way leaves the heading off-axis for good. A run
+     boxed in there ends, and its tail dives under whatever boxed it in. */
+  const C=o.claims||null;
+  const rad=o.rad||o.half;
+  const sight=o.bendR+o.half+(C?C.cell:0);
+  const trail=C?C.trail(rad,Math.max(2,Math.ceil((sight+rad*2.2)/stepM))):null;
+  const skip=o.skip|0;
+  const openAt=(hx,hy,d)=>C.clearAt(x+hx*d,y+hy*d,-hy,hx,o.half);
+
   let x=o.x,y=o.y,head=o.head,n=0;
   let arc=o.firstCorner?nArc:0;
   let dir=o.firstDir||(rng()<0.5?-1:1);
   let leg=arc?0:o.legSteps();
 
   for(let i=0;i<cap;i++){
+    const hx=Math.cos(head),hy=Math.sin(head);
+    /* WHERE THE RUN IS STANDING, tested whatever it is in the middle of.
+       Sighting a fillet ahead is what lets a straight leg turn out of trouble,
+       but it is a RING rather than a swept volume: it asks about one distance
+       only, and during a fillet — seventy-odd steps of it — nothing asks at
+       all, so a corner drives straight through whatever it meets. Asking
+       instead whether the run's own width is clear where it actually is cannot
+       be fooled by either. A run that finds itself on top of another has no
+       move left, mid-corner least of all, so it ends there and its tail dives
+       under what it met, which is what the picture wants anyway. */
+    if(C&&i>=skip&&!C.clearAt(x,y,-hy,hx,o.half*0.92))break;
     if(arc>0){
       head+=arcTurn*dir;
       arc--;
@@ -96,11 +127,34 @@ function walk(g,o){
         head=Math.round(head/HALFPI)*HALFPI;
         leg=o.legSteps();
       }
-    }else if(leg>0){
-      leg--;
     }else{
-      arc=nArc;dir=rng()<0.5?-1:1;
-      head+=arcTurn*dir;arc--;
+      let forced=false;
+      if(C&&i>=skip&&!openAt(hx,hy,sight)){
+        /* -hy,hx is a left turn from the heading; hy,-hx a right one */
+        const okL=openAt(-hy,hx,sight),okR=openAt(hy,-hx,sight);
+        if(!okL&&!okR)break;
+        dir=okL?-1:1;forced=true;
+      }
+      if(forced){
+        arc=nArc;head+=arcTurn*dir;arc--;leg=0;
+      }else if(leg>0){
+        leg--;
+      }else{
+        /* a corner of its own choosing still has to go somewhere: if the side
+           the generator asked for is taken and the other is not, take the
+           other, and if both are, stay on the leg and let the sight line above
+           deal with what is in front */
+        let d=rng()<0.5?-1:1;
+        if(C&&i>=skip){
+          const okD=openAt(d<0?-hy:hy,d<0?hx:-hx,sight);
+          if(!okD){
+            const okO=openAt(d<0?hy:-hy,d<0?-hx:hx,sight);
+            if(okO)d=-d;else{leg=Math.max(1,Math.round(o.bendR/stepM));}
+          }
+        }
+        if(leg===0){arc=nArc;dir=d;head+=arcTurn*dir;arc--;}
+        else leg--;
+      }
     }
     const tx=Math.cos(head),ty=Math.sin(head);
     x+=tx*stepM;y+=ty*stepM;
@@ -113,31 +167,28 @@ function walk(g,o){
     const q=n*4;
     pts[q]=x;pts[q+1]=y;pts[q+2]=tx;pts[q+3]=ty;
     n++;
+    if(trail)trail.push(x,y,-ty,tx);
   }
+  if(trail)trail.flush();
   return {pts:pts,nPts:n};
 }
 
 /* ============================ the routes ============================ */
-function routes(g,p){
+/* PASS ONE. What every primary run is, and where the strata land, with nothing
+   walked yet — the same split as the loom's, and for the same reason: a layer's
+   floor is the layer below it plus the tallest thing standing on it, and that
+   cannot be known until the gauges have been drawn. Branches are not in here;
+   a branch never carries more than its parent, so it never raises the stratum
+   it is on and the air gap absorbs the fraction of a radius it rides proud. */
+function runSpec(g,p){
   const rng=mulberry32((p.seed|0)*2654435761+7717);
   const pick=a=>a[Math.floor(rng()*a.length)|0];
   const rr=(a,b)=>a+rng()*(b-a);
-  const stepM=L.stepM(g);
 
   const layers=clamp(p.layers|0,1,6);
   const perLayer=clamp(p.bundles|0,1,10);
   const cav=Math.max(0.01,(+p.cavityMm||95)/1000);
   const braceAmt=clamp(+p.braceAmt,0,1);
-  const braceM=Math.max(0.02,(+p.braceMm||120)/1000);
-  const branchAmt=clamp(+p.branches,0,1);
-  const askedBend=Math.max(0.004,(+p.bendMm||45)/1000);
-
-  /* THE LATTICE, SNAPPED TO THE TILE. A grid that does not divide the tile
-     leaves the runs on one side of the wrap out of step with the runs on the
-     other, and on a seamless map that is the first thing the eye finds. A bay
-     has no wrap to close and keeps the grid it was given. */
-  let grid=Math.max(0.01,(+p.gridMm||62)/1000);
-  if(!g.bay)grid=g.Wm/Math.max(1,Math.round(g.Wm/grid));
 
   const wt=[+p.wTube||0,+p.wCorr||0,+p.wBraid||0,+p.wSpiral||0,+p.wRibbon||0,+p.wLagged||0];
   let tot=0;for(const w of wt)tot+=w;
@@ -150,55 +201,106 @@ function routes(g,p){
 
   let qx=rng(),qy=rng();
   const nextQ=()=>{qx=(qx+0.7548776662)%1;qy=(qy+0.5698402910)%1;};
+
+  const spec=[];
+  for(let Ly=0;Ly<layers;Ly++){
+    const t=layers>1?Ly/(layers-1):1;
+    const gMax=lerp((+p.gaugeMaxMm||40)/1000,(+p.gaugeMinMm||8)/1000,t);
+    const gMin=lerp((+p.gaugeMinMm||8)/1000*1.6,(+p.gaugeMinMm||8)/1000,t);
+    for(let b=0;b<perLayer;b++){
+      const k=kindOf(),K=KIND[k];
+      const nMax=(k===4)?1:(k===5)?2:clamp(p.groupMax|0,1,8);
+      const n=1+Math.floor(rng()*nMax);
+      const r=rr(gMin,gMax)*0.5*((k===5)?1.7:1);
+      const pitch=r*2*rr(1.10,1.60);
+      spec.push({
+        layer:Ly,kind:k,n:n,r:r,pitch:pitch,half:(n-1)*0.5*pitch+r,
+        mat:MATBY[pick(K.mats)],
+        head0:(rng()<0.5?0:HALFPI)+(rng()<0.5?0:Math.PI),
+        len:Math.max(g.Wm,g.Hm)*rr(0.8,2.0),
+        seed:(rng()*1e9)|0,
+        ident:(rng()<clamp(+p.identAmt,0,1)*0.75)?IDENT[Math.floor(rng()*IDENTN)|0]:null,
+        sleeve:(k!==5&&rng()<clamp(+p.identAmt,0,1)*0.22)
+          ?IDENT[Math.floor(rng()*IDENTN)|0]:null,
+        tint:rr(0.86,1.14),
+        /* a brace is a post BESIDE the conduits rather than a strap over them,
+           so it stands higher than the crown does — one and a half radii above
+           the axis, plus what it is proud by */
+        fitK:braceAmt>0?1.81:0
+      });
+    }
+  }
+  /* a fifth of the crown as air, which is also what carries a branch riding
+     fifteen hundredths of a radius over the run it left */
+  const ST=L.strata(spec,layers,cav,Math.max(0.0015,cav*0.02),0.20);
+  if(ST.scale<1)for(let i=0;i<spec.length;i++){
+    const B=spec[i];B.r*=ST.scale;B.pitch*=ST.scale;B.half*=ST.scale;
+  }
+  return {spec:spec,ST:ST,rng:rng,kindOf:kindOf,rr:rr,
+          nextQ:nextQ,at:()=>[qx,qy]};
+}
+
+function routes(g,p){
+  const stepM=L.stepM(g);
+  const layers=clamp(p.layers|0,1,6);
+  const braceAmt=clamp(+p.braceAmt,0,1);
+  const braceM=Math.max(0.02,(+p.braceMm||120)/1000);
+  const branchAmt=clamp(+p.branches,0,1);
+  const askedBend=Math.max(0.004,(+p.bendMm||45)/1000);
+
+  const S=runSpec(g,p);
+  const spec=S.spec,ST=S.ST,rng=S.rng,rr=S.rr,kindOf=S.kindOf;
+
+  /* THE LATTICE, SNAPPED TO THE TILE. A grid that does not divide the tile
+     leaves the runs on one side of the wrap out of step with the runs on the
+     other, and on a seamless map that is the first thing the eye finds. A bay
+     has no wrap to close and keeps the grid it was given. */
+  let grid=Math.max(0.01,(+p.gridMm||62)/1000);
+  if(!g.bay)grid=g.Wm/Math.max(1,Math.round(g.Wm/grid));
   /* snapped to the lattice, so two runs a tile apart are on the same lines */
   const snap=(t,span)=>Math.round(t*span/grid)*grid;
 
+  let hMin=1e9;
+  for(let i=0;i<spec.length;i++)if(spec[i].half<hMin)hMin=spec[i].half;
+  const C=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+
   const out=[];
+  const legMin=Math.max(2,Math.round(grid/stepM));
 
-  /* one bundle, given where it starts and how it leaves */
-  function make(Ly,z0,gMin,gMax,start){
-    const k=kindOf(),K=KIND[k];
-    const nMax=(k===4)?1:(k===5)?2:clamp(p.groupMax|0,1,8);
-    const n=start&&start.n?start.n:1+Math.floor(rng()*nMax);
-    const r=(start&&start.r)||rr(gMin,gMax)*0.5*((k===5)?1.7:1);
-    const pitch=(start&&start.pitch)||r*2*rr(1.10,1.60);
-    const half=(n-1)*0.5*pitch+r;
-    const bendR=Math.max(askedBend,bendFloor(half,r));
-    const legMin=Math.max(2,Math.round(grid/stepM));
-    const seed=(rng()*1e9)|0;
-    const len=Math.max(g.Wm,g.Hm)*rr(0.8,2.0);
+  /* one bundle, given what it is and where it starts */
+  function lay(B,z0,start,skip){
+    const bendR=Math.max(askedBend,bendFloor(B.half,B.r));
+    const seed=start?((rng()*1e9)|0):B.seed;
     const wrng=mulberry32(seed^0x2545f491);
-
+    const len=start?Math.max(g.Wm,g.Hm)*rr(0.8,2.0):B.len;
     const w=walk(g,{
-      x:start?start.x:snap(qx,g.Wm),
-      y:start?start.y:snap(qy,g.Hm),
-      head:start?start.head:(rng()<0.5?0:HALFPI)+(rng()<0.5?0:Math.PI),
+      x:start?start.x:B.x, y:start?start.y:B.y,
+      head:start?start.head:B.head0,
       firstCorner:!!(start&&start.corner),
       firstDir:start?start.dir:0,
-      len:len,bendR:bendR,half:half,stepM:stepM,rng:wrng,
+      len:len,bendR:bendR,half:B.half,stepM:stepM,rng:wrng,
+      claims:C,rad:B.half+Math.max(C.cell*0.6,B.r*0.6),skip:skip|0,
       /* legs are whole multiples of the lattice, which is what makes two
          parallel runs line up rather than merely run parallel */
       legSteps:()=>legMin*(1+Math.floor(wrng()*4))
     });
     if(w.nPts<12)return null;
-
     const R={
-      layer:Ly,kind:k,n:n,r:r,pitch:pitch,half:half,
-      mat:(start&&start.mat!==undefined)?start.mat:MATBY[pick(K.mats)],
-      z0:z0,seed:seed,
+      layer:B.layer,kind:B.kind,n:B.n,r:B.r,pitch:B.pitch,half:B.half,
+      mat:B.mat,z0:z0,seed:seed,
       pts:w.pts,nPts:w.nPts,len:w.nPts*stepM,
-      tail:Math.min(0.05,len*0.20),
-      ident:(rng()<clamp(+p.identAmt,0,1)*0.75)?IDENT[Math.floor(rng()*IDENTN)|0]:null,
-      sleeve:(k!==5&&rng()<clamp(+p.identAmt,0,1)*0.22)
-        ?IDENT[Math.floor(rng()*IDENTN)|0]:null,
-      tint:rr(0.86,1.14),
+      /* the length it GOT: a run stopped early by something in its way is
+         short, and a dive sized off what it asked for can be longer than the
+         run, which sinks the whole thing */
+      tail:Math.min(0.05,w.nPts*stepM*0.20),
+      ident:B.ident,sleeve:B.sleeve,tint:B.tint,
       /* THE BRACING. Intermittent by definition — a comb every so often, not a
          rail the whole way — and its half-length is what makes it read as a
          bracket a few millimetres thick rather than as a length of channel. */
       fit:braceAmt>0?{
         style:2,pitch:braceM,
-        half:Math.max(0.0035,Math.min(0.011,r*0.75)),
-        proud:r*0.26,tie:null
+        half:Math.max(0.0035,Math.min(0.011,B.r*0.75)),
+        proud:B.r*0.26,tie:null
       }:null,
       bendR:bendR
     };
@@ -207,14 +309,23 @@ function routes(g,p){
   }
 
   for(let Ly=0;Ly<layers;Ly++){
-    const t=layers>1?Ly/(layers-1):1;
-    const gMax=lerp((+p.gaugeMaxMm||40)/1000,(+p.gaugeMinMm||8)/1000,t);
-    const gMin=lerp((+p.gaugeMinMm||8)/1000*1.6,(+p.gaugeMinMm||8)/1000,t);
-    const z0=lerp(gMax,cav-gMax*1.15,layers>1?t:0.55);
+    C.clear();
+    for(let i=0;i<spec.length;i++){
+      const B=spec[i];
+      if(B.layer!==Ly)continue;
+      const rad=B.half+Math.max(C.cell*0.6,B.r*0.6);
 
-    for(let b=0;b<perLayer;b++){
-      nextQ();
-      const R=make(Ly,z0,gMin,gMax,null);
+      /* a start on the lattice that is not already somebody else's */
+      let ok=false;
+      for(let a=0;a<28&&!ok;a++){
+        S.nextQ();
+        const q=S.at();
+        B.x=snap(q[0],g.Wm);B.y=snap(q[1],g.Hm);
+        ok=C.clearAt(B.x,B.y,1,0,rad)&&C.clearAt(B.x,B.y,0,1,rad);
+      }
+      if(!ok)continue;
+
+      const R=lay(B,ST.z[Ly],null,0);
       if(!R)continue;
 
       /* ---- and what comes off it ----
@@ -234,12 +345,20 @@ function routes(g,p){
         /* offset to the side it peels off towards, so it takes the conduits
            on that edge of the group rather than cutting out of the middle */
         const off=side*Math.max(0,R.half-kHalf);
-        make(Ly,z0+R.r*0.15,gMin,gMax,{
+        const kK=kindOf();
+        /* A BRANCH LEAVES FROM INSIDE ITS PARENT, which is ground the parent
+           has already claimed, so the first stretch of it is exempt from the
+           test — a junction is not a collision. It is clear of the parent once
+           it has travelled the two half-widths between their centrelines. */
+        const kB={layer:Ly,kind:kK,n:kn,r:R.r,pitch:R.pitch,half:kHalf,
+                  mat:R.mat,head0:Math.atan2(ty,tx),
+                  ident:(rng()<clamp(+p.identAmt,0,1)*0.75)
+                    ?IDENT[Math.floor(rng()*IDENTN)|0]:null,
+                  sleeve:null,tint:rr(0.86,1.14)};
+        lay(kB,ST.z[Ly]+R.r*0.15,{
           x:R.pts[q]+off*-ty, y:R.pts[q+1]+off*tx,
-          head:Math.atan2(ty,tx),
-          corner:true,dir:side,
-          n:kn,r:R.r,pitch:R.pitch,mat:R.mat
-        });
+          head:Math.atan2(ty,tx),corner:true,dir:side
+        },Math.ceil((R.half+kHalf+C.cell)/stepM));
       }
     }
   }
@@ -427,7 +546,16 @@ Forge.register({
 
   size:function(p){const g=geom(p);return {w:g.TW,h:g.TH};},
   build:function(p,io){return L.build(p,io,{routes:routes});},
-  plan:function(p){const g=geom(p);return {w:g.Wm,h:g.Hm,cutout:g.bay};},
+  plan:function(p){
+    const g=geom(p),S=runSpec(g,p);
+    /* the strata, in metres: where each layer's underside sits and how tall
+       the tallest thing standing on it is. Reported because a layer that does
+       not clear the one under it is a bug that ought to be checkable from
+       outside, and because nobody can see it from the picture alone. */
+    return {w:g.Wm,h:g.Hm,cutout:g.bay,
+            strata:Array.from(S.ST.z),crowns:Array.from(S.ST.h),
+            stackM:S.ST.top,gaugeScale:S.ST.scale};
+  },
 
   tileTag:function(p){return isBay(p)?"":"Tiles ↔ and ↕";},
 
@@ -441,13 +569,20 @@ Forge.register({
     const halfMax=(nMax-1)*0.5*(rMax*2*1.35)+rMax;
     const floorMm=Math.round(bendFloor(halfMax,rMax)*1000);
     const asked=Math.round(+p.bendMm||48);
+    const ST=runSpec(g,p).ST;
+    const floors=Array.from(ST.z,z=>Math.round(z*1000)).join(", ");
+    const st="<br>strata at <b>"+floors+" mm</b>, "+
+      (ST.top*1000).toFixed(0)+" mm deep"+
+      (ST.scale<0.995
+        ?" — gauges cut to <b>"+Math.round(ST.scale*100)+"%</b> to fit"
+        :"");
     let grid=Math.max(0.01,(+p.gridMm||62)/1000);
     if(!g.bay)grid=g.Wm/Math.max(1,Math.round(g.Wm/grid));
     return "<b>"+Math.round(g.Wm*1000)+" × "+Math.round(g.Hm*1000)+" mm</b> · "+
       g.TW+" × "+g.TH+" px<br>"+
       "<b>"+(g.mpp*1000).toFixed(2)+" mm per texel</b> · lattice snapped to "+
       Math.round(grid*1000)+" mm<br>"+
-      runs+" runs over "+clamp(p.layers|0,1,6)+" layers, up to "+nMax+" conduits each<br>"+
+      runs+" runs asked for over "+clamp(p.layers|0,1,6)+" layers, up to "+nMax+" conduits each"+st+"<br>"+
       "bends <b>"+asked+" mm</b>"+(floorMm>asked
         ?(", opened to "+floorMm+" on the widest group — under that its inner "+
           "conduit turns inside out in the corner")

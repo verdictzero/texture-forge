@@ -71,8 +71,18 @@ const isBay=L.isBay,geom=L.geom;
    position is wrapped into the tile as it goes rather than at the texel index
    later, because the tangent is carried alongside it and so the wrap costs
    nothing; doing it the other way means a modulo on a non-integer double,
-   several million times a build. */
-function routes(g,p){
+   several million times a build.
+
+   IT HAPPENS IN TWO PASSES. What every bundle IS comes first, for all layers,
+   because where a layer sits depends on the tallest thing standing on the
+   layer below it and that is not known until the gauges have been drawn.
+   Where each bundle GOES comes second, a layer at a time, with a claims grid
+   cleared between layers so no two runs in one layer walk through each other.
+
+   Pass one is also what the readout reports, which is why it is its own
+   function: the same generator stream either way, so the strata it quotes are
+   the strata the build makes. */
+function bundleSpec(g,p){
   const rng=mulberry32((p.seed|0)*2246822519+1013);
   const pick=a=>a[Math.floor(rng()*a.length)|0];
   const rr=(a,b)=>a+rng()*(b-a);
@@ -103,17 +113,20 @@ function routes(g,p){
   let qx=rng(),qy=rng();
   const nextQ=()=>{qx=(qx+0.7548776662)%1;qy=(qy+0.5698402910)%1;};
 
-  const out=[];
-  /* Layer 0 is deepest. Its conduits are the fat ones — the things that went in
+  /* ---------------- PASS ONE: what each bundle IS ----------------
+     Layer 0 is deepest. Its conduits are the fat ones — the things that went in
      first — and each layer above is finer and sits proud of the one below, so
-     the strata read as an order of assembly rather than as a random pile. */
+     the strata read as an order of assembly rather than as a random pile.
+
+     Every draw off the generator happens here, before anything is routed,
+     because the stack below needs to know how tall the tallest thing in each
+     layer is in order to say where the layer above it starts — and it has to
+     be allowed to scale all of them if the answer does not fit the cavity. */
+  const spec=[];
   for(let Ly=0;Ly<layers;Ly++){
     const t=layers>1?Ly/(layers-1):1;
     const gMax=lerp((+p.gaugeMaxMm||46)/1000,(+p.gaugeMinMm||9)/1000,t);
     const gMin=lerp((+p.gaugeMinMm||9)/1000*1.6,(+p.gaugeMinMm||9)/1000,t);
-    /* the axis height of this layer: deepest sits on the backplane, the top
-       layer just under the panel line, with room for the fattest conduit */
-    const z0=lerp(gMax,cav-gMax*1.15,layers>1?t:0.55);
 
     for(let b=0;b<perLayer;b++){
       const k=kindOf();
@@ -126,14 +139,6 @@ function routes(g,p){
       /* pitch: touching, to a little over a diameter apart. Below 2r they would
          intersect, which on a Z-test reads as one fat lumpy conduit. */
       const pitch=r*2*rr(1.04,1.55);
-      const half=(n-1)*0.5*pitch+r;
-
-      /* THE BEND CLAMP. Three bundle half-widths is about the tightest a loom
-         is dressed to, and it is also comfortably inside the "gentle next to
-         its own width" the stamp needs. */
-      const minR=Math.max(half*3.0,r*6);
-      const mat=MATBY[pick(K.mats)];
-      nextQ();
 
       /* INTERPOLATE THE DEVIATION, NOT THE ANGLE. Blending a uniform heading
          towards an axis angle looks right and is not: at half strength it is
@@ -142,27 +147,19 @@ function routes(g,p){
          deviation FROM the axis instead and scale that, and the two ends mean
          what they say — free at nought, dressed to the axis at one. */
       const base=(rng()<0.5?0:Math.PI*0.5)+(rng()<0.5?0:Math.PI);
-      const head0=base+(rng()*2-1)*Math.PI*(1-axis)+rr(-0.28,0.28)*axis;
 
-      /* HOW MUCH IS TOO MUCH. Long enough to cross the tile and come back,
-         and no longer: past that every layer is buried by the one over it,
-         the backplane never shows, and the strata — which are the subject —
-         stop reading at all. */
-      const len=Math.max(g.Wm,g.Hm)*rr(0.7,1.8);
-      const seed=(rng()*1e9)|0;
-      const w=wander*rr(0.5,1.35);
-      const clampM=rr(0.19,0.45);
-
-      const walk=integrate(g,{
-        x:qx*g.Wm,y:qy*g.Hm,head:head0,len:len,minR:minR,half:half,
-        wander:w,seed:seed,stepM:stepM,rng:mulberry32(seed^0x5bf03635)
-      });
-      if(walk.nPts<8)continue;
-
-      out.push({
-        layer:Ly,kind:k,n:n,r:r,pitch:pitch,half:half,mat:mat,z0:z0,seed:seed,
-        pts:walk.pts,nPts:walk.nPts,len:walk.nPts*stepM,
-        tail:Math.min(0.05,len*0.22),
+      spec.push({
+        layer:Ly,kind:k,n:n,r:r,pitch:pitch,half:(n-1)*0.5*pitch+r,
+        mat:MATBY[pick(K.mats)],
+        head0:base+(rng()*2-1)*Math.PI*(1-axis)+rr(-0.28,0.28)*axis,
+        /* HOW MUCH IS TOO MUCH. Long enough to cross the tile and come back,
+           and no longer: past that every layer is buried by the one over it,
+           the backplane never shows, and the strata — which are the subject —
+           stop reading at all. */
+        len:Math.max(g.Wm,g.Hm)*rr(0.7,1.8),
+        seed:(rng()*1e9)|0,
+        w:wander*rr(0.5,1.35),
+        clampM:rr(0.19,0.45),
         ident:(rng()<clamp(+p.identAmt,0,1)*0.75)?IDENT[Math.floor(rng()*IDENTN)|0]:null,
         /* WHOLE-LENGTH SLEEVING, not just bands. Some runs are colour-coded end
            to end, and without a few of them a bay of forty conduits is forty
@@ -170,16 +167,89 @@ function routes(g,p){
         sleeve:(k!==5&&rng()<clamp(+p.identAmt,0,1)*0.22)
           ?IDENT[Math.floor(rng()*IDENTN)|0]:null,
         tint:rr(0.86,1.14),
+        /* a cushion clamp stands a third of a radius proud of the crown, so it
+           is that much of the layer's headroom */
+        fitK:clampAmt>0?1.34:0
+      });
+    }
+  }
+
+  /* ---------------- THE STACK ---------------- */
+  const ST=L.strata(spec,layers,cav,Math.max(0.0015,cav*0.02),0.14);
+  if(ST.scale<1)for(let i=0;i<spec.length;i++){
+    const B=spec[i];B.r*=ST.scale;B.pitch*=ST.scale;B.half*=ST.scale;
+  }
+  return {spec:spec,ST:ST,rng:rng,nextQ:nextQ,at:()=>[qx,qy]};
+}
+
+function routes(g,p){
+  const layers=clamp(p.layers|0,1,6);
+  const clampAmt=clamp(+p.clampAmt,0,1);
+  const tieAmt=clamp(+p.tieAmt,0,1);
+  const stepM=L.stepM(g);
+  const B1=bundleSpec(g,p);
+  const spec=B1.spec,ST=B1.ST,nextQ=B1.nextQ;
+
+  /* ---------------- PASS TWO: where each one GOES ----------------
+     A layer at a time, and each layer starts with the ground clear: a run may
+     cross anything below it and nothing beside it. */
+  let hMin=1e9;
+  for(let i=0;i<spec.length;i++)if(spec[i].half<hMin)hMin=spec[i].half;
+  const C=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+
+  const out=[];
+  for(let Ly=0;Ly<layers;Ly++){
+    C.clear();
+    for(let i=0;i<spec.length;i++){
+      const B=spec[i];
+      if(B.layer!==Ly)continue;
+      const gapM=Math.max(C.cell*0.6,B.r*0.6);
+      const rad=B.half+gapM;
+
+      /* somewhere to start that is not already somebody else's. The sequence
+         is the same one as before, just consulted until it offers open ground
+         rather than taken at its first word. */
+      let sx=0,sy=0,ok=false;
+      for(let a=0;a<28&&!ok;a++){
+        nextQ();
+        const q=B1.at();
+        sx=q[0]*g.Wm;sy=q[1]*g.Hm;
+        ok=C.clearAt(sx,sy,1,0,rad)&&C.clearAt(sx,sy,0,1,rad);
+      }
+      if(!ok)continue;
+
+      /* THE BEND CLAMP. Three bundle half-widths is about the tightest a loom
+         is dressed to, and it is also comfortably inside the "gentle next to
+         its own width" the stamp needs. */
+      const minR=Math.max(B.half*3.0,B.r*6);
+
+      const walk=integrate(g,{
+        x:sx,y:sy,head:B.head0,len:B.len,minR:minR,half:B.half,
+        wander:B.w,seed:B.seed,stepM:stepM,rng:mulberry32(B.seed^0x5bf03635),
+        claims:C,rad:rad
+      });
+      if(walk.nPts<8)continue;
+
+      out.push({
+        layer:Ly,kind:B.kind,n:B.n,r:B.r,pitch:B.pitch,half:B.half,mat:B.mat,
+        z0:ST.z[Ly],seed:B.seed,
+        pts:walk.pts,nPts:walk.nPts,len:walk.nPts*stepM,
+        /* THE LENGTH IT GOT, not the length it asked for. A run that stopped
+           early because something was in the way is short, and a dive sized off
+           what it meant to be can be longer than the run itself — which sinks
+           the whole thing and leaves a smear where a conduit was. */
+        tail:Math.min(0.05,walk.nPts*stepM*0.22),
+        ident:B.ident,sleeve:B.sleeve,tint:B.tint,
         /* HOW OFTEN A LOOM IS ACTUALLY CLAMPED DOWN. A P-clamp every 200 to
            450 mm is what the trade does. Every 50 to 130, which is the instinct
            because it fills the picture, chops each bundle into a chain of short
            capsules and every run in the bay reads as a segmented worm. */
         fit:clampAmt>0?{
-          style:1,pitch:clampM,
-          half:Math.min(0.008,r*0.7),proud:r*0.34,
-          tie:(tieAmt>0)?{pitch:clampM*0.34,
-                          half:Math.max(0.0008,Math.min(0.0022,r*0.14)),
-                          proud:r*0.13}:null
+          style:1,pitch:B.clampM,
+          half:Math.min(0.008,B.r*0.7),proud:B.r*0.34,
+          tie:(tieAmt>0)?{pitch:B.clampM*0.34,
+                          half:Math.max(0.0008,Math.min(0.0022,B.r*0.14)),
+                          proud:B.r*0.13}:null
         }:null
       });
     }
@@ -193,22 +263,61 @@ function routes(g,p){
 
 /* One route's polyline. Positions are wrapped into the tile as they are laid
    down; the tangent goes alongside them, because differencing the positions
-   afterwards would read the wrap as a jump a whole tile wide. */
+   afterwards would read the wrap as a jump a whole tile wide.
+
+   A ROUTE THAT CANNOT GO STRAIGHT GOES ROUND. The claims grid is consulted a
+   lookahead ahead — far enough that a turn at the bend clamp can still get out
+   of the way — and while the ground there is taken the whole turn budget for
+   the step goes on avoidance instead of on the noise. The side it commits to
+   is remembered until it is clear, because deciding afresh every step with two
+   sides open makes it shiver down the middle of the gap rather than take it.
+   When both sides are shut the run has arrived somewhere it cannot leave, and
+   it ends there — which the tail sinks into the layer underneath, so it reads
+   as a run disappearing behind another rather than as one stopping dead. */
 function integrate(g,o){
   const stepM=o.stepM,maxTurn=stepM/o.minR,rng=o.rng;
   const bay=g.bay;
   const cap=Math.min(200000,Math.round(o.len/stepM));
   const pts=new Float64Array(cap*4);
+  const C=o.claims||null;
+  const rad=o.rad||o.half;
+  const LA=Math.max(o.minR*0.55,o.half*2.5);
+  const trail=C?C.trail(rad,Math.max(2,Math.ceil((LA+rad*2.2)/stepM))):null;
   let x=o.x,y=o.y,head=o.head,n=0,s=0;
-  let corner=0,cornerDir=1;
+  let corner=0,cornerDir=1,dodge=0;
   for(let i=0;i<cap;i++){
-    if(corner>0){
-      head+=maxTurn*cornerDir;corner--;
-    }else{
-      head+=clamp((L.fbm1(s*3.1,3,o.seed)-0.5)*2*o.wander,-1,1)*maxTurn;
-      if(rng()<stepM*0.55){
-        corner=Math.round((Math.PI*0.5/maxTurn)*(0.55+rng()*0.75));
-        cornerDir=rng()<0.5?-1:1;
+    let dodged=false;
+    if(C){
+      const ax=Math.cos(head),ay=Math.sin(head);
+      /* WHERE THE BUNDLE IS STANDING, not where it is looking. The lookahead is
+         a ring at one distance and says nothing about anything nearer than
+         that, so a route whose dodge is not working converges anyway and ends
+         up lying on its neighbour. Asking whether its own width is clear right
+         now costs one more test and is the only one that cannot be fooled: a
+         route that is already too close has nowhere to be, and stops. It is
+         deliberately not predictive — a route mid-dodge is often inside the
+         ring and about to be out of it, and ending those would cut the loom to
+         a third of the run it should have. */
+      if(i>=(o.skip|0)&&!C.clearAt(x,y,-ay,ax,o.half*0.92))break;
+      if(!C.clearAt(x+ax*LA,y+ay*LA,-ay,ax,o.half)){
+        const hl=head-0.9,hr=head+0.9;
+        const cl=Math.cos(hl),sl=Math.sin(hl),cr=Math.cos(hr),sr=Math.sin(hr);
+        const okL=C.clearAt(x+cl*LA,y+sl*LA,-sl,cl,o.half);
+        const okR=C.clearAt(x+cr*LA,y+sr*LA,-sr,cr,o.half);
+        if(!okL&&!okR)break;
+        if(dodge===0||(dodge<0&&!okL)||(dodge>0&&!okR))dodge=okL?-1:1;
+        head+=dodge*maxTurn;corner=0;dodged=true;
+      }else dodge=0;
+    }
+    if(!dodged){
+      if(corner>0){
+        head+=maxTurn*cornerDir;corner--;
+      }else{
+        head+=clamp((L.fbm1(s*3.1,3,o.seed)-0.5)*2*o.wander,-1,1)*maxTurn;
+        if(rng()<stepM*0.55){
+          corner=Math.round((Math.PI*0.5/maxTurn)*(0.55+rng()*0.75));
+          cornerDir=rng()<0.5?-1:1;
+        }
       }
     }
     const tx=Math.cos(head),ty=Math.sin(head);
@@ -224,7 +333,9 @@ function integrate(g,o){
     const q=n*4;
     pts[q]=x;pts[q+1]=y;pts[q+2]=tx;pts[q+3]=ty;
     n++;
+    if(trail)trail.push(x,y,-ty,tx);
   }
+  if(trail)trail.flush();
   return {pts:pts,nPts:n};
 }
 
@@ -407,21 +518,40 @@ Forge.register({
 
   size:function(p){const g=geom(p);return {w:g.TW,h:g.TH};},
   build:function(p,io){return L.build(p,io,{routes:routes});},
-  plan:function(p){const g=geom(p);return {w:g.Wm,h:g.Hm,cutout:g.bay};},
+  plan:function(p){
+    const g=geom(p),B=bundleSpec(g,p);
+    /* the strata, in metres: where each layer's underside sits and how tall
+       the tallest thing standing on it is. Reported because it is the one
+       number a person setting layers and gauges against a cavity depth needs
+       and cannot see — and because a layer that does not clear the one under
+       it is a bug that ought to be checkable from outside. */
+    return {w:g.Wm,h:g.Hm,cutout:g.bay,
+            strata:Array.from(B.ST.z),crowns:Array.from(B.ST.h),
+            stackM:B.ST.top,gaugeScale:B.ST.scale};
+  },
 
   tileTag:function(p){return isBay(p)?"":"Tiles ↔ and ↕";},
 
   readout:function(p){
     const g=geom(p);
     const bundles=clamp(p.layers|0,1,6)*clamp(p.bundles|0,1,10);
-    const px=(g.pxM/1000).toFixed(3);
+    const ST=bundleSpec(g,p).ST;
+    /* the strata, since they are the subject and they are worked out from the
+       gauges rather than set: what a person needs to know is where each layer
+       ended up and whether the cavity had room for the stack it asked for */
+    const floors=Array.from(ST.z,z=>Math.round(z*1000)).join(", ");
+    const st="<br>strata at <b>"+floors+" mm</b>, "+
+      (ST.top*1000).toFixed(0)+" mm deep"+
+      (ST.scale<0.995
+        ?" — gauges cut to <b>"+Math.round(ST.scale*100)+"%</b> to fit"
+        :"");
     return "<b>"+Math.round(g.Wm*1000)+" × "+Math.round(g.Hm*1000)+" mm</b> · "+
       g.TW+" × "+g.TH+" px<br>"+
       "<b>"+(g.mpp*1000).toFixed(2)+" mm per texel</b> · "+Math.round(g.pxM)+" px/m<br>"+
-      bundles+" bundles over "+clamp(p.layers|0,1,6)+" layers, "+
+      bundles+" bundles asked for over "+clamp(p.layers|0,1,6)+" layers, "+
       "up to "+clamp(p.groupMax|0,1,8)+" conduits each<br>"+
       "cavity "+Math.round((+p.cavityMm||95))+" mm · gauges "+
-      Math.round(+p.gaugeMinMm||9)+"–"+Math.round(+p.gaugeMaxMm||46)+" mm";
+      Math.round(+p.gaugeMinMm||9)+"–"+Math.round(+p.gaugeMaxMm||46)+" mm"+st;
   },
 
   readme:function(p,info){
