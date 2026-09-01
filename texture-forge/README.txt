@@ -689,6 +689,33 @@ Conduit — the loom behind an access panel
   it is in the way of every layer it stands taller than, not only the one whose
   run it terminates. A run may still pass OVER one, which is what runs do.
 
+  HOW A RUN IS ACTUALLY LAID DOWN, because it is the difference between a pipe
+  and a pipe with a rash on it. The stamp walks a route's centreline and lays a
+  span across it at each step. The span is laid on a texel grid it is almost
+  never square to, and it used to be sampled at a fixed one-texel spacing and
+  rounded — which is a rotated unit lattice landing on a square grid, and a
+  rotated unit lattice does not land one point to a texel. At 45° consecutive
+  samples come down TWO texels apart on the diagonal and the texels between them
+  are written by nobody, so the backplane shows through in a checkerboard
+  straight down the middle of the pipe. A straight run at a fixed angle aliases
+  the same way every step and you read it as texture; a BEND sweeps through
+  every angle at once, the checkerboard's phase drifts along it, and the whole
+  thing reads as moiré. At 1024 px it was one texel in sixty of the conduit.
+
+  So the span is walked on the GRID rather than along the line: one axis at a
+  time, from the texel at one end of it to the texel at the other, which visits
+  every texel the span crosses exactly once at any angle, for about the same
+  number of samples the old spacing was costing. Sampling harder would not have
+  fixed it — two samples half a texel apart still round to positions a diagonal
+  apart when their fractions straddle the same boundary. And since each texel is
+  now visited as itself, the offset it is at comes off its own position rather
+  than off how far along the walk it is, so the cross-section is read where the
+  texel actually sits.
+
+  What is left is real: the sliver of backplane between two pipes in a bundle
+  genuinely pinches under a texel on the inside of a bend, and a feature that
+  thin cannot be drawn continuously by anything.
+
   AND NOTHING IN A LAYER PASSES THROUGH ANYTHING ELSE IN IT. Two bundles at one
   height that cross do not read as one over the other — the stamp Z-tests, so
   there is nothing to separate them and the join comes out a lumpy mass. So each
@@ -1339,7 +1366,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the twelve things that are easy to break silently:
+It also covers the thirteen things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -1424,6 +1451,20 @@ It also covers the twelve things that are easy to break silently:
             THE NORMAL IT DECLARES — which is how the flat roof quad was found
             to be wound backwards: correct in anything shading off the vertex
             normal, a hole in anything culling back faces
+  raster    the loom's span leaves no holes in the run. A conduit is drawn by
+            walking its centreline and laying a span across it, and the span is
+            laid on a grid it is almost never square to: sampled at fixed
+            spacing and rounded, a rotated span does not land one point to a
+            texel — at 45° consecutive samples come down two texels apart on
+            the diagonal and the texels between them are written by nobody.
+            Swept round a bend through every angle, the misses drift and the
+            whole thing reads as moiré. A PIT IS THE MEASURE and it is a
+            property rather than a proxy: nothing in the mode draws a one-texel
+            hole in the middle of a pipe, so a texel a fifth of the relief
+            below EVERY one of its eight neighbours is a miss. Checked on
+            conduit, raceway and greeble, and at 256, 512, 1024 and 2048 px,
+            because the fault was the span's spacing against the grid and that
+            is what changes with the resolution
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the

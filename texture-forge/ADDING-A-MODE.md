@@ -528,6 +528,29 @@ are `front`, `side`, `back` and `roof` — that is what `buildingScene` reads to
 decide which plane a face goes on. "Forge every face" beside it fills the whole
 building in at preview resolution; it is the look rather than the export.
 
+## Drawing a thing that is not square to the grid
+
+If your mode sweeps a shape along a path — a pipe, a cable, a moulding, a road
+marking on a curve — do not sample its cross-section at a fixed spacing and
+round each sample to a texel. A run of points one texel apart, rotated off the
+grid, does not land one point to a texel: at 45° consecutive samples come down
+two texels apart on the diagonal and the texels between them are written by
+nobody. On a straight run at a fixed angle that reads as texture and you may
+never notice; on a bend, which sweeps through every angle at once, the misses
+drift along it and the whole thing reads as moiré.
+
+Sampling harder does not fix it. Two samples half a texel apart still round to
+positions a diagonal apart when their fractions straddle the same boundary — it
+only makes the holes rarer.
+
+Walk the **grid** instead: step one axis at a time from the texel at one end of
+the span to the texel at the other. That visits every texel the span crosses,
+exactly once, at any angle, and costs about what the old spacing did. Work out
+what offset each texel is at from its own position — a dot product with the
+normal — rather than from how far along the walk it is, and the profile is read
+where the texel actually sits. `stamp()` in `modes/lib/loom.js` is the worked
+example.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

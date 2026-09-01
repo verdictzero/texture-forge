@@ -461,14 +461,35 @@ function stamp(BUF,ROUTES,g,p){
     const R=ROUTES[ri];
     const PTS=R.pts,nPts=R.nPts;
     if(!PTS||nPts<2)continue;
-    const oStep=mpp;
     const K=KIND[R.kind];
     const det=K.det,kind=R.kind;
 
-    /* ---- the cross-section, tabulated ---- */
-    const oN=Math.max(1,Math.ceil(R.r/oStep));
-    const M=oN*2+1;
-    const oT=new Float64Array(M);              // offset from the centreline, metres
+    /* ---- the cross-section, tabulated ----
+
+       IT IS NOT TABULATED PER TEXEL, and it is worth being exact about why it
+       used to be and what that cost.
+
+       The span across a conduit is walked in a direction that turns with the
+       route, and every sample is rounded to the nearest texel. Sampling it one
+       texel apart therefore lays a rotated unit lattice over a square grid,
+       and a rotated unit lattice does not land one point to a texel: at 45°
+       consecutive samples come down two texels apart on the diagonal and the
+       texels between them are never written at all. What is left is a
+       checkerboard of misses straight through the middle of the pipe — and a
+       bend sweeps through every angle at once, so the checkerboard's phase
+       drifts along it and the whole thing reads as moiré. At 1024 px it was
+       twelve thousand one-texel pits a tile, and it was the most visible thing
+       in the mode.
+
+       So the table is indexed by the normalised half-width instead, at
+       whatever resolution the radius deserves, and the span is walked on the
+       grid rather than along the line — see the walk itself, below.
+
+       It costs nothing to make the profile finer than a texel while we are
+       here, and it is worth having: a conduit two texels across used to have
+       its whole cross-section described by five samples. */
+    const tN=clamp(Math.ceil(R.r/(mpp*0.34)),6,128);   // half-widths in the table
+    const M=tN*2+1;
     const pT=new Float64Array(M);              // the profile, 0..1
     const aT=new Int8Array(M);                 // what the across byte gets
     const sB=new Float64Array(M),cB=new Float64Array(M);  // the helix's B halves
@@ -479,9 +500,8 @@ function stamp(BUF,ROUTES,g,p){
        aliasing — so the pitch is held to whichever is coarser */
     const ribN=clamp(Math.round(2*R.r/Math.max(0.00127,mpp*3)),2,40);
     const hs=K.hs;
-    for(let k=-oN;k<=oN;k++){
-      const idx=k+oN,o=k*oStep,un=o/R.r,u=Math.abs(un);
-      oT[idx]=o;
+    for(let k=-tN;k<=tN;k++){
+      const idx=k+tN,un=k/tN,o=un*R.r,u=Math.abs(un);
       aT[idx]=Math.round(clamp(un,-1,1)*127);
       pT[idx]=(u>1)?-1
         :(kind===4)?(1-smoothstep(0.72,1,u))*hs
@@ -499,7 +519,7 @@ function stamp(BUF,ROUTES,g,p){
          white noise a texel wide running the whole length of the pipe, which
          does not read as cloth at all — it reads as speckle, and a pale pipe
          covered in speckle reads as a slab of something else entirely. */
-      if(kind===5)rT[idx]=(n1(k*0.14,R.seed)-0.5)*1.7;
+      if(kind===5)rT[idx]=(n1(o/mpp*0.14,R.seed)-0.5)*1.7;
     }
 
     /* ---- and the fitting's, whichever shape it is ---- */
@@ -507,13 +527,15 @@ function stamp(BUF,ROUTES,g,p){
     const style=F?F.style|0:0;
     const bandC=R.half+(style===2?Math.max(0.004,R.r*0.55):Math.min(0.006,R.r*0.5));
     const bandT=R.half+R.r*0.10;
-    const bN=Math.max(1,Math.ceil(bandC/oStep));
+    /* the same again for the strap or the brace, which is a wider span across
+       the whole bundle and skipped texels in exactly the same way */
+    const bN=clamp(Math.ceil(bandC/(mpp*0.34)),6,384);
     const bM=bN*2+1;
-    const bO=new Float64Array(bM),bP=new Float64Array(bM),bA=new Int8Array(bM);
+    const bP=new Float64Array(bM),bA=new Int8Array(bM);
     const half1=(R.n-1)*0.5;
     for(let k=-bN;k<=bN;k++){
-      const idx=k+bN,o=k*oStep;
-      bO[idx]=o;bA[idx]=Math.round(clamp(o/bandC,-1,1)*127);
+      const idx=k+bN,o=k/bN*bandC;
+      bA[idx]=Math.round(clamp(o/bandC,-1,1)*127);
       const c=clamp(Math.round(o/R.pitch+half1),0,R.n-1);
       const dc=Math.abs(o-(c-half1)*R.pitch);
       if(style===2){
@@ -541,6 +563,9 @@ function stamp(BUF,ROUTES,g,p){
     /* hoisted out of two nested loops: these are plain-object property loads,
        and the inner one runs a few million times a build */
     const Rr=R.r,Rz0=R.z0,Rn=R.n,Rpitch=R.pitch,Rhalf=R.half,Rseed=R.seed;
+    /* the tangent is a unit vector, so the normal's squared length in texels is
+       just pxM² — which is what turns a dot product back into an offset */
+    const invP2=1/(pxM*pxM),invR=1/Rr;
     /* A RUN WITH NO ENDS HAS TO CLOSE ON ITSELF IN EVERY RESPECT, not just in
        position. Corrugation rings, a braid's helix, jointing collars, clamps
        and ties all repeat at a pitch in metres, and a pitch that does not
@@ -580,6 +605,8 @@ function stamp(BUF,ROUTES,g,p){
       const px=PTS[q]*pxM,py=PTS[q+1]*pxM;
       const tx=PTS[q+2],ty=PTS[q+3];
       const nxp=-ty*pxM,nyp=tx*pxM;            // the normal, already in texels per metre
+      /* the span's length on the grid, in texels of Manhattan travel */
+      const manh=Math.abs(nxp)+Math.abs(nyp);
       const s=st*stepM;
 
       let sink=0;
@@ -606,9 +633,11 @@ function stamp(BUF,ROUTES,g,p){
         /* a brace is a bracket rather than a cushion clamp, and the shading
            pass tells them apart by this */
         const tag=onFit?(style===2?3:1):2;
-        for(let k=0;k<bM;k++){
-          const o=bO[k];
-          if(o<-band||o>band)continue;
+        const nB=Math.max(3,Math.ceil(2*band*manh)+1);
+        const bScale=(bM-1)*0.5/bandC;
+        for(let j=0;j<nB;j++){
+          const o=(j/(nB-1)*2-1)*band;
+          const k=clamp(Math.round(o*bScale+bN),0,bM-1);
           const bp=onFit?bP[k]:(0.34+0.66*Math.sqrt(Math.max(0,1-Math.min(1,Math.abs(o)/band)**2)));
           if(bp<0)continue;
           let gx=Math.round(px+o*nxp)|0,gy=Math.round(py+o*nyp)|0;
@@ -651,11 +680,38 @@ function stamp(BUF,ROUTES,g,p){
       for(let c=0;c<Rn;c++){
         const off=(c-(Rn-1)*0.5)*Rpitch;
         const cpx=px+off*nxp,cpy=py+off*nyp;
-        for(let k=0;k<M;k++){
+        /* THE SPAN IS WALKED ON THE GRID, NOT ALONG THE LINE.
+
+           Sampling the line and rounding cannot be made safe by sampling it
+           harder: two samples half a texel apart still round to positions a
+           diagonal apart when their fractions happen to straddle the same
+           boundary, and the texels between them are written by nobody. What
+           removes the last of it is walking the grid itself — one axis at a
+           time, from the texel at one end of the span to the texel at the
+           other — which visits every texel the span crosses, exactly once, at
+           any angle at all, for the same number of samples the Manhattan
+           length was costing anyway.
+
+           And the offset each texel is at comes off ITS OWN POSITION rather
+           than off how far along the walk it is, so the profile is read where
+           the texel actually sits. */
+        let wx=Math.round(cpx-Rr*nxp)|0,wy=Math.round(cpy-Rr*nyp)|0;
+        const ex=Math.round(cpx+Rr*nxp)|0,ey=Math.round(cpy+Rr*nyp)|0;
+        let ax=Math.abs(ex-wx),ay=Math.abs(ey-wy);
+        const dx=ex>wx?1:-1,dy=ey>wy?1:-1;
+        let err=ax-ay,n=ax+ay;
+        ax*=2;ay*=2;
+        for(let step=n;step>=0;step--){
+          /* advance FIRST on every pass but the first, so every path out of the
+             body below is still one step of the walk */
+          if(step<n){if(err>0){wx+=dx;err-=ay;}else{wy+=dy;err+=ax;}}
+          const un=((wx-cpx)*nxp+(wy-cpy)*nyp)*invP2*invR;
+          if(un<-1||un>1)continue;
+          const k=(un*tN+tN+0.5)|0;
           const prof=pT[k];
           if(prof<0)continue;
-          const o=oT[k];
-          let gx=Math.round(cpx+o*nxp)|0,gy=Math.round(cpy+o*nyp)|0;
+          const o=un*Rr;
+          let gx=wx,gy=wy;
           if(bay){if(gx<0||gx>=TW||gy<0||gy>=TH)continue;}
           else{
             while(gx<0)gx+=TW;while(gx>=TW)gx-=TW;
@@ -683,8 +739,7 @@ function stamp(BUF,ROUTES,g,p){
             h+=detR*prof*d;
           }
 
-          if(h<=HGT[i])continue;
-          HGT[i]=h;TAG[i]=(ri<<24)|((aT[k]+128)<<14)|sMM;
+          if(h>HGT[i]){HGT[i]=h;TAG[i]=(ri<<24)|((aT[k]+128)<<14)|sMM;}
         }
       }
     }
