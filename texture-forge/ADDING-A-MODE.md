@@ -293,6 +293,20 @@ The wizard uses the same hook for a whole building: the front and back at their
 own widths, the side elevation used twice because that is what the two sides of
 a building are, and the roof sitting at `eaves`. See forge-model.js.
 
+**And `plan()` is what the wizard's 3D view draws.** The stage
+(forge-stage.js) builds its scene from the same `ForgeModel.buildingScene`
+call, off the same plans, that writes `model.gltf` — so a mode in a structure
+gets a live 3D building for nothing, and gets it *before* anything is forged,
+because `plan()` is arithmetic rather than a build. Two consequences worth
+knowing:
+
+- **Your `plan()` had better be cheap and side-effect-free.** It is called for
+  every step of the structure on every nudge of a slider. Compute geometry,
+  return numbers; do not build anything.
+- **If it lies, you can see it lie.** A face whose declared width does not
+  match what it drew makes a box that does not close. That is the point of
+  drawing the export's own geometry rather than a second idea of it.
+
 ### Custom channels
 
 ```js
@@ -508,6 +522,11 @@ just re-enters it with different pinned values. The last button on the wizard ba
 builds every step at full size and packs them into one archive, a folder per
 step, so register a structure only when every one of its modes is loaded in
 `index.html`.
+
+A structure also gets the **3D building** tab for free, provided its step ids
+are `front`, `side`, `back` and `roof` — that is what `buildingScene` reads to
+decide which plane a face goes on. "Forge every face" beside it fills the whole
+building in at preview resolution; it is the look rather than the export.
 
 ## Shared helpers
 

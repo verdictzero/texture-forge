@@ -50,6 +50,9 @@ const decimals=step=>{const s=String(step);const i=s.indexOf(".");return i<0?0:s
 const STATE={};
 let active=null;                       // the live state object
 let view="lit",tileN=1,bg="dark",light=[0.35,0.45];
+/* not a channel: the wizard's 3D building, which exists only while a wizard
+   is walking and is drawn by forge-stage.js rather than by either canvas here */
+const BUILD_VIEW="building";
 const RETAIN_TEXELS=1024*1024;         // bigger than this is dropped on tab-out
 
 function stateFor(mode){
@@ -685,6 +688,7 @@ const FS=[
 "}"].join("\n");
 
 let glc=null,flat=null,fctx=null,gl=null,prog=null,tex={},uloc={},blackTex=null,noGL=false;
+let solid=null,stageOK=false;          // the wizard's 3D building; see forge-stage.js
 let canRepeat=false;                   // whether the live textures can tile in the preview
 
 function initGL(){
@@ -798,15 +802,37 @@ function drawFlat(){
   }
 }
 function renderView(){
-  const lit=(view==="lit");
+  const lit=(view==="lit"),box=(view===BUILD_VIEW);
   glc.classList.toggle("on",lit);
-  flat.classList.toggle("on",!lit);
-  el("hint").style.display=lit?"block":"none";
+  flat.classList.toggle("on",!lit&&!box);
+  if(solid)solid.classList.toggle("on",box);
+  el("hint").textContent=box
+    ? "Drag to orbit · wheel to zoom · shift-drag the sun · click a face to work on it"
+    : "Drag the preview to move the light";
+  el("hint").style.display=(lit||box)?"block":"none";
+  /* tiling and backdrops are questions about a flat texture. The building has
+     a sky of its own and repeats nothing but its roof. */
+  const f=active?flagsOf(active):null;
+  el("tiles").hidden=box||!f||!f.seamless;
+  el("bgs").hidden=box||!f||!f.backdrops;
+  const tag=el("stagetag");
+  if(tag)tag.hidden=!box;
+  el("tiletag").hidden=box;             // "tiles up and across" is about a plane, not a building
   /* the bake's dozen controls belong to one channel, so they appear with it
      and are out of the way the rest of the time */
   const bb=el("bakebar");
   if(bb)bb.hidden=(view!=="unlit");
-  if(lit)refreshGL();else drawFlat();
+  if(box)stageSync();
+  else if(lit)refreshGL();
+  else drawFlat();
+}
+
+/* every place that has to put the preview back on screen — a pane change, the
+   grip, a resize — without each of them having to know what the views are */
+function repaint(){
+  if(view===BUILD_VIEW){if(stageOK)ForgeStage.draw();}
+  else if(view==="lit")drawGL();
+  else drawFlat();
 }
 
 /* ============================ export ============================ */
@@ -1169,6 +1195,12 @@ function run(st,preview,then){
       st.flags={seamless:flag(m,"seamless",st.P),backdrops:flag(m,"backdrops",st.P)};
       if(btn)btn.disabled=false;
       makeWriters(st);
+      /* a face the wizard is standing on has just been forged, so the building
+         gets it — before the repaint below, which is what draws it */
+      if(wiz){
+        const step=wizSteps()[wiz.i];
+        if(step&&step.mode===m.id){wizMade(step.id,st);wizTicks();}
+      }
       if(st===active){
         syncChrome(st);
         setBar(0);
@@ -1242,13 +1274,57 @@ function wizSteps(){return wiz?wiz.s.steps:[];}
    what it recognises */
 function wizRecord(){
   if(!wiz)return;
-  const step=wiz.s.steps[wiz.i],st=STATE[step.mode];
-  if(!st||!st.params)return;
-  readParams(st);
+  wiz.vals=wizVals();
+}
+
+/* Everything the steps so far have settled on, PLUS whatever the step on screen
+   has moved since. wizRecord only writes on the way OUT of a step, which is
+   soon enough for the step after it to inherit and far too late for a building
+   that has to change shape while the slider is still moving. */
+function wizVals(){
+  const out={};
+  if(!wiz)return out;
+  for(const k in wiz.vals)out[k]=wiz.vals[k];
+  const st=STATE[wiz.s.steps[wiz.i].mode];
+  if(st&&st.params){
+    readParams(st);
+    for(const d of st.params){
+      if(WIZ_NEVER[d.id])continue;
+      out[d.id]=st.P[d.id];
+    }
+  }
+  return out;
+}
+
+/* What a step would OPEN with, worked out without opening it: the values
+   settled so far, overlaid with the one thing this step pins for itself. It
+   reads no DOM and writes none — which is what lets the massing of all four
+   faces follow one slider, including the three faces that are not on screen. */
+function wizProjected(step,vals){
+  const st=STATE[step.mode];
+  if(!st||!st.params)return null;
+  const P=plainP(st.P);
   for(const d of st.params){
     if(WIZ_NEVER[d.id])continue;
-    wiz.vals[d.id]=st.P[d.id];
+    if(d.id in vals)P[d.id]=vals[d.id];
   }
+  for(const k in (step.set||{}))P[k]=step.set[k];
+  return P;
+}
+
+/* The fingerprint of a face: everything it would be forged from if you forged
+   it now. A built face whose fingerprint has moved on was forged from
+   something else — usually because a later step changed a value it had
+   inherited. Resolution is deliberately out of it; a face rebuilt at 2048 is
+   the same face. */
+function wizSig(step,vals){
+  return wizSigOf(wizProjected(step,vals||wizVals()));
+}
+function wizSigOf(P){
+  if(!P)return "";
+  const Q=plainP(P);
+  delete Q.size;
+  return JSON.stringify(Q);
 }
 
 /* mark the rows this step did not choose for itself, so it is obvious which
@@ -1265,6 +1341,111 @@ function wizMark(modeId,carried){
     row.classList.toggle("carried",on);
     if(on)row.title="Carried over from an earlier face — change it and the faces after this one take yours instead";
     else row.removeAttribute("title");
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE BUILDING
+
+   Two things feed the 3D view and they arrive at different rates. The SHAPE is
+   pure arithmetic off the parameters — every mode's plan() already reports the
+   real size of the face it would draw, in metres, because that is what writes
+   the glTF — so the box can follow a slider at whatever rate the slider moves,
+   with nothing forged at all. The SURFACES arrive one at a time, as each step
+   is actually built.
+
+   That split is the whole design: you get the massing of the building you are
+   describing from the first step, and it fills in as you walk.
+   --------------------------------------------------------------------------- */
+
+const STAGE_TEX=512;                   // per-face capture: POT, mip-able, cheap
+let stageSig="";                       // the massing last handed to the stage
+
+function stageAccent(){
+  if(!stageOK)return;
+  try{
+    const c=getComputedStyle(document.body).getPropertyValue("--accent");
+    if(c)ForgeStage.accent(c);
+  }catch(e){}
+}
+
+/* The same call, with the same plans, that writes model.gltf when the wizard
+   packs the archive. Not a second idea of what the building is. */
+function stageScene(){
+  if(!wiz||!stageOK||!window.ForgeModel)return;
+  const steps=wizSteps(),vals=wizVals(),by={};
+  for(const step of steps){
+    const st=STATE[step.mode];
+    const P=wizProjected(step,vals);
+    if(!st||!P)continue;
+    const plan=ForgeModel.planOf(st.mode,P);
+    by[step.id]={plan:plan,material:{name:step.id,maps:{},cutout:plan.cutout}};
+  }
+  const order=steps.map(x=>x.id);
+  const at=i=>(order[i]&&order[i]!=="roof")?by[order[i]]:null;
+  const front=by.front||at(0);
+  if(!front)return;
+  /* rebuilding the buffers costs little, but doing it on every repaint of a
+     building nobody has resized costs it for nothing */
+  const sig=JSON.stringify(order.map(id=>by[id]&&by[id].plan));
+  if(sig===stageSig)return;
+  stageSig=sig;
+  try{
+    ForgeStage.setScene(ForgeModel.buildingScene(wiz.s.id,{
+      front:front,side:by.side||at(1),back:by.back||at(2),roof:by.roof||null}));
+  }catch(e){console.warn("ForgeStage: "+(e&&e.message||e));}
+}
+
+function stageSync(){
+  if(!wiz||!stageOK)return;
+  stageScene();
+  stageAccent();
+  const step=wizSteps()[wiz.i];
+  ForgeStage.mark(step?step.id:null);
+  const tag=el("stagetag");
+  if(tag&&!ForgeStage.hovered())tag.textContent=stageLabel();
+  ForgeStage.draw();
+}
+/* what the corner of the stage says when the cursor is not on a wall: the
+   building, and how many of its faces are actually there yet */
+function stageLabel(){
+  if(!wiz)return "";
+  const steps=wizSteps();
+  let n=0;
+  for(const x of steps)if(wiz.made[x.id])n++;
+  return wiz.s.label+" · "+n+" of "+steps.length+" faces forged"+
+         (n<steps.length?" · the rest is massing":"");
+}
+
+/* A face, as it stands, onto the building. These are the same canvases
+   makeMap() hands the channel chips and the archive — at 512 px, which is
+   everything a wall a few hundred pixels across can show, and small enough
+   that five faces' worth of base colour, normal, ORM and emissive is not the
+   reason a laptop's fan comes on. */
+function wizMade(id,st){
+  if(!wiz||!st||!st.B)return;
+  /* the fingerprint comes off the params this build actually used, not off the
+     panel — during a build-everything pass the panel is showing a different
+     face from the one being packed */
+  wiz.made[id]={sig:wizSigOf(st.P)};
+  if(!stageOK)return;
+  const maps={basecolor:makeMap(st,"basecolor",STAGE_TEX),
+              normal:makeMap(st,"normal",STAGE_TEX),
+              orm:makeMap(st,"orm",STAGE_TEX)};
+  if(st.writers&&st.writers.emissive)maps.emissive=makeMap(st,"emissive",STAGE_TEX);
+  let cut=false;
+  try{cut=!!ForgeModel.planOf(st.mode,st.P).cutout;}catch(e){}
+  ForgeStage.setFace(id,maps,cut);
+}
+
+/* the rail says which faces exist and which of them have been overtaken */
+function wizTicks(){
+  if(!wiz)return;
+  const rail=el("wiz-steps"),steps=wizSteps(),vals=wizVals();
+  for(let k=0;k<steps.length&&k<rail.children.length;k++){
+    const made=wiz.made[steps[k].id],b=rail.children[k];
+    if(!made)b.removeAttribute("data-made");
+    else b.dataset.made=(made.sig===wizSig(steps[k],vals))?"yes":"stale";
   }
 }
 
@@ -1292,7 +1473,12 @@ function wizEnter(i){
     readParams(st);
   }
   wizMark(step.mode,carried);
+  /* activate() short-circuits when the step before this one used the same mode
+     — three faces of a diner are one panel — so the tabs are rebuilt here
+     rather than relying on it having happened */
+  buildViewTabs(STATE[step.mode]||st);
   wizSync();
+  if(view===BUILD_VIEW)stageSync();
   queue(st,false);
 }
 
@@ -1318,6 +1504,7 @@ function wizSync(){
     if(k>wiz.reached+1)b.disabled=true;          // one step ahead is as far as you can jump
     rail.appendChild(b);
   }
+  wizTicks();
   el("wiz-note").innerHTML=steps[wiz.i].note||"";
   el("wiz-back").disabled=wiz.i===0;
   el("wiz-next").disabled=wiz.i>=steps.length-1;
@@ -1328,24 +1515,32 @@ function wizStart(id){
   if(!s)return;
   /* every step's mode has to be loaded, or the walk would stop halfway */
   for(const st of s.steps)if(!STATE[st.mode]){setStatus("The "+st.mode+" mode is not loaded");return;}
-  wiz={s:s,i:0,vals:{},reached:0};
+  wiz={s:s,i:0,vals:{},reached:0,made:{}};
+  stageSig="";
+  /* the building is what a wizard is FOR, so it opens on it */
+  if(stageOK){ForgeStage.reset();view=BUILD_VIEW;}
   wizEnter(0);
+  if(stageOK)ForgeStage.frame();
 }
 function wizExit(){
   const steps=wizSteps();
   for(const st of steps)wizMark(st.mode,{});
   wiz=null;
+  stageSig="";
+  if(stageOK)ForgeStage.reset();
+  if(view===BUILD_VIEW)view="lit";     // buildViewTabs corrects this where there is no WebGL
   wizSync();
+  if(active){buildViewTabs(active);renderView();}
 }
 
 /* Build every face at full size and pack the lot into one archive, each face in
    its own folder with its own readme. This is the thing a wizard is actually
    for: the building leaves as one object rather than as four exports you have
    to remember to line up. */
-function runAsync(st){
+function runAsync(st,preview){
   return new Promise(res=>{
     clearTimeout(st.qTimer);            // the step's own queued rebuild would only duplicate this
-    run(st,false,res);
+    run(st,!!preview,res);
   });
 }
 async function wizBuildAll(){
@@ -1409,6 +1604,9 @@ async function wizBuildAll(){
         await runAsync(st);
       }
       if(!st.B)throw new Error(step.label+" did not build");
+      /* the sequential fallback went through run(), which captures on its own;
+         the threaded path never touched it, so the building is fed here */
+      if(built)wizMade(step.id,st);
       for(const ch of st.mode.channels){
         setBar((built?0.5:0)+(k+(st.mode.channels.indexOf(ch)+1)/(st.mode.channels.length+1))
                /steps.length*(built?0.5:1));
@@ -1474,6 +1672,40 @@ async function wizBuildAll(){
     btn.disabled=false;
   }
 }
+/* FORGE EVERY FACE, and nothing else — no channels, no PNG encoding, no zip.
+   "Build & zip every face" is the export; this is the look. It walks the steps
+   at preview resolution so the whole building is standing there in a couple of
+   seconds, which is the question somebody actually has three steps in: does
+   the side belong to the front? */
+async function wizSeeAll(){
+  if(!wiz)return;
+  const btn=el("wiz-see"),steps=wizSteps(),start=wiz.i;
+  btn.disabled=true;
+  try{
+    wizRecord();
+    wiz.reached=steps.length-1;        // every face is about to exist; none is out of reach
+    for(let k=0;k<steps.length;k++){
+      setStatus("Forging "+steps[k].label+"…");
+      setBar((k+0.5)/steps.length);
+      wizEnter(k);
+      await runAsync(STATE[steps[k].mode],true);
+    }
+    /* back to the step we came from, and let its own rebuild LAND before the
+       status is set: wizEnter queues one, and a message written before that
+       finishes is wiped by it a tenth of a second later */
+    wizEnter(start);
+    await runAsync(STATE[steps[start].mode],true);
+    setBar(0);
+    setStatus(steps.length+" faces forged · orbit the building");
+  }catch(err){
+    setBar(0);
+    if(wiz)wizEnter(start);
+    setStatus("Could not forge every face: "+(err&&err.message||err));
+  }finally{
+    btn.disabled=false;
+  }
+}
+
 function wizReadme(){
   const steps=wizSteps();
   const out=["Texture Forge · "+wiz.s.label,"",
@@ -1517,12 +1749,22 @@ function initWizard(){
   });
   el("wiz-back").addEventListener("click",()=>wizGo(wiz.i-1));
   el("wiz-next").addEventListener("click",()=>wizGo(wiz.i+1));
+  el("wiz-see").addEventListener("click",wizSeeAll);
   el("wiz-all").addEventListener("click",wizBuildAll);
   el("wiz-exit").addEventListener("click",wizExit);
   /* an inherited value stops being inherited the moment you touch it */
+  let nudge=0;
   el("app").addEventListener("input",e=>{
     const row=e.target.closest&&e.target.closest(".row.carried");
     if(row){row.classList.remove("carried");row.removeAttribute("title");}
+    /* the building's SHAPE is arithmetic, not a build — so it follows the
+       slider now rather than waiting for whatever the slider caused to forge */
+    if(!wiz)return;
+    clearTimeout(nudge);
+    nudge=setTimeout(()=>{
+      wizTicks();
+      if(view===BUILD_VIEW)stageSync();
+    },70);
   },true);
   wizSync();
 }
@@ -1788,7 +2030,13 @@ function activate(id){
 function buildViewTabs(st){
   const wrap=el("tabs");
   wrap.innerHTML="";
-  const list=[{key:"lit",label:"Lit preview"}].concat(st.mode.channels.filter(c=>c.tab!==false));
+  /* THE BUILDING COMES FIRST, and only in the wizard. Outside one there is no
+     building to draw — a wall mode on its own is a wall — and a tab that is
+     empty four times out of five is worse than no tab. */
+  const list=[];
+  if(wiz&&stageOK)list.push({key:BUILD_VIEW,label:"3D building"});
+  list.push({key:"lit",label:"Lit preview"});
+  for(const c of st.mode.channels)if(c.tab!==false)list.push(c);
   if(noGL&&view==="lit")view=st.mode.channels[0].key;
   if(!list.some(c=>c.key===view))view=noGL?st.mode.channels[0].key:"lit";
   for(const c of list){
@@ -1830,7 +2078,7 @@ function filterPanel(st,q){
 /* Groups run in the order somebody would actually go looking, not in whichever
    order the <script> tags happen to load. Anything a mode invents that is not
    on this list falls in at the end. */
-const GROUP_ORDER=["Ground","Buildings","Panels","Sci-fi","Detail"];
+const GROUP_ORDER=["Ground","Buildings","Interiors","Panels","Sci-fi","Detail"];
 function buildBrowser(){
   const host=el("modegrid");
   host.innerHTML="";
@@ -1915,7 +2163,7 @@ function setPane(p){
   try{localStorage.setItem("texture-forge-pane",p);}catch(e){}
   /* the canvas was display:none while another pane was up, so it has no size
      until the browser has laid it out again */
-  if(p!=="controls")requestAnimationFrame(()=>{view==="lit"?drawGL():drawFlat();});
+  if(p!=="controls")requestAnimationFrame(()=>{repaint();});
 }
 const onPhone=()=>matchMedia("(max-width:900px)").matches;
 
@@ -1923,7 +2171,7 @@ function setPanel(on){
   document.body.dataset.panel=on?"on":"off";
   el("panelbtn").setAttribute("aria-pressed",String(on));
   try{localStorage.setItem("texture-forge-panel",on?"on":"off");}catch(e){}
-  requestAnimationFrame(()=>{view==="lit"?drawGL():drawFlat();});
+  requestAnimationFrame(()=>{repaint();});
 }
 
 /* WHERE THE STRUCTURE BUTTONS LIVE. On a wide screen they belong in the top
@@ -1992,7 +2240,7 @@ function initChrome(){
     dragging=false;
     try{localStorage.setItem("texture-forge-panelw",
       getComputedStyle(document.documentElement).getPropertyValue("--panel-w").trim());}catch(e){}
-    if(view==="lit")drawGL();else drawFlat();
+    repaint();
   };
   grip.addEventListener("pointerup",stop);
   grip.addEventListener("pointercancel",stop);
@@ -2046,7 +2294,7 @@ function initChrome(){
   const mq=matchMedia("(max-width:900px)");
   (mq.addEventListener?mq.addEventListener.bind(mq,"change"):mq.addListener.bind(mq))(()=>{
     placeStructs();
-    if(view==="lit")drawGL();else drawFlat();
+    repaint();
   });
 }
 
@@ -2109,6 +2357,36 @@ function boot(){
     for(const t of el("bgs").children)t.setAttribute("aria-pressed",String(t===b));
     renderView();
   });
+  /* THE 3D STAGE. It needs its own WebGL context and ForgeModel to describe a
+     building for it; without either the wizard simply never offers the tab and
+     everything else works exactly as it did. */
+  solid=el("solid");
+  stageOK=!!(solid&&window.ForgeStage&&window.ForgeModel&&ForgeStage.attach(solid));
+  if(stageOK){
+    ForgeStage.onPick(id=>{
+      if(!wiz)return;
+      const steps=wizSteps();
+      for(let k=0;k<steps.length;k++)if(steps[k].id===id){
+        /* the same reach the rail enforces: a face two steps ahead has not
+           inherited anything yet and would open on stale numbers */
+        if(k>wiz.reached+1)setStatus("Work through "+steps[wiz.reached].label+" first");
+        else wizGo(k);
+        return;
+      }
+    });
+    ForgeStage.onHover(id=>{
+      const tag=el("stagetag");
+      if(!tag||!wiz)return;
+      let step=null;
+      const steps=wizSteps();
+      for(const x of steps)if(x.id===id)step=x;
+      tag.textContent=step
+        ?(step.id===steps[wiz.i].id?"This is the "+step.label.toLowerCase()+" — the face you are on"
+                                   :"Click to work on the "+step.label.toLowerCase())
+        :stageLabel();
+    });
+  }
+
   sayPacking();
   el("zipall").addEventListener("click",downloadZip);
   el("h16").addEventListener("click",downloadH16);
@@ -2123,7 +2401,7 @@ function boot(){
   glc.addEventListener("pointermove",e=>{if(dragging)setLightFrom(e);});
   glc.addEventListener("pointerup",()=>{dragging=false;});
   glc.addEventListener("pointercancel",()=>{dragging=false;});
-  addEventListener("resize",()=>{if(view==="lit")drawGL();else drawFlat();});
+  addEventListener("resize",()=>{repaint();});
   addEventListener("hashchange",()=>{
     const id=(location.hash||"").replace(/^#/,"");
     if(BY_ID[id])activate(id);

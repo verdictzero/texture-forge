@@ -1259,6 +1259,363 @@ if (want("raceway")) {
   await page.selectOption("#raceway--piece", "tile");
 }
 
+/* ============================ the 3D building ============================
+   The wizard draws the building it is describing, out of ForgeModel's own
+   scene. What that has to be true of:
+
+     the box is the PLANS — its dimensions are the ones every step's plan()
+     declares, so the thing you orbit is the thing that exports;
+     the shape is LIVE — it follows a dimension slider with nothing forged;
+     the surfaces ARRIVE — walking a step puts that face on the building;
+     a face that was overtaken SAYS SO rather than passing as current;
+     and every triangle in the exported scene is wound to agree with the
+     normal it declares, which is the defect this view found on its first
+     afternoon.
+   ========================================================================= */
+if (want("stage")) {
+  console.log("\n— the 3D building —");
+
+  const stageUp = await page.evaluate(() => !!(window.ForgeStage && window.ForgeStage.available()));
+  ok("the stage has a context", stageUp);
+
+  /* ---- every triangle agrees with the normal it claims ------------------
+     A face wound against its own normal shades correctly anywhere that reads
+     the vertex normal and turns into a hole anywhere that culls back faces.
+     Checked over every structure's scene rather than over one. */
+  const wound = await page.evaluate(() => {
+    const M = window.ForgeModel, out = [];
+    for (const s of window.Forge.structures) {
+      const by = {};
+      for (const step of s.steps) {
+        const st = window.Forge.state(step.mode);
+        const P = Object.assign(JSON.parse(JSON.stringify(st.P)), step.set || {});
+        const plan = M.planOf(st.mode, P);
+        by[step.id] = { plan, material: { name: step.id, maps: {}, cutout: plan.cutout } };
+      }
+      const S = M.buildingScene(s.id, { front: by.front, side: by.side, back: by.back, roof: by.roof });
+      let bad = 0, tris = 0;
+      for (const m of S.meshes) {
+        for (let i = 0; i < m.idx.length; i += 3) {
+          const a = m.idx[i] * 3, b = m.idx[i + 1] * 3, c = m.idx[i + 2] * 3;
+          const e1 = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+          const e2 = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+          const g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+          const d = g[0] * m.nrm[a] + g[1] * m.nrm[a + 1] + g[2] * m.nrm[a + 2];
+          tris++;
+          if (d <= 0) bad++;
+        }
+      }
+      out.push({ id: s.id, tris, bad, meshes: S.meshes.map(m => m.name) });
+    }
+    return out;
+  });
+  for (const r of wound)
+    ok(`${r.id}: every triangle is wound to its own normal`, r.bad === 0,
+       `${r.tris - r.bad}/${r.tris} · ${r.meshes.join(" ")}`);
+
+  for (const s of await page.evaluate(() => window.Forge.structures.map(x => ({ id: x.id, n: x.steps.length })))) {
+    console.log(`  · ${s.id}`);
+    await page.evaluate(n => {
+      for (const st of window.Forge.structures.find(x => x.id === n).steps)
+        window.Forge.setParam(st.mode, "size", 256);
+    }, s.id);
+    await page.click(`[data-struct="${s.id}"]`);
+    await settle();
+
+    ok(`${s.id}: the wizard opens on the building`,
+       (await page.$eval("#tabs .tab[aria-pressed=true]", n => n.textContent)) === "3D building");
+    ok(`${s.id}: the 3D canvas is the one on screen`,
+       await page.$eval("#solid", n => n.classList.contains("on")));
+
+    /* ---- the box is the plans, not a guess at them --------------------- */
+    const box = await page.evaluate(n => {
+      const S = window.Forge.structures.find(x => x.id === n), M = window.ForgeModel;
+      const P = id => {
+        const step = S.steps.find(x => x.id === id);
+        return step ? M.planOf(window.Forge.state(step.mode).mode,
+                               Object.assign(JSON.parse(JSON.stringify(window.Forge.state(step.mode).P)),
+                                             step.set || {})) : null;
+      };
+      return { stage: window.ForgeStage.debug().bounds, front: P("front"), side: P("side") };
+    }, s.id);
+    const near = (a, b, e = 0.02) => Math.abs(a - b) < e;
+    ok(`${s.id}: the box is as wide as the front says`, near(box.stage.w, box.front.w),
+       box.stage.w.toFixed(2) + " vs " + box.front.w.toFixed(2) + " m");
+    ok(`${s.id}: the box is as deep as the side says`, near(box.stage.d, box.side.w),
+       box.stage.d.toFixed(2) + " vs " + box.side.w.toFixed(2) + " m");
+
+    /* ---- one mesh per wall, all four, pointing at their own step -------- */
+    const meshes = await page.evaluate(() => window.ForgeStage.debug().meshes);
+    const walls = meshes.filter(m => m.face);
+    ok(`${s.id}: four walls and a roof stand on a ground`,
+       walls.length === 5 && meshes.length === 6,
+       walls.map(m => m.name + ":" + m.face).join(" "));
+    ok(`${s.id}: both sides come off the one side elevation`,
+       walls.filter(m => m.face === "side").length === 2);
+
+    /* ---- the shape follows a slider, with nothing forged ---------------- */
+    /* FOUND, not guessed: every structure names its width differently, and a
+       hard-coded list picks the factory's PANEL tile rather than its elevation.
+       So this asks the plan — the control that widens the face is whichever one
+       widens plan().w, and planOf is pure arithmetic, so trying them all costs
+       nothing and cannot be wrong. */
+    const dim = await page.evaluate(n => {
+      const S = window.Forge.structures.find(x => x.id === n);
+      const step = S.steps[0], st = window.Forge.state(step.mode), M = window.ForgeModel;
+      const planFor = over => {
+        const P = Object.assign(JSON.parse(JSON.stringify(st.P)), step.set || {}, over);
+        return M.planOf(st.mode, P).w;
+      };
+      const base = planFor({});
+      for (const d of st.params) {
+        if (d.kind !== "range" || d.id === "size" || d.id === "seed") continue;
+        const v = st.P[d.id];
+        if (!(v > 0)) continue;
+        const up = Math.min(d.max === undefined ? v * 1.5 : +d.max, v * 1.5);
+        if (up <= v) continue;
+        if (planFor({ [d.id]: up }) > base * 1.15) return { mode: st.mode.id, id: d.id, v: v, to: up };
+      }
+      return null;
+    }, s.id);
+    if (dim) {
+      const w0 = await page.evaluate(() => window.ForgeStage.debug().bounds.w);
+      await page.evaluate(d => window.Forge.setParam(d.mode, d.id, d.to), dim);
+      /* deliberately WITHOUT waiting for a build: the massing is arithmetic */
+      await page.evaluate(() => document.getElementById("app")
+        .dispatchEvent(new Event("input", { bubbles: true })));
+      await page.waitForTimeout(220);
+      const w1 = await page.evaluate(() => window.ForgeStage.debug().bounds.w);
+      ok(`${s.id}: the box follows ${dim.id} before anything is forged`, w1 > w0 * 1.2,
+         w0.toFixed(2) + " → " + w1.toFixed(2) + " m");
+      await page.evaluate(d => window.Forge.setParam(d.mode, d.id, d.v), dim);
+      await page.evaluate(() => document.getElementById("app")
+        .dispatchEvent(new Event("input", { bubbles: true })));
+      /* setParam marks the build stale without starting one, so there is
+         nothing here for settle() to wait for — and waiting for it burns a
+         minute per structure on a timeout that means nothing */
+      await page.waitForTimeout(200);
+    }
+
+    /* ---- the surfaces arrive as the steps are walked -------------------- */
+    await page.click("#wiz-see");
+    for (let i = 0; i < 900; i++) {
+      const t = await page.$eval("#status", n => n.textContent);
+      if (/faces forged|Could not/.test(t)) break;
+      await page.waitForTimeout(200);
+    }
+    await settle();
+    const made = await page.evaluate(() => ({
+      faces: window.ForgeStage.debug().faces,
+      rail: [...document.querySelectorAll("#wiz-steps .tab")].map(t => t.dataset.made || "-")
+    }));
+    ok(`${s.id}: every face is on the building`, made.faces.length === s.n,
+       made.faces.join(" "));
+    ok(`${s.id}: the rail ticks every face`, made.rail.every(x => x === "yes"),
+       made.rail.join(" "));
+
+    /* ---- and says so when one is overtaken ----------------------------- */
+    const stale = await page.evaluate(n => {
+      const S = window.Forge.structures.find(x => x.id === n);
+      const st = window.Forge.state(S.steps[0].mode);
+      window.Forge.setParam(st.mode.id, "seed", (st.P.seed | 0) + 7);
+      document.getElementById("app").dispatchEvent(new Event("input", { bubbles: true }));
+      return null;
+    }, s.id);
+    await page.waitForTimeout(240);
+    const rail2 = await page.evaluate(() =>
+      [...document.querySelectorAll("#wiz-steps .tab")].map(t => t.dataset.made || "-"));
+    ok(`${s.id}: a face built on other numbers is flagged`, rail2.some(x => x === "stale"),
+       rail2.join(" "));
+
+    /* ---- a wall in the middle of the view is pickable ------------------- */
+    const hit = await page.evaluate(() => {
+      const cv = document.getElementById("solid"), r = cv.getBoundingClientRect();
+      return window.ForgeStage.pick(r.left + r.width / 2, r.top + r.height / 2);
+    });
+    ok(`${s.id}: the walls are pickable`, !!hit, "hit " + hit);
+
+    await page.click("#wiz-exit");
+    await page.waitForTimeout(250);
+    ok(`${s.id}: leaving takes the building away`,
+       !(await page.evaluate(() => window.ForgeStage.debug().scene)) &&
+       (await page.evaluate(() => window.ForgeStage.debug().faces.length)) === 0);
+    ok(`${s.id}: and takes the tab with it`,
+       !(await page.evaluate(() =>
+         [...document.querySelectorAll("#tabs .tab")].some(t => t.dataset.view === "building"))));
+  }
+}
+
+/* ============================ the grocery fixtures ============================
+   Seven fixtures out of one generator. What has to be true of them:
+
+     every piece builds, and at the small end of the ladder too;
+     the box is the MILLIMETRES it claims — bays times bay width, in metres;
+     stock responds to the stock control rather than to nothing;
+     SHORT stock survives, which is the defect that made a chiller deck of
+       50 mm trays look like nobody had filled it (the shelf fascia was drawn
+       over the top of them);
+     the two height fields are two fields — the height map carries the true
+       depth whatever Relief is set to, and the normal map does not;
+     it cuts out, and it glows only where there is a lamp.
+   ============================================================================= */
+if (want("grocery")) {
+  console.log("\n— grocery fixtures —");
+  await page.evaluate(() => window.Forge.activate("grocery"));
+  await page.waitForTimeout(200);
+
+  const pieces = await page.evaluate(() =>
+    [...document.querySelectorAll("#grocery--piece option")].map(o => o.value));
+  ok("every fixture is offered", pieces.length >= 7, pieces.join(" "));
+
+  /* what the material id buffer says the face is made of */
+  const census = () => page.evaluate(() => {
+    const B = window.Forge.active().B, N = B.W * B.H;
+    const by = {}, MAT = B.MAT, ALP = B.ALP, E = B.EMC;
+    let opaque = 0, clear = 0, lit = 0;
+    for (let i = 0; i < N; i++) {
+      by[MAT[i]] = (by[MAT[i]] || 0) + 1;
+      if (ALP[i] > 247) opaque++; else if (ALP[i] < 8) clear++;
+      if (E[i * 3] + E[i * 3 + 1] + E[i * 3 + 2] > 12) lit++;
+    }
+    return { by, N, opaque: opaque / N, clear: clear / N, lit: lit / N };
+  });
+  const build = async (set, size) => {
+    await page.evaluate(o => {
+      for (const k in o) if (k !== "__size") window.Forge.setParam("grocery", k, o[k]);
+      window.Forge.setParam("grocery", "size", o.__size);
+    }, Object.assign({ __size: size || 512 }, set));
+    await page.click("#grocery--forge");
+    return await settle();
+  };
+
+  /* ---- every piece builds, and survives the small end ------------------- */
+  for (const piece of pieces) {
+    const before = errors.length;
+    const t = await build({ piece }, 512);
+    const c = await census();
+    ok(`${piece}: builds`, t !== "TIMEOUT" && c.opaque > 0.10,
+       (c.opaque * 100).toFixed(0) + "% opaque");
+    ok(`${piece}: nothing thrown`, errors.length === before, errors.slice(before).join(" | "));
+  }
+  for (const piece of pieces) {
+    const before = errors.length;
+    const t = await build({ piece }, 128);
+    ok(`${piece}: survives 128 px`, t !== "TIMEOUT" && errors.length === before,
+       errors.slice(before).join(" | "));
+  }
+
+  /* ---- the box is the millimetres it claims ---------------------------- */
+  const dims = await page.evaluate(() => {
+    const st = window.Forge.state("grocery"), out = [];
+    for (const [bays, bayW, fixH] of [[1, 1219, 2134], [4, 900, 1800], [2, 1600, 2400]]) {
+      window.Forge.setParam("grocery", "piece", "gondola");
+      window.Forge.setParam("grocery", "bays", bays);
+      window.Forge.setParam("grocery", "bayW", bayW);
+      window.Forge.setParam("grocery", "fixH", fixH);
+      const p = window.ForgeModel.planOf(st.mode, st.P);
+      out.push({ bays, bayW, fixH, w: p.w, h: p.h, cutout: p.cutout });
+    }
+    return out;
+  });
+  for (const d of dims) {
+    ok(`${d.bays}x${d.bayW} mm is ${(d.bays * d.bayW / 1000).toFixed(3)} m across`,
+       Math.abs(d.w - d.bays * d.bayW / 1000) < 1e-6, d.w.toFixed(4) + " m");
+    ok(`${d.fixH} mm tall is ${(d.fixH / 1000).toFixed(3)} m`,
+       Math.abs(d.h - d.fixH / 1000) < 1e-6, d.h.toFixed(4) + " m");
+  }
+  ok("a fixture is a cut-out piece", dims.every(d => d.cutout));
+
+  /* ---- stock follows the stock control --------------------------------- */
+  const PRODUCT = [5, 6, 7, 8, 9, 10];                    // card, can, bottle, film, produce, meat
+  const stocked = c => PRODUCT.reduce((a, m) => a + (c.by[m] || 0), 0) / c.N;
+  await build({ piece: "gondola", bays: 3, bayW: 1219, fixH: 2134, shelves: 4, fill: 1, tidy: 0.9 });
+  const full = stocked(await census());
+  await build({ piece: "gondola", fill: 0.15 });
+  const bare = stocked(await census());
+  ok("a full shelf holds more than a picked-over one", full > bare * 1.6,
+     (full * 100).toFixed(1) + "% vs " + (bare * 100).toFixed(1) + "% of the face");
+  ok("a full shelf is properly full", full > 0.16, (full * 100).toFixed(1) + "%");
+
+  /* ---- SHORT STOCK SURVIVES. The shelf fascia used to be drawn above the
+     shelf line, which painted it straight over anything shorter than about
+     60 mm — so a chiller deck of trays came out looking unstocked. ---- */
+  await build({ piece: "meat", bays: 3, fixH: 2000, deckN: 4, chillMix: "meat", fill: 0.95 });
+  const meat = await census();
+  ok("a chiller deck of trays is actually stocked",
+     (meat.by[10] || 0) / meat.N > 0.035,
+     (((meat.by[10] || 0) / meat.N) * 100).toFixed(2) + "% of the face is tray");
+
+  /* ---- two height fields, and only one of them is exported ------------- */
+  /* MEASURED THROUGH AN UNSATURATED WINDOW. At the normal strength anybody
+     would actually use, the step from a package to the shelf behind it pins
+     the normal flat against the surface at Relief 0 and at Relief 1 alike —
+     157 units of gradient and 6 both come out as "sideways", and the mean
+     tilt cannot tell them apart. Turning the strength down to the control's
+     own minimum puts both inside the range where the field is still readable,
+     which is where the difference between them lives. */
+  const relief = async r => {
+    await build({ piece: "gondola", shelves: 4, fill: 1, relief: r, normalStr: 0.1 });
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, N = B.W * B.H, NRM = B.NRM;
+      /* OVER THE STOCK ONLY. Relief scales how much of a PACKAGE's standing
+         depth reaches the normals; the shelf boards, the uprights and the
+         ticket rails keep their own relief either way, and averaged over the
+         whole face they are most of the bending and swamp the thing being
+         measured. */
+      const PROD = { 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 };
+      /* AND AT THE STEEPEST END OF IT. Most of a package is its flat front,
+         which leans the same amount whatever Relief is; the standing depth
+         shows up only where the package ENDS, which is a small share of its
+         texels and is averaged away. The 95th percentile is that edge. */
+      const hist = new Float64Array(256);
+      let n = 0;
+      for (let i = 0; i < N; i++) {
+        if (!B.ALP[i] || !PROD[B.MAT[i]]) continue;
+        hist[255 - NRM[i * 3 + 2]]++;
+        n++;
+      }
+      let acc = 0, p95 = 0;
+      for (let k = 255; k >= 0; k--) {
+        acc += hist[k];
+        if (acc >= n * 0.05) { p95 = k / 255; break; }
+      }
+      return { range: B.hMax - B.hMin, tilt: p95, n: n };
+    });
+  };
+  const r0 = await relief(0), r1 = await relief(1);
+  ok("the height map carries the true depth at either Relief",
+     Math.abs(r0.range - r1.range) < 1e-4,
+     r0.range.toFixed(5) + " vs " + r1.range.toFixed(5) + " face widths");
+  ok("Relief decides how much of it reaches the normals", r1.tilt > r0.tilt * 3,
+     r0.tilt.toFixed(4) + " -> " + r1.tilt.toFixed(4) +
+     " tilt at the stock's steepest 5%, measured at 0.1 normal strength");
+
+  /* ---- the alpha is the silhouette, whatever shape that is ------------
+     A gondola run IS a rectangle in elevation — there is nothing to cut away,
+     and an alpha with a hole in it would be a bug. A checkout lane is mostly
+     not there: two impulse racks, a counter and a pole, with the queue's own
+     space between them. Both are the same channel doing its job. ---- */
+  await build({ piece: "gondola", shelves: 4, fill: 0.9, relief: 0.22 });
+  const gond = await census();
+  ok("a shelf run is a solid rectangle", gond.opaque > 0.995,
+     (gond.opaque * 100).toFixed(2) + "% opaque");
+  await build({ piece: "checkout", bays: 3, fixH: 1500 });
+  const lane = await census();
+  ok("a checkout lane cuts out round itself", lane.clear > 0.20 && lane.opaque > 0.30,
+     (lane.clear * 100).toFixed(0) + "% clear, " + (lane.opaque * 100).toFixed(0) + "% opaque");
+  await build({ piece: "gondola", shelves: 4, fill: 0.9, relief: 0.22 });
+  ok("a dry goods bay has no light in it", gond.lit < 0.0005,
+     (gond.lit * 100).toFixed(3) + "% lit");
+  ok("and it is made of steel, shelf, ticket and stock",
+     [2, 3, 4].every(m => (gond.by[m] || 0) > 0) &&
+     PRODUCT.filter(m => (gond.by[m] || 0) > 0).length >= 3,
+     Object.keys(gond.by).sort((a, b) => a - b).join(","));
+  await build({ piece: "meat", deckN: 4, canopyMm: 420 });
+  const chill = await census();
+  ok("a chiller case has its canopy light", chill.lit > 0.002,
+     (chill.lit * 100).toFixed(2) + "% lit");
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();

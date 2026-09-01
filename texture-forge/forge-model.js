@@ -203,8 +203,12 @@ function buildingScene(name,faces){
                    " m and ridge at "+top.toFixed(2)+" m — taken from the gable face's own "+
                    "silhouette so the plane closes the triangle exactly.");
     }else{
-      quad(mr,[-W/2,eaves,-D/2],[W/2,eaves,-D/2],[W/2,eaves,D/2],[-W/2,eaves,D/2],[0,1,0],
-           [[0,0],[W/tile,0],[W/tile,D/tile],[0,D/tile]]);
+      /* wound anticlockwise seen from ABOVE. It was the other way round, which
+         no renderer that shades off the vertex normal complains about and every
+         renderer that culls back faces makes a hole out of — the 3D stage,
+         which draws this very scene, is where that showed up. */
+      quad(mr,[-W/2,eaves,D/2],[W/2,eaves,D/2],[W/2,eaves,-D/2],[-W/2,eaves,-D/2],[0,1,0],
+           [[0,D/tile],[W/tile,D/tile],[W/tile,0],[0,0]]);
       S.notes.push("Roof: one flat plane at the eaves, "+eaves.toFixed(2)+" m. It sits BELOW "+
                    "the top of a parapet on purpose — the parapet is part of the wall texture.");
     }

@@ -59,6 +59,7 @@ body[data-mode=vent]{--accent:#5ad1c0}
 body[data-mode=sheet]{--accent:#c98a4a}
 body[data-mode=plate]{--accent:#9aa8b4}
 body[data-mode=slab]{--accent:#b7b2a4}
+body[data-mode=grocery]{--accent:#6fbf47}
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -237,6 +238,24 @@ body[data-panel=off] .grip{display:none}
 .wizbar[hidden]{display:none}
 .wizname{font-weight:800;font-size:12.5px;text-transform:uppercase;letter-spacing:.13em;color:var(--paint)}
 .wizsteps{display:flex;gap:2px;flex-wrap:wrap}
+/* WHAT THE RAIL KNOWS ABOUT EACH FACE. A tick is a face that has been forged
+   off exactly the numbers it would open with now; the recycle mark is one that
+   was forged off different ones, because a later step changed something it had
+   inherited. Neither is an error — a building whose back does not match its
+   front is a legitimate thing to want — but you should be able to see it. */
+.wizsteps .tab::after{font-weight:700;margin-left:6px;font-size:11px}
+.wizsteps .tab[data-made=yes]::after{content:"✓";color:#7fc98a}
+.wizsteps .tab[data-made=stale]::after{content:"↻";color:var(--orange)}
+.wizsteps .tab[aria-pressed=true][data-made=yes]::after,
+.wizsteps .tab[aria-pressed=true][data-made=stale]::after{color:#1a1405}
+/* the 3D stage fills the bay rather than sitting in it at the texture's aspect:
+   it is a room the building stands in, not a picture of a wall */
+#solid{max-width:none;max-height:none;box-shadow:none;background:#0d0e10;cursor:grab}
+#solid.on{display:block}
+.stagetag{position:absolute;left:18px;top:12px;font-family:var(--mono);font-size:10px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);pointer-events:none;
+  background:rgba(12,13,15,.72);padding:4px 8px;border:1px solid var(--rule);border-radius:2px}
+.stagetag[hidden]{display:none}
 .wiznote{flex:1 0 100%;margin:2px 0 0;font-family:var(--mono);font-size:10px;
   line-height:1.5;color:var(--ink-soft)}
 /* a value this face inherited from the one before it */
@@ -264,6 +283,10 @@ body[data-wizard=on] #modebar-tabs,body[data-wizard=on] #browse{opacity:.35;poin
   overflow:hidden;text-overflow:ellipsis}
 .palbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 14px;
   border-bottom:1px solid var(--rule);background:#131416;flex:0 0 auto}
+/* an author rule beats the user agent's [hidden]{display:none}, so the bake
+   bar sat under every view rather than only under the one channel it belongs
+   to — its dozen controls do nothing to a base colour or to a building */
+.palbar[hidden]{display:none}
 .palbar.drop{background:#1b1f22;box-shadow:inset 0 0 0 1px var(--accent)}
 .pallab{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
   letter-spacing:.11em;color:#9aa0a7}
@@ -458,6 +481,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
     <div class="wizsteps" id="wiz-steps"></div>
     <button type="button" class="tab" id="wiz-back">Back</button>
     <button type="button" class="tab" id="wiz-next">Next</button>
+    <button type="button" class="tab" id="wiz-see">Forge every face</button>
     <button type="button" class="zip" id="wiz-all">Build &amp; zip every face</button>
     <button type="button" class="tab" id="wiz-exit">Leave the wizard</button>
     <p class="wiznote" id="wiz-note"></p>
@@ -509,7 +533,11 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
       <div class="stage" id="stage">
         <canvas id="gl" class="on" width="900" height="900"></canvas>
         <canvas id="flat" width="900" height="900"></canvas>
+        <!-- the wizard's 3D building. Off in every other view, and never
+             offered at all where there is no WebGL. -->
+        <canvas id="solid" width="900" height="900"></canvas>
         <div class="hint" id="hint">Drag the preview to move the light</div>
+        <div class="stagetag" id="stagetag" hidden></div>
         <div class="tiletag" id="tiletag"></div>
         <div class="progress"><i id="bar"></i></div>
       </div>
@@ -554,6 +582,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <script src="forge-fonts.js"></script>
 <script src="forge-gpu.js"></script>
 <script src="forge-model.js"></script>
+<script src="forge-stage.js"></script>
 <script src="forge-core.js"></script>
 <script src="modes/street.js"></script>
 <script src="modes/plating.js"></script>
@@ -571,6 +600,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <script src="modes/greeble.js"></script>
 <script src="modes/factory.js"></script>
 <script src="modes/diner.js"></script>
+<script src="modes/grocery.js"></script>
 <script src="modes/vent.js"></script>
 <script src="modes/panel.js"></script>
 <script src="modes/lib/loom.js"></script>

@@ -16,6 +16,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   forge-core.js         shared runtime: panel, preview, export, zip, wizard
   forge-palette.js      palette, dither and nearest-neighbour filtering
   forge-fonts.js        typeface registry — loads one, bundles none
+  forge-stage.js        the wizard's 3D building — walls, roof, orbit, picking
   modes/street.js       asphalt and street layout
   modes/plating.js      seamless riveted aircraft skin
   modes/house.js        American house front elevation
@@ -28,11 +29,13 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/greeble.js      machined surface clutter, stacked and routed
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
+  modes/grocery.js      supermarket fixtures, stocked — seven of them
   modes/lib/            generators shared by more than one mode
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
-  tools/feature-test.mjs  the resolution ladder, the palette and the wizard
+  tools/feature-test.mjs  the resolution ladder, the palette, the wizard,
+                          the 3D building and the grocery fixtures
   .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
@@ -518,6 +521,71 @@ Diner — American chrome and neon, every face
 
   Presets: chrome classic, turquoise & cream, night shift, closed up.
 
+Grocery — supermarket fixtures, stocked
+  The shelving of a shop, seen the way you see it: standing in the aisle, square
+  on to a run of it. Everything is dimensioned in real millimetres — a 1219 mm
+  (48 in) gondola bay standing 2134 mm (7 ft) on a 560 mm base deck, a 66 x
+  122 mm can, a 26 mm ticket rail — and it cuts out on alpha, so it drops onto a
+  plane at true scale and the aisle behind shows past the ends. Stand two of
+  them facing each other and you have an aisle.
+
+  SEVEN FIXTURES, because a grocery store is not one thing. Dry goods on GONDOLA
+  shelving with slotted uprights, a solid base deck and a shelf-edge ticket
+  strip. The PRODUCE rack: raked tiers, each shallower and further back than the
+  one under it, stocked from slotted crates with a heap of one vegetable in
+  each, a mister rail across the top and chalkboard headers. The MEAT multideck:
+  a black surround round a well of raked decks, an air-curtain grille along the
+  bottom, and a canopy with the department fascia on it and the case light under
+  its lip. The DELI service counter: a stainless base with a bumper rail, a lit
+  case with gastronorm pans on a raked deck, tilted glass with the sheen running
+  down it, and a menu board over the top. The FROZEN reach-in doors: aluminium
+  frames, handles, an LED in every mullion and glass with the frost heaviest at
+  the seals. An END CAP, stacked and stepped back, one line to a tier under a
+  header. And a CHECKOUT lane: belt, dividers, impulse racks either side, the
+  till tower and the lane light on its pole.
+
+  ONE SHAPE FOR EVERY PRODUCT. A can, a cereal box, a bottle of squash, a bag of
+  crisps, a milk carton, a tub of yoghurt and a tray of mince are the same
+  drawing problem: a silhouette that changes width as it goes up, wrapped on a
+  cross-section that decides how the light falls across it. So each is two small
+  functions — a profile and a section — and everything else about them is
+  written once: the shelf shadow, the film sheen, the label, the setback, the
+  facings. A can is a straight silhouette on a circle. A bottle is the same
+  circle with a shoulder and a neck. A carton is flat with an arris. A bag is a
+  soft pillow with a crimped top. Adding a product is adding two lines.
+
+  A SHELF IS A PLANOGRAM, not a scatter. One line gets a BLOCK of facings —
+  three tins of the same soup side by side — and the block next to it is a
+  different line. That is most of what makes a shelf read as stocked rather than
+  as noise, and it is why "how well stocked" and "faced up" are two controls
+  rather than one: the first is how much of the run is filled and how many lines
+  have sold out, the second is how far forward the stock is pulled and how
+  straight it stands. At 1 the shop has just been fronted; at 0 it is Sunday
+  evening. A line too tall for the bay it is in is simply not stocked there.
+
+  Packaging is deliberately LOUD. A shelf of muted colours reads as a stockroom
+  — brown boxes in rows — so a facing takes a hue off a wheel weighted to the
+  colours print likes, a strong version of it for the body, a near-complement
+  for the band and a near-white for the label patch, which is what nearly every
+  package on a shelf actually is. What goes in a tray or a pan comes off a
+  different wheel: meat, cheese and olives are not packaging colours.
+
+  TWO HEIGHT FIELDS, and only one of them is exported. A shelf is nearly all
+  relief — product stands 300 mm proud of a fixture 1200 mm wide — and a normal
+  map taken straight off that is a page of black cliffs with the labels, can
+  rims and crimps that actually read at a distance lost under them. So
+  height.png and the 16-bit height carry the TRUE depth, and the normals come
+  off a second field: the same surface detail at full strength plus the standing
+  depth scaled by the Relief control. Set Relief to 1 and they are one field.
+
+  Nothing here is lettered. At the size a shelf is seen the printing on a
+  package is a pale patch with a dark bar in it, and a department fascia is a
+  run of blocks on a varying pitch with a space every few words — which is what
+  this draws, and it is what keeps the whole mode off the main thread.
+
+  Presets: dry goods aisle, soft drinks, picked over, produce wall, meat
+  multideck, deli counter, frozen doors, end cap promotion, checkout lane.
+
 Vent — louvres, grilles, intakes and heatsinks
   Everything that moves air through a surface and everything that throws heat
   off one. Six of them: a weather LOUVRE with the drip lip out and down, a dark
@@ -780,6 +848,44 @@ the moment you change one it stops being inherited and becomes what the faces
 after it inherit instead. You can step back and forward, and jump to any step
 you have reached.
 
+AND IT SHOWS YOU THE BUILDING. Opening a wizard opens a "3D building" tab —
+only there, because outside one there is no building to draw — and it is what
+the wizard starts on. Four walls and a roof, at true scale, standing on a
+ground under a sky. Drag to orbit, wheel to zoom, shift-drag to walk the sun
+round, and click any wall to go and work on that face.
+
+Two things feed it, and they arrive at different rates.
+
+  THE SHAPE is pure arithmetic. Every mode's plan() already reports the real
+  size of the face it would draw, in metres, because that is what writes the
+  glTF — so the box follows a slider as fast as you can move it, with nothing
+  forged at all. Widen the facade and the building widens; add a storey and it
+  grows; set the depth on the side step and the box gets deeper while you are
+  still dragging.
+
+  THE SURFACES arrive one face at a time, as each step is actually built. What
+  has not been forged yet is drawn as massing — pale, matte, ruled diagonally,
+  so it cannot be mistaken for a face somebody chose to make grey.
+
+IT IS THE EXPORT'S OWN GEOMETRY. The scene comes out of the same call, with the
+same plans, that writes model.gltf when the wizard packs the archive. That is
+deliberate: it is not a second idea of what the building is, so it cannot drift
+from the first. If a roof plane floats above a parapet here, it floats in
+Blender too — and you find out before you export rather than after. (It has
+already earned that: the flat roof quad was wound against its own normal, which
+shades correctly in anything reading the vertex normal and turns into a hole in
+anything culling back faces. The stage draws the export's scene, so it made a
+hole, and the exporter was fixed.)
+
+The step rail marks what exists. A tick is a face forged off exactly the
+numbers it would open with now; a recycle mark is one forged off different
+ones, because a later step changed something it had inherited. Neither is an
+error — a building whose back does not match its front is a legitimate thing to
+want — but you should be able to see which you have.
+
+"Forge every face" fills the whole building in at preview resolution in a
+couple of seconds. It is the look, not the export.
+
 The last button on that bar packs the lot: every face built at full size, each
 in its own folder with its own maps and its own readme, plus a readme for the
 building. That is the point of it — the structure leaves as one object rather
@@ -788,6 +894,8 @@ than as four exports you have to remember to line up afterwards.
 House walks front, side, back, roof. Diner walks front, side, back off one
 streamline body, so the bands land at the same heights on each face and the
 neon carries round the corner.
+
+No WebGL, no tab: everything else in the wizard works exactly as it did.
 
 THE LINK, for when you already have a house and want to change it. Tick
 "Coordinate with..." in any of the house, envelope or roof panels and every
@@ -1231,7 +1339,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the ten things that are easy to break silently:
+It also covers the twelve things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -1301,6 +1409,30 @@ It also covers the ten things that are easy to break silently:
             since "how orthogonal is this picture" has no absolute scale; and
             the bracing reaches the HEIGHT field rather than only the
             parameters
+  stage     the wizard's 3D building is the BUILDING: its box is as wide as the
+            front's plan says and as deep as the side's, four walls and a roof
+            stand on a ground, and both sides come off the one side elevation.
+            The shape follows a dimension slider with nothing forged — and the
+            slider is FOUND rather than named, by asking each structure's plan
+            which of its controls widens the face, because a hard-coded list
+            picks the factory's panel tile instead of its elevation. Then that
+            walking the steps puts each face on the building, that the rail
+            says which faces were forged off numbers a later step has since
+            changed, that a wall in the middle of the view is pickable, and
+            that leaving takes the building and the tab away with it. And, over
+            every structure's scene, that EVERY TRIANGLE IS WOUND TO AGREE WITH
+            THE NORMAL IT DECLARES — which is how the flat roof quad was found
+            to be wound backwards: correct in anything shading off the vertex
+            normal, a hole in anything culling back faces
+  grocery   every fixture builds and survives 128 px; the box is the
+            millimetres it claims, bays times bay width, in metres; stock
+            follows the stock control; SHORT STOCK SURVIVES, which is the
+            defect that had a chiller deck of 50 mm trays looking unstocked
+            because the shelf fascia was drawn over the top of them; the two
+            height fields really are two, so the height map carries the same
+            true depth at either Relief while the normals do not; and it glows
+            only where there is a lamp — a dry goods bay has no light in it and
+            a chiller case has its canopy
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them
