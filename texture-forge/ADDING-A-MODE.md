@@ -548,8 +548,22 @@ the span to the texel at the other. That visits every texel the span crosses,
 exactly once, at any angle, and costs about what the old spacing did. Work out
 what offset each texel is at from its own position — a dot product with the
 normal — rather than from how far along the walk it is, and the profile is read
-where the texel actually sits. `stamp()` in `modes/lib/loom.js` is the worked
-example.
+where the texel actually sits.
+
+And **the outside of a bend travels further than the centreline you resampled
+along**. A step of 0.8 texels at the centre carries the far edge of a shape
+`reach` wide 0.8 × (1 + reach / bend radius) — over a texel as soon as the shape
+is wide or the bend is tight — and consecutive spans then leave a slot cut
+across it. Sub-step: the outermost point's travel is the centre's own plus the
+reach times how much the normal turned, and divide the step until that is under
+a texel. Straight runs never subdivide, so it is paid only where it is needed.
+
+One trap in that: if your path **wraps** for a seamless tile, two consecutive
+points either side of the wrap are stored a whole tile apart, and interpolating
+between them sweeps a span right across the picture. Guard it — a real step is
+one step long by construction, so anything several times that is a wrap.
+
+`stamp()` in `modes/lib/loom.js` is the worked example for all of it.
 
 ## Shared helpers
 

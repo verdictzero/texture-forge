@@ -1617,30 +1617,33 @@ if (want("grocery")) {
 }
 
 /* ============================ the loom's rasteriser ============================
-   A conduit is drawn by walking its centreline and laying a span across it,
-   and the span is laid on a grid it is almost never square to. Sampled at
-   fixed spacing and rounded, a rotated span does not land one point to a
-   texel — at 45° consecutive samples come down two texels apart on the
-   diagonal and the texels between them are written by nobody. Swept round a
-   bend through every angle, the misses drift and the whole thing reads as
-   moiré. It was 1.6% of the conduit at 1024 px.
+   A conduit is drawn by walking its centreline and laying a span across it, and
+   there are TWO ways that leaves holes in the run.
 
-   A PIT IS THE MEASURE. Nothing in this mode draws a one-texel hole in the
-   middle of a pipe: a conduit's crown falls a fraction of a millimetre a
-   texel, every finish on it is smooth, and a junction box is flat. So a texel
-   sitting a fifth of the whole relief below EVERY one of its eight neighbours
-   is the rasteriser having missed it, and counting them is a direct measure of
-   the thing rather than a proxy for it.
+   ACROSS. The span is laid on a grid it is almost never square to. Sampled at a
+   fixed spacing and rounded, a rotated span does not land one point to a texel:
+   at 45° consecutive samples come down two texels apart on the diagonal and the
+   texels between them are written by nobody. Swept round a bend through every
+   angle, the misses drift and the whole thing reads as moiré.
 
-   Raceway keeps a small residue and it is not misses: with the span walk exact,
-   crowding a bundle's conduits together halves it and fattening them raises it,
-   which is the signature of the real sliver of backplane between two pipes
-   pinching under a texel on the inside of a bend. Greeble draws its pipes with
-   its own rasteriser and never had the fault.
+   ALONG. The route is resampled at its CENTRELINE, so the outer edge of a wide
+   bundle travels further than a step. Past a texel, consecutive spans leave a
+   transverse slot — a gap cut across the cable, widest on the outside of a turn.
+
+   TWO MEASURES, because neither metric sees both faults. A PIT — a texel a
+   fifth of the whole relief below EVERY one of its eight neighbours — catches
+   the first and is blind to the second, a slot being a line rather than a
+   point. A GAP ALONG THE RUN catches the second, off the tag the stamp already
+   keeps: the same route, at the same place across it, on both sides of
+   something that is not that route. Neither is a proxy — nothing in this mode
+   draws a one-texel hole in the middle of a pipe, and a conduit's surface is
+   continuous along its own length — and the honest sliver of plate BETWEEN two
+   pipes of a bundle fails the second test on the across byte, which is how the
+   two are told apart.
    ============================================================================== */
 if (want("raster")) {
   console.log("\n— the loom's rasteriser —");
-  const pits = async (mode, seed, size) => {
+  const build = async (mode, seed, size) => {
     await page.evaluate(m => window.Forge.activate(m), mode);
     await page.waitForTimeout(150);
     await page.evaluate(([m, sd, sz]) => {
@@ -1649,39 +1652,91 @@ if (want("raster")) {
     }, [mode, seed, size]);
     await page.click(`#${mode}--forge`);
     await settle();
-    return await page.evaluate(() => {
-      const B = window.Forge.active().B, W = B.W, H = B.H, G = B.HGT;
-      let hi = -1e9, lo = 1e9;
-      for (let i = 0; i < W * H; i++) { const h = G[i]; if (h > hi) hi = h; if (h < lo) lo = h; }
-      const cut = (hi - lo) * 0.20, mid = lo + (hi - lo) * 0.25;
-      let holes = 0, raised = 0;
-      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-        const i = y * W + x, h = G[i];
-        let mn = 1e9;
-        for (const d of [-1, 1, -W, W, -W - 1, -W + 1, W - 1, W + 1]) {
-          const v = G[i + d]; if (v < mn) mn = v;
-        }
-        if (h > mid) raised++;
-        if (mn - h > cut) holes++;
-      }
-      return { holes, raised, rate: holes / Math.max(1, raised) };
-    });
   };
-  /* the bar is set well under what the fault used to give (1.60% for conduit,
-     0.90% for raceway) and well over what an exact walk gives now */
-  for (const [mode, seed, bar] of [["conduit", 4118, 0.0005], ["conduit", 2201, 0.0005],
-                                   ["raceway", 4118, 0.0030], ["greeble", 4118, 0.0005]]) {
-    const r = await pits(mode, seed, 1024);
-    ok(`${mode} @${seed}: the span leaves no holes in the run`, r.rate < bar,
-       `${r.holes} pits in ${r.raised} raised texels = ${(r.rate * 100).toFixed(3)}% ` +
-       `(bar ${(bar * 100).toFixed(2)}%)`);
+
+  /* ---- pits: a texel the span missed --------------------------------- */
+  const pits = () => page.evaluate(() => {
+    const B = window.Forge.active().B, W = B.W, H = B.H, G = B.HGT;
+    let hi = -1e9, lo = 1e9;
+    for (let i = 0; i < W * H; i++) { const h = G[i]; if (h > hi) hi = h; if (h < lo) lo = h; }
+    const cut = (hi - lo) * 0.20, mid = lo + (hi - lo) * 0.25;
+    let holes = 0, raised = 0;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, h = G[i];
+      let mn = 1e9;
+      for (const d of [-1, 1, -W, W, -W - 1, -W + 1, W - 1, W + 1]) {
+        const v = G[i + d]; if (v < mn) mn = v;
+      }
+      if (h > mid) raised++;
+      if (mn - h > cut) holes++;
+    }
+    return { holes, raised, rate: holes / Math.max(1, raised) };
+  });
+
+  /* ---- gaps: a slot cut across the run -------------------------------- */
+  const gaps = () => page.evaluate(() => {
+    const B = window.Forge.active().B, W = B.W, H = B.H, TAG = B.TAG;
+    if (!TAG) return { missing: true };
+    const own = i => (TAG[i] >>> 24) & 255,
+          acr = i => ((TAG[i] >>> 14) & 255) - 128,
+          prt = i => (TAG[i] >>> 22) & 3;
+    let gaps = 0, surface = 0;
+    for (let i = 0; i < W * H; i++) if (own(i) < 250) surface++;
+    const K = 4;
+    for (let y = K; y < H - K; y++) for (let x = K; x < W - K; x++) {
+      const i = y * W + x;
+      if (own(i) < 250) continue;
+      let hit = false;
+      for (const d of [1, W, W + 1, W - 1]) {
+        /* WALK OUT TO THE FIRST CONDUIT EITHER SIDE rather than probing at a
+           fixed distance: a fixed reach steps clean over a conduit two texels
+           wide and pairs its far neighbour with something on the other side of
+           it, which is a false gap. */
+        let a = -1, c = -1, k1 = 0, k2 = 0;
+        for (let k = 1; k <= K; k++) if (own(i - k * d) < 250) { a = i - k * d; k1 = k; break; }
+        for (let k = 1; k <= K; k++) if (own(i + k * d) < 250) { c = i + k * d; k2 = k; break; }
+        if (a < 0 || c < 0 || k1 + k2 - 1 > 3) continue;
+        if (own(a) === own(c) && prt(a) === prt(c) && Math.abs(acr(a) - acr(c)) <= 6) {
+          hit = true; break;
+        }
+      }
+      if (hit) gaps++;
+    }
+    return { gaps, surface, rate: gaps / Math.max(1, surface) };
+  });
+
+  /* WHERE THE TEETH ARE. The bars sit well under what each fault gave and well
+     over what the fixed walk gives, but they do not bite equally everywhere and
+     it is worth saying which cases are load-bearing. The across fault showed
+     everywhere (conduit 1.60% of pits, raceway 0.90%). The along fault is
+     concentrated in WIDE bundles on TIGHT bends, so raceway — braced runs
+     turning square corners — carries it at 1.14% of its surface in gaps and
+     0.12% in pits, while conduit's flat ribbons are a minority of a mixed tile
+     and move it only from 0.048% to 0.040%. Raceway is what catches a
+     regression here; conduit's rows are the shape of the claim rather than the
+     proof of it. */
+  for (const [mode, seed] of [["conduit", 4118], ["conduit", 2201],
+                              ["raceway", 4118], ["raceway", 77], ["greeble", 4118]]) {
+    await build(mode, seed, 1024);
+    const p = await pits();
+    ok(`${mode} @${seed}: the span leaves no holes across the run`, p.rate < 0.0005,
+       `${p.holes} pits in ${p.raised} raised = ${(p.rate * 100).toFixed(3)}%`);
+    if (mode !== "greeble") {
+      const g = await gaps();
+      ok(`${mode} @${seed}: and none along it`, !g.missing && g.rate < 0.0010,
+         g.missing ? "the build did not hand back its tag"
+                   : `${g.gaps} gap texels in ${g.surface} of surface = ` +
+                     `${(g.rate * 100).toFixed(3)}%`);
+    }
   }
-  /* and it has to hold at every resolution, because the fault was the span's
-     spacing against the grid and that is exactly what changes with one */
+  /* and it has to hold at every resolution, because the across fault was the
+     span's spacing against the grid and that is exactly what a resolution
+     changes */
   for (const size of [256, 512, 2048]) {
-    const r = await pits("conduit", 4118, size);
-    ok(`conduit @${size} px: still no holes`, r.rate < 0.0008,
-       `${r.holes} pits = ${(r.rate * 100).toFixed(3)}%`);
+    await build("conduit", 4118, size);
+    const p = await pits();
+    ok(`conduit @${size} px: still no holes`, p.rate < 0.0008,
+       `${p.holes} pits = ${(p.rate * 100).toFixed(3)}%`);
   }
 }
 

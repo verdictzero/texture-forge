@@ -600,14 +600,50 @@ function stamp(BUF,ROUTES,g,p){
     const sinkD=Rr*2.6+Rz0;
     const len=R.len;
 
+    /* THE OUTSIDE OF A BEND TRAVELS FURTHER THAN THE CENTRELINE, and the route
+       is resampled along its CENTRELINE. A step of eight tenths of a texel there
+       carries the far edge of a wide bundle eight tenths times (1 + reach ÷ bend
+       radius) — which on a flat ribbon a hundred texels across, turning through
+       a corner a couple of hundred texels round, is well over one. Consecutive
+       spans then land more than a texel apart at the edge and leave a TRANSVERSE
+       SLOT between them: a gap cut across the cable, widest on the outer side of
+       the turn and closing to nothing on the inner. It is not the same fault as
+       the rotated-lattice one below and it survived that fix untouched.
+
+       So the walk sub-steps. How far the outermost texel of the span actually
+       moves between two route points is the centre's own travel plus the reach
+       times how much the normal turned, and the step is divided until that is
+       under a texel. A straight run turns not at all and never subdivides, so
+       this is paid only on the bends that need it. */
+    const reach=Math.max(bandC,Rhalf+Rr);
     for(let st=0;st<nPts;st++){
       const q=st*4;
-      const px=PTS[q]*pxM,py=PTS[q+1]*pxM;
-      const tx=PTS[q+2],ty=PTS[q+3];
+      const p0x=PTS[q],p0y=PTS[q+1],t0x=PTS[q+2],t0y=PTS[q+3];
+      let dpx=0,dpy=0,dtx=0,dty=0,sub=1;
+      if(st+1<nPts){
+        const q1=(st+1)*4;
+        dpx=PTS[q1]-p0x;dpy=PTS[q1+1]-p0y;
+        /* A ROUTE WRAPS, AND TWO POINTS EITHER SIDE OF THE WRAP ARE STORED A
+           WHOLE TILE APART. Interpolating between those sweeps a span right
+           across the picture and leaves a long straight scar over empty plate.
+           A real step is stepM long by construction, so anything several times
+           that is a wrap and is drawn as the single span it used to be. */
+        if(dpx*dpx+dpy*dpy>stepM*stepM*9){dpx=0;dpy=0;}
+        else{
+          dtx=PTS[q1+2]-t0x;dty=PTS[q1+3]-t0y;
+          const travel=(Math.hypot(dpx,dpy)+reach*Math.hypot(dtx,dty))*pxM;
+          sub=Math.max(1,Math.min(12,Math.ceil(travel/0.85)));
+        }
+      }
+      for(let sb=0;sb<sub;sb++){
+      const f=sb/sub;
+      const px=(p0x+dpx*f)*pxM,py=(p0y+dpy*f)*pxM;
+      let tx=t0x+dtx*f,ty=t0y+dty*f;
+      const tl=Math.hypot(tx,ty)||1;tx/=tl;ty/=tl;
       const nxp=-ty*pxM,nyp=tx*pxM;            // the normal, already in texels per metre
       /* the span's length on the grid, in texels of Manhattan travel */
       const manh=Math.abs(nxp)+Math.abs(nyp);
-      const s=st*stepM;
+      const s=(st+f)*stepM;
 
       let sink=0;
       if(tailA>0&&s<tailA)sink=1-s/tailA;
@@ -741,6 +777,7 @@ function stamp(BUF,ROUTES,g,p){
 
           if(h>HGT[i]){HGT[i]=h;TAG[i]=(ri<<24)|((aT[k]+128)<<14)|sMM;}
         }
+      }
       }
     }
   }
@@ -1266,7 +1303,15 @@ function build(p,io,spec){
       }
     }
     io.progress(1);
-    io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,
+    /* THE TAG COMES OUT WITH THE REST. The stamp builds it either way — one
+       word a texel saying which route owns the surface and where across and
+       along that route the texel sits — and dropping it on the floor at the
+       end meant nothing outside this file could ask the one question that
+       tells a gap ALONG a run from the honest sliver of plate BETWEEN two
+       pipes in a bundle. The feature suite asks exactly that. It is retained
+       rather than copied (the worker transfers it), and this mode already caps
+       itself at 2048 px for carrying it. */
+    io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,TAG:TAG,
              hMin:hMin,hMax:hMax,census:census});
   }
 

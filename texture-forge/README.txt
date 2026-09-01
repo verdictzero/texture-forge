@@ -712,9 +712,26 @@ Conduit — the loom behind an access panel
   than off how far along the walk it is, so the cross-section is read where the
   texel actually sits.
 
-  What is left is real: the sliver of backplane between two pipes in a bundle
-  genuinely pinches under a texel on the inside of a bend, and a feature that
-  thin cannot be drawn continuously by anything.
+  AND THE OUTSIDE OF A BEND TRAVELS FURTHER than the centreline the route was
+  resampled along. Eight tenths of a texel at the centre carries the far edge of
+  a wide bundle eight tenths times (1 + reach / bend radius), which on a flat
+  ribbon a hundred texels across, turning through a corner a couple of hundred
+  texels round, is well over one — so consecutive spans land more than a texel
+  apart out there and leave a TRANSVERSE SLOT between them: a gap cut across
+  the cable, widest on the outer side of the turn and closing to nothing on the
+  inner. It is a different fault from the rotated lattice and it survived that
+  fix untouched. The walk now sub-steps: how far the outermost texel of a span
+  actually moves between two route points is the centre's own travel plus the
+  reach times how much the normal turned, and the step is divided until that is
+  under a texel. A straight run turns not at all and never subdivides, so it is
+  paid only where it is needed, and the build time does not move.
+
+  (A route WRAPS, and two points either side of the wrap are stored a whole tile
+  apart. Interpolating between those sweeps a span across the picture and leaves
+  a long straight scar over empty plate — which is what the first attempt did,
+  and what looking at it caught. A real step is one stepM long by construction,
+  so anything several times that is a wrap and is drawn as the single span it
+  always was.)
 
   AND NOTHING IN A LAYER PASSES THROUGH ANYTHING ELSE IN IT. Two bundles at one
   height that cross do not read as one over the other — the stamp Z-tests, so
@@ -1451,20 +1468,26 @@ It also covers the thirteen things that are easy to break silently:
             THE NORMAL IT DECLARES — which is how the flat roof quad was found
             to be wound backwards: correct in anything shading off the vertex
             normal, a hole in anything culling back faces
-  raster    the loom's span leaves no holes in the run. A conduit is drawn by
-            walking its centreline and laying a span across it, and the span is
-            laid on a grid it is almost never square to: sampled at fixed
-            spacing and rounded, a rotated span does not land one point to a
-            texel — at 45° consecutive samples come down two texels apart on
-            the diagonal and the texels between them are written by nobody.
-            Swept round a bend through every angle, the misses drift and the
-            whole thing reads as moiré. A PIT IS THE MEASURE and it is a
-            property rather than a proxy: nothing in the mode draws a one-texel
-            hole in the middle of a pipe, so a texel a fifth of the relief
-            below EVERY one of its eight neighbours is a miss. Checked on
-            conduit, raceway and greeble, and at 256, 512, 1024 and 2048 px,
-            because the fault was the span's spacing against the grid and that
-            is what changes with the resolution
+  raster    the loom's span leaves no holes in the run, against BOTH of the two
+            faults that put them there. ACROSS: the span is laid on a grid it is
+            almost never square to, and sampled at fixed spacing and rounded, a
+            rotated span does not land one point to a texel — at 45° consecutive
+            samples come down two apart on the diagonal and the texels between
+            them are written by nobody, which swept round a bend reads as moiré.
+            ALONG: the route is resampled at its centreline, so the outside of a
+            bend travels further than a step and consecutive spans leave a slot
+            cut across the cable. Two measures, because one metric could not see
+            both. A PIT — a texel a fifth of the relief below EVERY one of its
+            eight neighbours — catches the first; nothing in the mode draws a
+            one-texel hole in the middle of a pipe. A GAP ALONG THE RUN catches
+            the second, off the tag the stamp already keeps: the same route, at
+            the same place across it, on both sides of something that is not
+            that route. The honest sliver of plate BETWEEN two pipes of a bundle
+            fails that test on the across byte, which is what makes it a
+            property and not a proxy. Checked on conduit, raceway and greeble,
+            and at 256, 512, 1024 and 2048 px, because the first fault was the
+            span's spacing against the grid and that is what a resolution
+            changes
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the
