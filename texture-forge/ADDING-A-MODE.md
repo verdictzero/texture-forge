@@ -565,6 +565,21 @@ one step long by construction, so anything several times that is a wrap.
 
 `stamp()` in `modes/lib/loom.js` is the worked example for all of it.
 
+## Things bolted to a surface belong on that surface's axes
+
+A cast enclosure, a bracket, a nameplate — anything mounted rather than routed
+— is fixed with a pattern somebody drilled, and nobody drills off-axis to suit
+a cable. So snap its orientation to the nearest quarter turn, and then deal
+with the consequence: whatever attaches to it has to arrive on that axis too,
+or the fitting between them sits crooked.
+
+Two moves, and you generally want both. Look for a place along the route where
+it already nearly agrees — but **bound that search**, because every step you
+trim off a run to square it up is a step off the run, and hunting the whole
+length for the best spot can cost you a third of the routes in the picture.
+Then bend the last stretch onto the axis at the tightest radius the thing will
+take. `boxOf` / `squareInto` in `modes/lib/loom.js` are the pair.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

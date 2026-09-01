@@ -339,19 +339,55 @@ function routes(g,p){
          does the end fall back to a bulkhead grommet — a real penetration, not
          a fade, and the one honest way for a run to leave without a box. */
       const place=end=>{
-        for(let t=0;t<16;t++){
-          const bx=L.boxOf(RT,end);
-          if(CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw)){
-            CB.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
-            C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
-            BOXES.push(bx);
-            return true;
+        /* HOW SQUARE IS SQUARE ENOUGH, AND WHAT IT IS WORTH PAYING FOR IT.
+           The box takes the nearest quarter turn to the run, so the run has to
+           arrive near it or the gland sits crooked on the conduit it grips. A
+           place further back along the run may be squarer — but every point
+           traded for one is a point off the run, and a run cut past a couple of
+           its own box lengths stops being a run at all and is dropped. Hunting
+           the whole length for the squarest spot cost a third of the bundles in
+           the bay, which is a worse picture than a box at eight degrees.
+
+           The trim is worked out without cutting anything — boxOf answers what
+           the box WOULD be that many points shorter — so the hunt is BOUNDED:
+           take the first clear spot if it is already near-square, otherwise look
+           for a better one within a tenth of the run and take the best of those. Whatever is left over is bent out by
+           squaring the tail below, which costs no length at all. */
+        const maxCut=RT.nPts-28;
+        const near=Math.min(maxCut,Math.max(8,Math.round(RT.nPts*0.10)));
+        const far=Math.min(maxCut,Math.max(16,Math.round(RT.nPts*0.28)));
+        let best=null;
+        for(let cut=0;cut<=maxCut;cut+=2){
+          const bx=L.boxOf(RT,end,cut);
+          if(!bx)continue;
+          if(!CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw))continue;
+          if(!best||bx.skew<best.skew)best=bx;
+          /* square enough that squaring the tail will finish it off */
+          if(best.skew<0.12)break;
+          /* otherwise stop at a tenth of the run — unless nothing found so far
+             is even close, in which case a short run with no room to bend its
+             own tail is worth a bit more hunting */
+          if(cut>=near&&best.skew<0.30)break;
+          if(cut>=far)break;
+        }
+        if(best){
+          const cut=best.trim;
+          if(cut>0){
+            if(end)RT.nPts-=cut;
+            else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
+            RT.len=RT.nPts*stepM;
           }
-          const cut=Math.max(2,Math.round(RT.nPts*0.05));
-          if(RT.nPts-cut<28)return false;
-          if(end)RT.nPts-=cut;
-          else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
-          RT.len=RT.nPts*stepM;
+          /* and bring the last stretch onto the box's own axis, so the conduit
+             goes into the gland straight. That moves the tip, so the box is
+             worked out again from where the run actually ends up — and it is
+             THAT rectangle which gets marked and painted. */
+          L.squareInto(RT,end,minR,g);
+          const fin=L.boxOf(RT,end)||best;
+          CB.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
+          C.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
+          if(end)RT.boxB=fin;else RT.boxA=fin;
+          BOXES.push(fin);
+          return true;
         }
         return false;
       };
@@ -798,8 +834,13 @@ c.closed+" of "+c.bundles+" runs have no ends at all — they leave one edge of 
 "tile, arrive at the other and come back to where they started, so there is",
 "nothing to terminate. The rest do end, and end at something: "+c.boxes+" junction",
 "box"+(c.boxes===1?"":"es")+" bolted to the backplane and entered square through a gland, and "+c.glands,
-"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air."
-]:[];
+"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air.",
+c.boxes?("Every box is bolted on a quarter turn to the plate — the plate is ribbed and\n"+
+  "drilled square and nobody drills a mounting pattern off-axis to suit a cable —\n"+
+  "and the run is brought round to meet it, entering within "+
+  c.skewMax.toFixed(1)+"\u00b0 of square\nat the worst of them and "+
+  c.skewAvg.toFixed(1)+"\u00b0 on average."):null
+].filter(x=>x!==null):[];
     return [
 "TEXTURE FORGE — conduit loom",
 "",

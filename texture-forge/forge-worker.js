@@ -101,7 +101,17 @@ self.onmessage=function(ev){
             /* two views over one buffer would be transferred twice, and the
                second one is an error rather than a no-op */
             if(move.indexOf(v.buffer)<0)move.push(v.buffer);
-          }else if(typeof v!=="function"&&typeof v!=="object"){
+          }else if(typeof v==="function"){
+            /* nothing: a closure cannot cross a thread boundary */
+          }else if(v===null||typeof v!=="object"){
+            out[k]=v;
+          }else if(Array.isArray(v)||Object.getPrototypeOf(v)===Object.prototype){
+            /* A PLAIN OBJECT IS HOW A GENERATOR REPORTS WHAT IT MADE — the
+               conduit loom's census of closed runs, junction boxes and
+               grommets, which its readme prints. Structured clone carries one
+               perfectly well; dropping it here meant that section quietly
+               vanished from every export that went off thread, which is nearly
+               all of them, and there was nothing to notice it by. */
             out[k]=v;
           }
         }

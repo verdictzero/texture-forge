@@ -820,30 +820,59 @@ function junctions(BUF,ROUTES,g){
     if(!R.pts||R.nPts<4)continue;
     for(let e=0;e<2;e++){
       if((e?R.capB:R.capA)!=="box")continue;
-      paintBox(BUF.HGT,BUF.TAG,boxOf(R,e),g);
+      /* THE BOX THE MODE ACTUALLY PLACED, where it kept one. It tested that
+         rectangle for clear ground and marked the claims grid with it, and
+         recomputing here would quietly disagree with both — the other end's
+         trim shortens the run, and the box's own length is a fraction of it. */
+      const bx=(e?R.boxB:R.boxA)||boxOf(R,e);
+      if(bx)paintBox(BUF.HGT,BUF.TAG,bx,g);
     }
   }
 }
 
 /* the box's own dimensions and where it sits, from the route it terminates */
-function boxOf(R,end){
+/* `trim` asks what the box WOULD be if the run were that many points shorter
+   at this end — so a mode can walk back along a run looking for somewhere to
+   put one without cutting the run to find out. */
+function boxOf(R,end,trim){
   const K=KIND[R.kind];
   const stepM=R.len/Math.max(1,R.nPts);
+  const cut=Math.max(0,trim|0);
+  const nPts=R.nPts-cut;
+  if(nPts<8)return null;
+  const len=nPts*stepM;
   /* ALONG the run a box is shorter than it is wide: a cable entry box is
      entered on its long face and is not a corridor. Across, it has to clear
      the group it swallows and then some wall. Never more than a fifth of a
      run either — a stub swallowed whole by its own box reads as a box with a
      bump beside it rather than as a terminated run. */
   const hw=R.half+Math.max(0.0035,R.r*0.5);
-  const hl=Math.min(Math.max(0.010,Math.min(hw*0.80,R.half*0.75)),R.len*0.20);
+  const hl=Math.min(Math.max(0.010,Math.min(hw*0.80,R.half*0.75)),len*0.20);
   /* the index a half-length in from the end, which puts the far face on the tip */
   const back=Math.max(1,Math.round(hl/stepM));
-  const idx=end?Math.max(0,R.nPts-1-back):Math.min(R.nPts-1,back);
+  const idx=end?Math.max(0,R.nPts-1-cut-back):Math.min(R.nPts-1,cut+back);
   const q=idx*4;
   let tx=R.pts[q+2],ty=R.pts[q+3];
   if(!end){tx=-tx;ty=-ty;}                    // the outward direction at that end
+
+  /* A BOX IS BOLTED TO THE BACKPLANE, and the backplane is ribbed, drilled and
+     framed on the square. A cast enclosure hung at thirty-seven degrees to all
+     of it is the one thing in the picture that looks placed rather than
+     installed — nobody drills a mounting pattern off-axis to suit a cable.
+
+     So the box takes the NEAREST QUARTER TURN to the run's own heading, and
+     how far off that heading was comes back as `skew` so the mode can walk
+     back along the run and find somewhere the two nearly agree. The gland is
+     drawn in the box's frame, so a skew is the angle at which the conduit
+     meets its own entry: a few degrees is a cable being pulled straight into
+     a gland, and forty-five is a lie. */
+  const ax=Math.abs(tx),ay=Math.abs(ty);
+  const skew=Math.acos(clamp(Math.max(ax,ay),0,1));
+  if(ax>=ay){tx=tx<0?-1:1;ty=0;}
+  else{ty=ty<0?-1:1;tx=0;}
+
   return {
-    x:R.pts[q],y:R.pts[q+1],tx:tx,ty:ty,
+    x:R.pts[q],y:R.pts[q+1],tx:tx,ty:ty,skew:skew,trim:cut,
     hl:hl,hw:hw,
     /* the lid clears the crown of what goes into it, and no more: a box that
        stands as tall as the panel line is a slab, not an enclosure */
@@ -922,6 +951,66 @@ function paintBox(HGT,TAG,B,g){
       }
     }
   }
+}
+
+/* BRING THE RUN SQUARE INTO ITS BOX.
+
+   The box is on a quarter turn because the plate it is bolted to is: nobody
+   drills a mounting pattern off-axis to suit a cable. The gland is
+   perpendicular to the face it is screwed into, because that is what a gland
+   is. Those two together mean the conduit has to arrive on the box's own axis,
+   and on a run that wanders there is no reason it should.
+
+   Walking back along the run for a place where it already nearly does is the
+   first half of the answer and gets most of them under a few degrees. This is
+   the other half, for the runs too short to offer one: the last stretch — the
+   part the gland grips and the part inside the box — is turned onto the axis
+   at the tightest radius the bundle will take, and everything before it is
+   left exactly where it was. It is a few centimetres of cable being pulled
+   straight into a fitting, which is what an installer does with it.
+
+   It moves the tip, so the box has to be worked out again afterwards. */
+function squareInto(R,end,minR,g){
+  const nP=R.nPts;
+  if(!R.pts||nP<14)return false;
+  const bx=boxOf(R,end);
+  if(!bx)return false;
+  const stepM=R.len/Math.max(1,nP);
+  const maxTurn=stepM/Math.max(1e-6,minR||stepM*40);
+  /* the direction the RUN travels at this end: boxOf reports the outward one,
+     which at the near end is backwards along it */
+  const A=Math.atan2(bx.ty,bx.tx)+(end?0:Math.PI);
+  /* dead straight from the gland outward — that is the stretch the fitting
+     grips and the stretch the box has swallowed */
+  const flat=Math.ceil((bx.hl*2+bx.gl)/stepM)+2;
+  const j0i=end?(nP-1-flat):flat;
+  if(j0i<3||j0i>nP-4)return false;
+  let head=Math.atan2(R.pts[j0i*4+3],R.pts[j0i*4+2]);
+  let d=A-head;
+  while(d>Math.PI)d-=2*Math.PI;
+  while(d<-Math.PI)d+=2*Math.PI;
+  const turnPts=Math.ceil(Math.abs(d)/maxTurn);
+  const total=Math.min(flat+turnPts,nP-6);
+  const j0=end?Math.max(2,nP-1-total):Math.min(nP-3,total);
+  head=Math.atan2(R.pts[j0*4+3],R.pts[j0*4+2]);
+  let x=R.pts[j0*4],y=R.pts[j0*4+1];
+  const W=g?g.Wm:0,H=g?g.Hm:0,wrap=!!(g&&!g.bay);
+  const step=end?1:-1;
+  for(let j=j0+step;end?j<nP:j>=0;j+=step){
+    let dd=A-head;
+    while(dd>Math.PI)dd-=2*Math.PI;
+    while(dd<-Math.PI)dd+=2*Math.PI;
+    head+=clamp(dd,-maxTurn,maxTurn);
+    const tx=Math.cos(head),ty=Math.sin(head);
+    x+=tx*stepM*step;y+=ty*stepM*step;
+    if(wrap){
+      if(x<0)x+=W;else if(x>=W)x-=W;
+      if(y<0)y+=H;else if(y>=H)y-=H;
+    }
+    const q=j*4;
+    R.pts[q]=x;R.pts[q+1]=y;R.pts[q+2]=tx;R.pts[q+3]=ty;
+  }
+  return true;
 }
 
 /* ============================ the bay frame ============================
@@ -1015,7 +1104,8 @@ function build(p,io,spec){
      whether a box had room — so nothing outside can work it out from the
      parameters, and the exported readme is the right place for it: what is in
      the picture is part of what the picture is. */
-  const census={bundles:R.length,closed:0,boxes:0,glands:0,tees:0};
+  const census={bundles:R.length,closed:0,boxes:0,glands:0,tees:0,skewMax:0,skewAvg:0};
+  let skewN=0;
   for(let i=0;i<R.length;i++){
     if(R[i].closed){census.closed++;continue;}
     for(let e=0;e<2;e++){
@@ -1023,11 +1113,23 @@ function build(p,io,spec){
       /* a "none" on a run that is not closed is a BREAKOUT: the end where a
          branch leaves its parent, which is a junction rather than a
          termination and needs nothing standing at it */
-      if(c==="box")census.boxes++;
+      if(c==="box"){
+        census.boxes++;
+        /* HOW SQUARE IT CAME OUT. Every box is on a quarter turn by
+           construction; what is worth reporting is the angle the conduit
+           MEETS it at, because that is the one the picture is judged on. */
+        const bx=e?R[i].boxB:R[i].boxA;
+        if(bx&&bx.skew!==undefined){
+          const d=bx.skew*180/Math.PI;
+          if(d>census.skewMax)census.skewMax=d;
+          census.skewAvg+=d;skewN++;
+        }
+      }
       else if(c==="gland")census.glands++;
       else census.tees++;
     }
   }
+  census.skewAvg=skewN?census.skewAvg/skewN:0;
   const cav=Math.max(0.01,(+P.cavityMm||95)/1000);
   let hMin=0,hMax=1;
 
@@ -1322,7 +1424,7 @@ function build(p,io,spec){
 window.ForgeLoom={
   MAT:MAT,MATBY:MATBY,KIND:KIND,IDENT:IDENT,
   isBay:isBay,geom:geom,edgeDist:edgeDist,n1:n1,fbm1:fbm1,
-  claims:claims,strata:strata,standing:standing,boxOf:boxOf,
+  claims:claims,strata:strata,standing:standing,boxOf:boxOf,squareInto:squareInto,
   /* the spacing every router must resample its polyline at */
   stepM:function(g){return g.mpp*0.8;},
   build:build

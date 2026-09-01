@@ -1137,42 +1137,73 @@ if (want("strata")) {
    different mode is that everything is axis-aligned between filleted corners,
    so that is what gets measured — and measured against the wandering one next
    door rather than against a number picked out of the air, because "how
-   orthogonal is this picture" has no absolute scale. */
+   orthogonal is this picture" has no absolute scale.
+
+   MEASURED OFF THE RUNS THEMSELVES, not off the picture. This used to fold the
+   height gradient of every strongly-sloped texel in the tile, which counts the
+   backplane ribs, the frame, the fastener rows and the lids of the junction
+   boxes along with the cable — most of a tile that is mostly not cable. That
+   was survivable while the boxes sat at whatever angle their run happened to
+   be on. Once every box lands on a quarter turn in BOTH modes the box lids
+   stopped telling the two apart and started diluting the thing that does, and
+   at one seed the contrast had already collapsed to 1.14 with no change to
+   either router.
+
+   The tag has the answer exactly: every texel a route owns carries how far
+   along that route it is, in millimetres, so the gradient of THAT field points
+   along the run. No lighting, no backplane, no lids — just the direction the
+   cable is travelling, which is what the claim was always about. */
 if (want("raceway")) {
   console.log("\n— the conduit raceway —");
 
-  /* the fraction of strongly-sloped texels whose height gradient points within
-     12° of an axis. A raceway's straights are all axis-aligned, so their edges
-     are too; a hand-dressed loom's runs point anywhere. */
-  const axisness = async id => {
+  /* the fraction of a mode's route length whose heading is within 12° of an
+     axis. A raceway is straights between fillets, so most of its length is on
+     an axis; a hand-dressed loom's runs point anywhere. */
+  const axisness = async (id, seed) => {
     await page.click(`#modebar-tabs [data-mode="${id}"]`);
     await settle();
-    await page.evaluate(m => window.Forge.setParam(m, "size", 512), id);
+    await page.evaluate(([m, sd]) => {
+      window.Forge.setParam(m, "size", 512);
+      window.Forge.setParam(m, "seed", sd);
+    }, [id, seed]);
     await page.click(`#${id}--forge`);
     await settle();
     return await page.evaluate(() => {
-      const B = window.Forge.active().B, W = B.W, H = B.H, HGT = B.HGT;
+      const B = window.Forge.active().B, W = B.W, H = B.H, TAG = B.TAG;
+      if (!TAG) return -1;
+      const own = i => (TAG[i] >>> 24) & 255, alo = i => TAG[i] & 0x3fff;
       let on = 0, tot = 0;
       for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-        const i = y * W + x;
-        const dx = HGT[i + 1] - HGT[i - 1], dy = HGT[i + W] - HGT[i - W];
-        const m = Math.hypot(dx, dy);
-        if (m < 1e-4) continue;
-        tot++;
+        const i = y * W + x, o = own(i);
+        if (o >= 253) continue;                       // backplane, frame, box
+        /* all four neighbours on the same route, or the difference is across a
+           boundary rather than along a run */
+        if (own(i + 1) !== o || own(i - 1) !== o || own(i + W) !== o || own(i - W) !== o) continue;
+        const dx = alo(i + 1) - alo(i - 1), dy = alo(i + W) - alo(i - W);
+        if (Math.abs(dx) > 40 || Math.abs(dy) > 40) continue;   // the seam wraps
+        if (!dx && !dy) continue;
         let a = Math.atan2(dy, dx) * 180 / Math.PI;
-        a = Math.abs(((a % 90) + 90) % 90);      // fold onto 0..90
+        a = Math.abs(((a % 90) + 90) % 90);           // fold onto 0..90
         if (a < 12 || a > 78) on++;
+        tot++;
       }
       return tot ? on / tot : 0;
     });
   };
-  const race = await axisness("raceway");
-  const loom = await axisness("conduit");
-  ok("the raceway builds", race > 0);
-  ok("its runs are axis-aligned, and the loom's are not",
-     race > loom * 1.25,
-     "within 12° of an axis: raceway " + (race * 100).toFixed(1) +
-     "%, conduit " + (loom * 100).toFixed(1) + "%");
+  /* PINNED SEEDS, and more than one of them. Whichever seed the sections above
+     happened to leave loaded is not a measurement, and the gap between the two
+     modes is a good deal wider at some seeds than others — 2201 is the
+     narrowest of the ones tried. */
+  let built = false;
+  for (const seed of [4118, 2201]) {
+    const race = await axisness("raceway", seed);
+    const loom = await axisness("conduit", seed);
+    if (!built) { ok("the raceway builds", race > 0); built = true; }
+    ok(`@${seed}: its runs are axis-aligned, and the loom's are not`,
+       race > loom * 1.25,
+       "within 12° of an axis: raceway " + (race * 100).toFixed(1) +
+       "%, conduit " + (loom * 100).toFixed(1) + "%");
+  }
 
   await page.click('#modebar-tabs [data-mode="raceway"]');
   await settle();
@@ -1737,6 +1768,97 @@ if (want("raster")) {
     const p = await pits();
     ok(`conduit @${size} px: still no holes`, p.rate < 0.0008,
        `${p.holes} pits = ${(p.rate * 100).toFixed(3)}%`);
+  }
+}
+
+/* ========================= junction boxes on the square =========================
+   A junction box is bolted to the backplane, and the backplane is ribbed,
+   drilled and framed on the square. A cast enclosure hung at thirty-seven
+   degrees to all of it is the one thing in a picture of an equipment bay that
+   looks placed rather than installed — nobody drills a mounting pattern
+   off-axis to suit a cable.
+
+   TWO CLAIMS, and they need different tests. That the BOX is on a quarter turn
+   is a property of one function and is checked as one: boxOf is handed a route
+   pointing at every angle in turn and has to come back with an axis vector
+   every time. That the RUN ARRIVES square is a property of the whole build —
+   the run has to be walked back for a place where it nearly does and then bent
+   the rest of the way — and comes off the census, which reports the angle the
+   conduit actually meets its box at.
+   ============================================================================== */
+if (want("boxes")) {
+  console.log("\n— junction boxes on the square —");
+
+  /* ---- the box's own frame, over every heading ------------------------ */
+  const frames = await page.evaluate(() => {
+    const L = window.ForgeLoom;
+    if (!L || !L.boxOf) return { missing: true };
+    const out = { n: 0, offAxis: 0, worstSkew: 0, headings: [] };
+    for (let deg = 0; deg < 360; deg += 3) {
+      const a = deg * Math.PI / 180, tx = Math.cos(a), ty = Math.sin(a);
+      /* a straight synthetic run on that heading — nothing in boxOf cares
+         about anything but the tangents and the sizes */
+      const n = 120, pts = new Float64Array(n * 4);
+      for (let i = 0; i < n; i++) {
+        pts[i * 4] = 0.2 + tx * i * 0.001; pts[i * 4 + 1] = 0.2 + ty * i * 0.001;
+        pts[i * 4 + 2] = tx; pts[i * 4 + 3] = ty;
+      }
+      const R = { kind: 0, pts, nPts: n, len: n * 0.001,
+                  half: 0.012, r: 0.006, z0: 0.01, pitch: 0.012, n: 1 };
+      for (const end of [true, false]) {
+        const b = L.boxOf(R, end);
+        out.n++;
+        if (!b) { out.offAxis++; continue; }
+        /* an axis vector: one component exactly +/-1, the other exactly 0 */
+        const okv = (b.tx === 0 && Math.abs(b.ty) === 1) ||
+                    (b.ty === 0 && Math.abs(b.tx) === 1);
+        if (!okv) { out.offAxis++; out.headings.push(deg); }
+        if (b.skew > out.worstSkew) out.worstSkew = b.skew;
+      }
+    }
+    return out;
+  });
+  ok("boxOf is reachable", !frames.missing);
+  if (!frames.missing) {
+    ok("every box is on a quarter turn, from every heading",
+       frames.offAxis === 0,
+       `${frames.n - frames.offAxis}/${frames.n} square` +
+       (frames.headings.length ? " · off at " + frames.headings.slice(0, 6).join(", ") + " deg" : ""));
+    /* and it reports how far it had to snap, which is what the placement
+       search steers on — for a run pointing at 45 degrees that is the full 45 */
+    ok("and it reports how far it snapped", frames.worstSkew > 0.7 && frames.worstSkew < 0.8,
+       (frames.worstSkew * 180 / Math.PI).toFixed(1) + " deg at the worst heading");
+  }
+
+  /* ---- and the run arrives square ------------------------------------- */
+  for (const [mode, seeds] of [["conduit", [4118, 7, 2201]], ["raceway", [4118, 77]]]) {
+    for (const seed of seeds) {
+      await page.evaluate(m => window.Forge.activate(m), mode);
+      await page.waitForTimeout(150);
+      await page.evaluate(([m, sd]) => {
+        window.Forge.setParam(m, "seed", sd);
+        window.Forge.setParam(m, "size", 1024);
+      }, [mode, seed]);
+      await page.click(`#${mode}--forge`);
+      await settle();
+      const c = await page.evaluate(() => window.Forge.active().B.census || null);
+      ok(`${mode} @${seed}: the census survives the build`, !!c && c.boxes >= 0,
+         c ? `${c.boxes} boxes, ${c.closed}/${c.bundles} closed` : "no census came back");
+      if (c && c.boxes && c.skewMax !== undefined) {
+        /* THE MEAN IS THE CLAIM, THE WORST IS ONLY A GUARD. Before the snap the
+           conduit met its box at whatever angle it happened to be on — 8
+           degrees on average across these seeds and 39 at the worst. The run is
+           now walked back for a place where it nearly agrees and then bent the
+           rest of the way, which takes the mean to a fraction of a degree. A
+           few are worse: a run that ends mid-fillet, boxed in, has no room left
+           to bend its own tail and no straight leg to walk back to, and there
+           is nothing to be done about that one short of not putting a box there
+           at all. */
+        ok(`${mode} @${seed}: the run enters its box square`,
+           c.skewAvg < 3 && c.skewMax < 20,
+           `worst ${c.skewMax.toFixed(1)} deg, mean ${c.skewAvg.toFixed(1)} deg`);
+      }
+    }
   }
 }
 

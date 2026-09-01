@@ -712,6 +712,30 @@ Conduit — the loom behind an access panel
   than off how far along the walk it is, so the cross-section is read where the
   texel actually sits.
 
+  A JUNCTION BOX IS BOLTED ON A QUARTER TURN. The plate behind it is ribbed,
+  drilled and framed square, and nobody drills a mounting pattern off-axis to
+  suit a cable — so the box takes the nearest quarter turn to the run whatever
+  the run's heading, and a box in this mode is never at any other angle.
+
+  Which leaves the conduit having to arrive on that axis, because the gland is
+  perpendicular to the face it is screwed into: that is what a gland is. Two
+  things do it. The run is walked back from its tip for a place where it
+  already nearly agrees — bounded, at a tenth of the run, because every point
+  traded for a squarer approach is a point off the run and hunting the whole
+  length for the best one cost a third of the bundles in the bay. Then the last
+  stretch, the part the gland grips and the part the box has swallowed, is
+  turned onto the axis at the tightest radius the bundle will take. That is
+  three or four centimetres of cable being pulled round into a fitting on most
+  runs and twelve at the very worst, which is what an installer does with it,
+  and it costs no length at all — the run is bent, not shortened.
+
+  Across a spread of seeds that takes the angle the conduit meets its box at
+  from eight degrees on average and thirty-nine at the worst, to a tenth of a
+  degree and under three. The readme each build writes reports its own. A run
+  that ends mid-fillet, boxed in, has no room left to bend and no straight leg
+  to walk back to, and stays crooked; there is nothing to be done about that
+  one short of not putting a box there at all.
+
   AND THE OUTSIDE OF A BEND TRAVELS FURTHER than the centreline the route was
   resampled along. Eight tenths of a texel at the centre carries the far edge of
   a wide bundle eight tenths times (1 + reach / bend radius), which on a flat
@@ -1450,9 +1474,12 @@ It also covers the thirteen things that are easy to break silently:
             The claims grid and the stack are also exercised directly
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
-            since "how orthogonal is this picture" has no absolute scale; and
-            the bracing reaches the HEIGHT field rather than only the
-            parameters
+            since "how orthogonal is this picture" has no absolute scale — and
+            measured on the RUNS, off the tag's along-the-route field, not on
+            the height gradient of the whole picture, which is mostly backplane
+            and frame and box lid and told the two modes apart only by
+            accident; and the bracing reaches the HEIGHT field rather than only
+            the parameters
   stage     the wizard's 3D building is the BUILDING: its box is as wide as the
             front's plan says and as deep as the side's, four walls and a roof
             stand on a ground, and both sides come off the one side elevation.
@@ -1488,6 +1515,17 @@ It also covers the thirteen things that are easy to break silently:
             and at 256, 512, 1024 and 2048 px, because the first fault was the
             span's spacing against the grid and that is what a resolution
             changes
+  boxes     junction boxes land on a quarter turn and the run arrives square.
+            Two claims, two tests. That the BOX is square is a property of one
+            function and is checked as one — boxOf is handed a run pointing at
+            every angle in turn and has to come back with an axis vector every
+            time (before this it managed two headings out of 240, the two that
+            were already on an axis). That the RUN arrives square is a property
+            of the whole build and comes off the census, which reports the
+            angle the conduit actually meets its box at. The MEAN is the claim
+            and the WORST is only a guard: a run that ends mid-fillet, boxed
+            in, has no room to bend its own tail and no straight leg to walk
+            back to
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the

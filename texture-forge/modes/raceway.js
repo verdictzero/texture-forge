@@ -417,20 +417,56 @@ function routes(g,p){
   /* A BOX HAS TO HAVE ROOM TO EXIST — the same rule as the loom's, and the
      same answer: shorten the run until one fits rather than let it stop at
      nothing, and fall back to a bulkhead grommet only when it cannot. */
-  const place=(RT,end)=>{
-    for(let t=0;t<16;t++){
-      const bx=L.boxOf(RT,end);
-      if(CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw)){
-        CB.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
-        C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
-        BOXES.push(bx);
-        return true;
+  const place=(RT,end,bendR)=>{
+    /* HOW SQUARE IS SQUARE ENOUGH, AND WHAT IT IS WORTH PAYING FOR IT.
+       The box takes the nearest quarter turn to the run, so the run has to
+       arrive near it or the gland sits crooked on the conduit it grips. A
+       place further back along the run may be squarer — but every point
+       traded for one is a point off the run, and a run cut past a couple of
+       its own box lengths stops being a run at all and is dropped. Hunting
+       the whole length for the squarest spot cost a third of the bundles in
+       the bay, which is a worse picture than a box at eight degrees.
+
+       The trim is worked out without cutting anything — boxOf answers what the
+       box WOULD be that many points shorter — so the hunt is BOUNDED: take the
+       first clear spot if it is already near-square, otherwise look for a
+       better one within a tenth of the run and take the best of those. Whatever is left over is bent out by
+       squaring the tail below, which costs no length at all. */
+    const maxCut=RT.nPts-28;
+    const near=Math.min(maxCut,Math.max(8,Math.round(RT.nPts*0.10)));
+    const far=Math.min(maxCut,Math.max(16,Math.round(RT.nPts*0.28)));
+    let best=null;
+    for(let cut=0;cut<=maxCut;cut+=2){
+      const bx=L.boxOf(RT,end,cut);
+      if(!bx)continue;
+      if(!CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw))continue;
+      if(!best||bx.skew<best.skew)best=bx;
+      /* square enough that squaring the tail will finish it off */
+      if(best.skew<0.12)break;
+      /* otherwise stop at a tenth of the run — unless nothing found so far
+         is even close, in which case a short run with no room to bend its
+         own tail is worth a bit more hunting */
+      if(cut>=near&&best.skew<0.30)break;
+      if(cut>=far)break;
+    }
+    if(best){
+      const cut=best.trim;
+      if(cut>0){
+        if(end)RT.nPts-=cut;
+        else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
+        RT.len=RT.nPts*stepM;
       }
-      const cut=Math.max(2,Math.round(RT.nPts*0.05));
-      if(RT.nPts-cut<28)return false;
-      if(end)RT.nPts-=cut;
-      else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
-      RT.len=RT.nPts*stepM;
+      /* and bring the last stretch onto the box's own axis, so the conduit
+         goes into the gland straight. That moves the tip, so the box is
+         worked out again from where the run actually ends up — and it is
+         THAT rectangle which gets marked and painted. */
+      L.squareInto(RT,end,bendR,g);
+      const fin=L.boxOf(RT,end)||best;
+      CB.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
+      C.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
+      if(end)RT.boxB=fin;else RT.boxA=fin;
+      BOXES.push(fin);
+      return true;
     }
     return false;
   };
@@ -500,7 +536,7 @@ function routes(g,p){
     if(!closed){
       for(let e=0;e<2;e++){
         if((e?R.capB:R.capA)!=="box")continue;
-        if(place(R,e))continue;
+        if(place(R,e,bendR))continue;
         if(e){R.capB="gland";R.tailB=Math.min(0.05,R.len*0.20);}
         else {R.capA="gland";R.tailA=Math.min(0.05,R.len*0.20);}
       }
