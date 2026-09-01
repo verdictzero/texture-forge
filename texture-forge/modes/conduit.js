@@ -197,48 +197,126 @@ function routes(g,p){
   for(let i=0;i<spec.length;i++)if(spec[i].half<hMin)hMin=spec[i].half;
   const C=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
 
-  const out=[];
+  const out=[],BOXES=[];
+  /* a second grid holding nothing but enclosures, never cleared between
+     layers: a run may pass over a box, two boxes may not share ground */
+  const CB=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+  const endless=g.bay?0:clamp(+p.endless,0,1);
+  const axis=clamp(+p.axis,0,1);
+  const rngW=mulberry32((p.seed|0)*40503+17);
+
+  /* every point of a candidate loop, before a single one of them is marked:
+     a closed run cannot back out half way and has to be all or nothing */
+  const loopFits=(w,half)=>{
+    for(let k=0;k<w.nPts;k++){
+      const q=k*4;
+      if(!C.clearAt(w.pts[q],w.pts[q+1],-w.pts[q+3],w.pts[q+2],half))return false;
+    }
+    return true;
+  };
+  const markAll=(w,rad)=>{
+    for(let k=0;k<w.nPts;k++){
+      const q=k*4;
+      C.span(w.pts[q],w.pts[q+1],-w.pts[q+3],w.pts[q+2],rad);
+    }
+  };
+
   for(let Ly=0;Ly<layers;Ly++){
     C.clear();
-    for(let i=0;i<spec.length;i++){
+    /* A JUNCTION BOX IS BOLTED TO THE PLATE, so it is in the way of every
+       layer it stands taller than, not only the one whose run it terminates.
+       The layers are laid deepest first, so re-marking the boxes already
+       placed is all it takes for the layer above to route around them. */
+    for(let k=0;k<BOXES.length;k++){
+      const bx=BOXES[k];
+      if(bx.top>ST.z[Ly])C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+    }
+    /* who is to have no ends, decided before anything is laid. The deeper a
+       layer is the more likely that is: the bottom of a bay carries the trunks,
+       which pass through on their way somewhere else, and what goes to a box is
+       the accessible stuff near the panel line — which is also what keeps the
+       boxes from being buried under four layers of loom. */
+    for(let i=0;i<spec.length;i++)if(spec[i].layer===Ly)
+      spec[i].wantLoop=rngW()<endless*(layers>1?1-0.5*(Ly/(layers-1)):1);
+    /* CLOSED RUNS GO DOWN FIRST. A loop is rigid — it cannot steer round
+       anything, so it either fits where it is drawn or it is not a loop at all
+       — while an open run dodges for a living. Laying the open ones first fills
+       the bay with obstacles no loop can get past, and most of what was asked
+       to be endless ends up terminated instead. */
+    const order=[];
+    for(let i=0;i<spec.length;i++)if(spec[i].layer===Ly)order.push(i);
+    order.sort((a,b)=>(spec[b].wantLoop?1:0)-(spec[a].wantLoop?1:0));
+    for(let oi=0;oi<order.length;oi++){
+      const i=order[oi];
       const B=spec[i];
-      if(B.layer!==Ly)continue;
       const gapM=Math.max(C.cell*0.6,B.r*0.6);
       const rad=B.half+gapM;
-
-      /* somewhere to start that is not already somebody else's. The sequence
-         is the same one as before, just consulted until it offers open ground
-         rather than taken at its first word. */
-      let sx=0,sy=0,ok=false;
-      for(let a=0;a<28&&!ok;a++){
-        nextQ();
-        const q=B1.at();
-        sx=q[0]*g.Wm;sy=q[1]*g.Hm;
-        ok=C.clearAt(sx,sy,1,0,rad)&&C.clearAt(sx,sy,0,1,rad);
-      }
-      if(!ok)continue;
-
       /* THE BEND CLAMP. Three bundle half-widths is about the tightest a loom
          is dressed to, and it is also comfortably inside the "gentle next to
          its own width" the stamp needs. */
       const minR=Math.max(B.half*3.0,B.r*6);
 
-      const walk=integrate(g,{
-        x:sx,y:sy,head:B.head0,len:B.len,minR:minR,half:B.half,
-        wander:B.w,seed:B.seed,stepM:stepM,rng:mulberry32(B.seed^0x5bf03635),
-        claims:C,rad:rad
-      });
-      if(walk.nPts<8)continue;
+      let walk=null,closed=false;
+      /* ---- first, if it is to have no ends, try to give it none ---- */
+      if(B.wantLoop){
+        for(let a=0;a<12&&!walk;a++){
+          nextQ();
+          const q=B1.at();
+          const set=(rngW()<0.30+0.62*axis)?WIND_AXIAL:WIND_FREE;
+          const wd=set[Math.floor(rngW()*set.length)|0];
+          const cand=closedWalk(g,{
+            m:wd[0],n:wd[1],x0:q[0]*g.Wm,y0:q[1]*g.Hm,
+            minR:minR,stepM:stepM,
+            /* later attempts are straighter: a gentle loop fits through a gap
+               a wandering one cannot, and by the tenth try a gap is all that
+               is left */
+            amp:(0.05+B.w*0.24)/(1+a*0.22),
+            rng:mulberry32((B.seed^0x9e3779b9)+a*7919)
+          });
+          if(cand.nPts>=16&&loopFits(cand,B.half)){walk=cand;closed=true;}
+        }
+      }
 
-      out.push({
+      /* ---- otherwise it starts somewhere and ends at a box ---- */
+      if(!walk){
+        /* somewhere to start that is not already somebody else's. The sequence
+           is the same one as before, just consulted until it offers open ground
+           rather than taken at its first word. */
+        let sx=0,sy=0,ok=false;
+        for(let a=0;a<28&&!ok;a++){
+          nextQ();
+          const q=B1.at();
+          sx=q[0]*g.Wm;sy=q[1]*g.Hm;
+          ok=C.clearAt(sx,sy,1,0,rad)&&C.clearAt(sx,sy,0,1,rad);
+        }
+        if(!ok)continue;
+        walk=integrate(g,{
+          x:sx,y:sy,head:B.head0,len:B.len,minR:minR,half:B.half,
+          wander:B.w,seed:B.seed,stepM:stepM,rng:mulberry32(B.seed^0x5bf03635),
+          claims:C,rad:rad
+        });
+      }
+      if(walk.nPts<8)continue;
+      if(closed)markAll(walk,rad);
+
+      /* WHAT IS STANDING AT EACH END. A closed run has no ends. An open one
+         came from a box, and goes to a box unless it left the aperture, in
+         which case it went through the frame and the dive is the grommet. */
+      const capA=closed?"none":"box";
+      const capB=closed?"none":(walk.why==="out"?"gland":"box");
+      const dive=Math.min(0.05,walk.nPts*stepM*0.22);
+
+      const RT={
         layer:Ly,kind:B.kind,n:B.n,r:B.r,pitch:B.pitch,half:B.half,mat:B.mat,
         z0:ST.z[Ly],seed:B.seed,
         pts:walk.pts,nPts:walk.nPts,len:walk.nPts*stepM,
+        closed:closed,capA:capA,capB:capB,
         /* THE LENGTH IT GOT, not the length it asked for. A run that stopped
            early because something was in the way is short, and a dive sized off
            what it meant to be can be longer than the run itself — which sinks
            the whole thing and leaves a smear where a conduit was. */
-        tail:Math.min(0.05,walk.nPts*stepM*0.22),
+        tailA:capA==="gland"?dive:0,
+        tailB:capB==="gland"?dive:0,
         ident:B.ident,sleeve:B.sleeve,tint:B.tint,
         /* HOW OFTEN A LOOM IS ACTUALLY CLAMPED DOWN. A P-clamp every 200 to
            450 mm is what the trade does. Every 50 to 130, which is the instinct
@@ -251,7 +329,43 @@ function routes(g,p){
                           half:Math.max(0.0008,Math.min(0.0022,B.r*0.14)),
                           proud:B.r*0.13}:null
         }:null
-      });
+      };
+
+      /* ---- and the thing it stops at ----
+         A BOX HAS TO HAVE ROOM TO EXIST. Where one will not fit, the run is
+         SHORTENED until it does rather than being left to stop at nothing:
+         the cable simply does not come as far, which is what would have
+         happened on the bench. Only when it cannot be shortened far enough
+         does the end fall back to a bulkhead grommet — a real penetration, not
+         a fade, and the one honest way for a run to leave without a box. */
+      const place=end=>{
+        for(let t=0;t<16;t++){
+          const bx=L.boxOf(RT,end);
+          if(CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw)){
+            CB.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+            C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+            BOXES.push(bx);
+            return true;
+          }
+          const cut=Math.max(2,Math.round(RT.nPts*0.05));
+          if(RT.nPts-cut<28)return false;
+          if(end)RT.nPts-=cut;
+          else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
+          RT.len=RT.nPts*stepM;
+        }
+        return false;
+      };
+      if(!closed){
+        for(let e=0;e<2;e++){
+          if((e?RT.capB:RT.capA)!=="box")continue;
+          if(place(e))continue;
+          if(e)  {RT.capB="gland";RT.tailB=Math.min(0.05,RT.len*0.22);}
+          else   {RT.capA="gland";RT.tailA=Math.min(0.05,RT.len*0.22);}
+        }
+        /* a run shorter than a couple of its own boxes is not a run */
+        if(RT.nPts*stepM<Math.max(0.05,RT.half*4))continue;
+      }
+      out.push(RT);
     }
   }
   /* deepest first: the Z-test does the real work, but painting in this order
@@ -285,6 +399,9 @@ function integrate(g,o){
   const trail=C?C.trail(rad,Math.max(2,Math.ceil((LA+rad*2.2)/stepM))):null;
   let x=o.x,y=o.y,head=o.head,n=0,s=0;
   let corner=0,cornerDir=1,dodge=0;
+  /* WHY IT STOPPED decides what has to be standing there. Out of a bay is a
+     bulkhead gland in the frame; anything else is a junction box. */
+  let why="len";
   for(let i=0;i<cap;i++){
     let dodged=false;
     if(C){
@@ -298,13 +415,13 @@ function integrate(g,o){
          deliberately not predictive — a route mid-dodge is often inside the
          ring and about to be out of it, and ending those would cut the loom to
          a third of the run it should have. */
-      if(i>=(o.skip|0)&&!C.clearAt(x,y,-ay,ax,o.half*0.92))break;
+      if(i>=(o.skip|0)&&!C.clearAt(x,y,-ay,ax,o.half*0.92)){why="blocked";break;}
       if(!C.clearAt(x+ax*LA,y+ay*LA,-ay,ax,o.half)){
         const hl=head-0.9,hr=head+0.9;
         const cl=Math.cos(hl),sl=Math.sin(hl),cr=Math.cos(hr),sr=Math.sin(hr);
         const okL=C.clearAt(x+cl*LA,y+sl*LA,-sl,cl,o.half);
         const okR=C.clearAt(x+cr*LA,y+sr*LA,-sr,cr,o.half);
-        if(!okL&&!okR)break;
+        if(!okL&&!okR){why="blocked";break;}
         if(dodge===0||(dodge<0&&!okL)||(dodge>0&&!okR))dodge=okL?-1:1;
         head+=dodge*maxTurn;corner=0;dodged=true;
       }else dodge=0;
@@ -325,7 +442,7 @@ function integrate(g,o){
     if(bay){
       /* off the edge of the aperture is off the end of the route: it has gone
          somewhere else in the airframe, which is what a grommet means */
-      if(x<-o.half||y<-o.half||x>g.Wm+o.half||y>g.Hm+o.half)break;
+      if(x<-o.half||y<-o.half||x>g.Wm+o.half||y>g.Hm+o.half){why="out";break;}
     }else{
       if(x<0)x+=g.Wm;else if(x>=g.Wm)x-=g.Wm;
       if(y<0)y+=g.Hm;else if(y>=g.Hm)y-=g.Hm;
@@ -336,8 +453,114 @@ function integrate(g,o){
     if(trail)trail.push(x,y,-ty,tx);
   }
   if(trail)trail.flush();
-  return {pts:pts,nPts:n};
+  return {pts:pts,nPts:n,why:why};
 }
+
+/* ===================== A RUN WITH NO ENDS =====================
+   On a seamless tile the honest answer to "where does this cable go" is often
+   that it does not go anywhere: it leaves one edge, arrives at the other, and
+   comes back to where it started. Such a run has no ends to terminate and no
+   junction box to invent, and it is the only kind that is genuinely endless
+   rather than merely long.
+
+   IT CANNOT BE INTEGRATED INTO EXISTENCE. Walking a heading and hoping to
+   arrive back at the start on the same bearing does not converge, and steering
+   it home over the last stretch puts a kink at the join that no amount of
+   smoothing hides. So a closed run is CONSTRUCTED closed instead, as a curve
+   that is periodic by definition:
+
+     P(t) = t·D  +  Σ  A_k sin(2πkt) + B_k cos(2πkt)          t ∈ [0,1)
+
+   D is a whole number of tiles in each axis — the WINDING — so P(1) and P(0)
+   are the same point on the torus however the harmonics fall, and the harmonic
+   sum is periodic on its own. Closure is therefore exact and free, and what is
+   left to control is only the shape.
+
+   THE BEND CLAMP IS THE ONLY THING THAT CONSTRAINS IT. Curvature is
+   |x'y" − y'x"| / |P'|³ and it comes straight off the same derivatives, so the
+   harmonics are simply scaled back until the tightest point on the loop is
+   inside the minimum bend radius. Amplitudes fall as 1/k^1.6, which is what
+   stops a route from being a circle at one end of the wander slider and a
+   scribble at the other. */
+function closedWalk(g,o){
+  const rng=o.rng,K=4;
+  const Dx=o.m*g.Wm,Dy=o.n*g.Hm;
+  const span=Math.max(g.Wm,g.Hm);
+  const Ax=new Float64Array(K),Ay=new Float64Array(K),
+        Bx=new Float64Array(K),By=new Float64Array(K);
+  for(let k=1;k<=K;k++){
+    const a=o.amp*span/Math.pow(k,1.6);
+    Ax[k-1]=(rng()*2-1)*a;Ay[k-1]=(rng()*2-1)*a;
+    Bx[k-1]=(rng()*2-1)*a;By[k-1]=(rng()*2-1)*a;
+  }
+
+  const NT=2048,TAU=Math.PI*2;
+  const px=new Float64Array(NT+1),py=new Float64Array(NT+1),
+        sp=new Float64Array(NT+1),cum=new Float64Array(NT+1);
+  const maxK=1/o.minR;
+  let lam=1;
+
+  function sample(){
+    let worstK=0,slowest=1e30;
+    for(let i=0;i<=NT;i++){
+      const t=i/NT;
+      let x=Dx*t+o.x0,y=Dy*t+o.y0,dx=Dx,dy=Dy,ddx=0,ddy=0;
+      for(let k=1;k<=K;k++){
+        const w=TAU*k,c=Math.cos(w*t),s2=Math.sin(w*t);
+        const ax=Ax[k-1]*lam,ay=Ay[k-1]*lam,bx=Bx[k-1]*lam,by=By[k-1]*lam;
+        x+=ax*s2+bx*c;   y+=ay*s2+by*c;
+        dx+=w*(ax*c-bx*s2); dy+=w*(ay*c-by*s2);
+        ddx-=w*w*(ax*s2+bx*c); ddy-=w*w*(ay*s2+by*c);
+      }
+      px[i]=x;py[i]=y;
+      const v=Math.sqrt(dx*dx+dy*dy);
+      sp[i]=v;
+      if(v<slowest)slowest=v;
+      if(v>1e-9){
+        const kk=Math.abs(dx*ddy-dy*ddx)/(v*v*v);
+        if(kk>worstK)worstK=kk;
+      }
+    }
+    return {worstK:worstK,slowest:slowest};
+  }
+
+  let q=sample();
+  const straight=Math.sqrt(Dx*Dx+Dy*Dy);
+  for(let tries=0;tries<16&&(q.worstK>maxK||q.slowest<straight*0.30);tries++){
+    lam*=0.72;q=sample();
+  }
+
+  /* arc length, then a uniform resample: the loop is emitted with a whole
+     number of steps in it, so the spacing closes as exactly as the shape does */
+  cum[0]=0;
+  for(let i=1;i<=NT;i++)cum[i]=cum[i-1]+(sp[i]+sp[i-1])*0.5/NT;
+  const total=cum[NT];
+  const n=Math.max(16,Math.round(total/o.stepM));
+  const ds=total/n;
+  const pts=new Float64Array(n*4);
+  let j=0;
+  for(let i=0;i<n;i++){
+    const target=i*ds;
+    while(j<NT-1&&cum[j+1]<target)j++;
+    const f=(target-cum[j])/Math.max(1e-12,cum[j+1]-cum[j]);
+    let x=px[j]+(px[j+1]-px[j])*f, y=py[j]+(py[j+1]-py[j])*f;
+    /* the tangent off the SAMPLED positions either side rather than off the
+       wrapped ones: the positions below are folded into the tile and a
+       difference across that fold is a whole tile wide */
+    const tx=px[j+1]-px[j],ty=py[j+1]-py[j];
+    const m=Math.sqrt(tx*tx+ty*ty)||1;
+    x=x%g.Wm;if(x<0)x+=g.Wm;
+    y=y%g.Hm;if(y<0)y+=g.Hm;
+    const w=i*4;
+    pts[w]=x;pts[w+1]=y;pts[w+2]=tx/m;pts[w+3]=ty/m;
+  }
+  return {pts:pts,nPts:n,len:n*o.stepM,trueLen:total};
+}
+
+/* the windings a closed run may take round the tile. A run dressed to an axis
+   takes a straight one; a free one may go diagonally and come back. */
+const WIND_AXIAL=[[1,0],[0,1],[2,0],[0,2],[1,0],[0,1]];
+const WIND_FREE=[[1,1],[1,-1],[2,1],[1,2],[2,-1],[-1,2],[1,0],[0,1]];
 
 /* ============================ mode definition ============================ */
 
@@ -364,7 +587,7 @@ Forge.register({
 
   presets:[
     {id:"engine",label:"Engine bay",set:{
-      piece:"tile",tileMm:620,cavityMm:95,layers:4,bundles:3,groupMax:5,
+      piece:"tile",tileMm:620,cavityMm:95,layers:4,bundles:3,groupMax:5,endless:.8,
       gaugeMinMm:9,gaugeMaxMm:46,wander:.55,axis:.45,
       wTube:.7,wCorr:1,wBraid:.8,wSpiral:.5,wRibbon:.15,wLagged:.6,
       clampAmt:1,tieAmt:.7,identAmt:.5,lamps:.15,
@@ -374,7 +597,7 @@ Forge.register({
       cPlate:"#4c5054",cDeep:"#0b0c0d",cLamp:"#49ff9c"}},
 
     {id:"harness",label:"Wiring harness",set:{
-      piece:"tile",tileMm:380,cavityMm:70,layers:4,bundles:4,groupMax:7,
+      piece:"tile",tileMm:380,cavityMm:70,layers:4,bundles:4,groupMax:7,endless:.85,
       gaugeMinMm:6,gaugeMaxMm:22,wander:.7,axis:.3,
       wTube:.15,wCorr:.5,wBraid:.4,wSpiral:1,wRibbon:.5,wLagged:0,
       clampAmt:1,tieAmt:1,identAmt:.9,lamps:.05,
@@ -384,7 +607,7 @@ Forge.register({
       cPlate:"#565a5e",cDeep:"#0c0d0f",cLamp:"#ffb648"}},
 
     {id:"hydraulic",label:"Hydraulic run",set:{
-      piece:"tile",tileMm:540,cavityMm:85,layers:3,bundles:2,groupMax:4,
+      piece:"tile",tileMm:540,cavityMm:85,layers:3,bundles:2,groupMax:4,endless:.7,
       gaugeMinMm:10,gaugeMaxMm:30,wander:.35,axis:.75,
       wTube:1,wCorr:.2,wBraid:1,wSpiral:.1,wRibbon:0,wLagged:.2,
       clampAmt:1,tieAmt:.3,identAmt:.35,lamps:0,
@@ -416,7 +639,7 @@ Forge.register({
       cPlate:"#3f4348",cDeep:"#08090a",cFrame:"#6d737a",cLamp:"#5fe0ff"}},
 
     {id:"crawl",label:"Crawlspace",set:{
-      piece:"tile",tileMm:900,cavityMm:120,layers:5,bundles:5,groupMax:6,
+      piece:"tile",tileMm:900,cavityMm:120,layers:5,bundles:5,groupMax:6,endless:.75,
       gaugeMinMm:8,gaugeMaxMm:64,wander:.8,axis:.2,
       wTube:.5,wCorr:1,wBraid:.4,wSpiral:.7,wRibbon:.3,wLagged:.8,
       clampAmt:.7,tieAmt:.5,identAmt:.3,lamps:.1,
@@ -455,9 +678,16 @@ Forge.register({
       {id:"gaugeMaxMm",label:"Fattest gauge",unit:"mm",min:8,max:110,step:2,value:46},
       {id:"wander",label:"Wander",min:0,max:1,step:0.05,value:0.55},
       {id:"axis",label:"Runs with the bay",min:0,max:1,step:0.05,value:0.45},
+      {id:"endless",label:"Runs with no ends",min:0,max:1,step:0.05,value:0.75,need:"tile"},
       {type:"note",html:"A <b>bundle</b> is a group: several conduits laid parallel at a fixed "+
         "pitch and routed as one, so on a bend the inner ones take a tighter radius than the "+
-        "outer ones. Layer 1 is deepest and carries the fattest items."}
+        "outer ones. Layer 1 is deepest and carries the fattest items."},
+      {type:"note",html:"Nothing ends in mid-air. A run either has <b>no ends</b> — it leaves "+
+        "one edge of the tile, arrives at the other and comes back to where it started, so it "+
+        "is genuinely endless — or it terminates in a <b>junction box</b> bolted to the "+
+        "backplane, entered square through a gland. In a framed bay a run may also leave "+
+        "through the frame, which is a bulkhead grommet; a seamless tile has nowhere to leave "+
+        "to, so this slider is the only choice there is."}
     ]},
 
     {title:"What is in it",rows:[
@@ -557,6 +787,19 @@ Forge.register({
   readme:function(p,info){
     const g=geom(p);
     const bay=isBay(p);
+    /* what the build actually turned out to be, rather than what was asked
+       for: whether a run closed and whether its box had room are decided while
+       it is being laid, so this is the only place the numbers exist */
+    const c=info.census;
+    const ends=c?[
+"",
+"HOW IT TURNED OUT",
+c.closed+" of "+c.bundles+" runs have no ends at all — they leave one edge of the",
+"tile, arrive at the other and come back to where they started, so there is",
+"nothing to terminate. The rest do end, and end at something: "+c.boxes+" junction",
+"box"+(c.boxes===1?"":"es")+" bolted to the backplane and entered square through a gland, and "+c.glands,
+"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air."
+]:[];
     return [
 "TEXTURE FORGE — conduit loom",
 "",
@@ -603,7 +846,7 @@ bay?"opacity.png    The bay silhouette.":null,
 "read at one brightness, which is the whole subject gone.",
 "",
 "Seed "+(p.seed|0)+"."
-    ].filter(x=>x!==null).join("\n");
+    ].concat(ends).filter(x=>x!==null).join("\n");
   }
 });
 

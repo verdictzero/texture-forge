@@ -817,6 +817,142 @@ if (want("conduit")) {
   await page.selectOption("#conduit--piece", "tile");
 }
 
+/* ==================== where a run is allowed to stop ====================
+   Nothing may end in mid-air. A run either has NO ENDS — it is a closed curve
+   with a whole number of tiles of winding, so it leaves one edge, arrives at
+   the other and comes back to where it started — or it terminates in a
+   junction box bolted to the backplane, or (in a framed bay) leaves through
+   the frame.
+
+   A BOX IS THE ONLY FLAT THING IN THE PICTURE, which is what makes this
+   measurable from outside. Every other surface a loom has is curved: a
+   conduit's crown falls a thirtieth of a millimetre a texel, a fillet turns, a
+   backplane oil-cans. A cast lid does not move at all. So the check counts
+   texels standing above the first stratum whose whole eight-neighbourhood is
+   identical to within a micron, and compares a build where every run is asked
+   to be endless against one where none is: the second is thick with boxes and
+   the first has next to none. */
+if (want("ends")) {
+  console.log("\n— where a run is allowed to stop —");
+
+  const flatAt = (mode, cfg) => page.evaluate(async ([m, c]) => {
+    for (const k in c) window.Forge.setParam(m, k, c[k]);
+    return null;
+  }, [mode, cfg]);
+
+  const measure = mode => page.evaluate(m => {
+    const st = window.Forge.active(), B = st.B, W = B.W, H = B.H, HG = B.HGT;
+    const floor = window.Forge.byId[m].plan(st.P).strata[0] + 0.002;
+    const flat = new Uint8Array(W * H);
+    let above = 0;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x, h = HG[i];
+      if (h <= floor) continue;
+      above++;
+      let same = true;
+      for (let dy = -1; dy <= 1 && same; dy++)
+        for (let dx = -1; dx <= 1; dx++)
+          if (Math.abs(HG[i + dy * W + dx] - h) > 1e-6) { same = false; break; }
+      if (same) flat[i] = 1;
+    }
+    /* COUNT THE PLATEAUX, NOT THEIR AREA. A box's area depends on the bundle
+       it swallows and on how long the run got, so an area is as much a measure
+       of what size things came out as of how many of them there are. How many
+       separate dead-flat islands there are is a count of lids. */
+    const seen = new Uint8Array(W * H), stack = new Int32Array(W * H);
+    let plateaux = 0;
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (!flat[s0] || seen[s0]) continue;
+      let sp = 0; stack[sp++] = s0; seen[s0] = 1; let n = 0;
+      while (sp > 0) {
+        const i = stack[--sp]; n++;
+        const x = i % W, y = (i / W) | 0;
+        const nb = [((x + 1) % W) + y * W, ((x + W - 1) % W) + y * W,
+                    x + ((y + 1) % H) * W, x + ((y + H - 1) % H) * W];
+        for (const j of nb) if (flat[j] && !seen[j]) { seen[j] = 1; stack[sp++] = j; }
+      }
+      if (n > 300) plateaux++;
+    }
+    return { plateaux, above: above / (W * H) };
+  }, mode);
+
+  /* a deliberately bare build: the only flat things left in it are lids */
+  const bare = {
+    size: 512, piece: "tile", clampAmt: 0, tieAmt: 0, braceAmt: 0, lamps: 0,
+    wRibbon: 0, ribHMm: 0, holeMm: 0, mCurve: 0, mGrain: 0, mDust: 0,
+    oil: 0, dust: 0, heat: 0, scuff: 0
+  };
+
+  for (const mode of ["conduit", "raceway"]) {
+    await page.click(`#modebar-tabs [data-mode="${mode}"]`);
+    await settle();
+
+    const census = () => page.evaluate(() => window.Forge.active().B.census);
+
+    await flatAt(mode, { ...bare, endless: 0 });
+    await page.click(`#${mode}--forge`); await settle();
+    const none = await measure(mode), nc = await census();
+
+    await flatAt(mode, { ...bare, endless: 1 });
+    await page.click(`#${mode}--forge`); await settle();
+    const all = await measure(mode), ac = await census();
+
+    /* the bug this is here for: a run left to stop where its length ran out,
+       which is a cable sawn through in mid-air */
+    /* THE COUNT COMES OFF THE BUILD, not off the picture. Whether a loop closed
+       and whether a box had room are decided while a run is laid, and no amount
+       of measuring the height field afterwards recovers it: a box's area
+       depends on the bundle it swallows and on how long the run got, so an area
+       is as much a measure of what size things came out as of how many. */
+    const ends = c => c.bundles * 2 - c.closed * 2;
+
+    /* the bug this is here for: a run left to stop where its length ran out,
+       which is a cable sawn through in mid-air */
+    ok(mode + ": nothing is left ending in nothing",
+       nc.closed === 0 && nc.boxes + nc.glands + nc.tees === ends(nc),
+       nc.bundles + " runs: " + nc.boxes + " boxes, " + nc.glands +
+       " grommets and " + nc.tees + " breakouts over " + ends(nc) + " ends");
+    ok(mode + ": and a box is what almost all of them get",
+       nc.glands <= ends(nc) * 0.25,
+       nc.glands + " of " + ends(nc) + " ends fell back to a grommet");
+    ok(mode + ": asking for endless runs gets them",
+       ac.closed >= ac.bundles * 0.3 && ac.boxes < nc.boxes,
+       ac.closed + " of " + ac.bundles + " runs closed, leaving " + ac.boxes +
+       " boxes against " + nc.boxes);
+    /* and a box is a real object in the height field, not only a flag */
+    ok(mode + ": the boxes are really there", none.plateaux >= 6,
+       none.plateaux + " dead-flat plateaux — nothing else in a loom is flat");
+
+    /* closing them must not empty the picture out */
+    ok(mode + ": closing the runs does not empty the bay", all.above > none.above * 0.6,
+       (all.above * 100).toFixed(0) + "% of the tile still stands proud, " +
+       "against " + (none.above * 100).toFixed(0) + "%");
+  }
+
+  /* greeble's dead ends, where the box is the one fitting that is NOT optional */
+  await page.click('#modebar-tabs [data-mode="greeble"]');
+  await settle();
+  const gcfg = { size: 512, tileM: 1, pipes: 1, pipeGrid: 5, pipeD: 70,
+                 pipeGauge: 1, pipeLayers: 1, pipeRise: 0.6, blockH: 22,
+                 pipeFit: 0, mGrain: 0, mDust: 0, mCurve: 0 };
+  await page.evaluate(c => { for (const k in c) window.Forge.setParam("greeble", k, c[k]); }, gcfg);
+  await page.click("#greeble--forge"); await settle();
+  const gm = await page.evaluate(c => {
+    const B = window.Forge.active().B;
+    const MM = 0.001 / c.tileM;
+    const R0 = Math.min(c.pipeD * MM * 0.5, 0.38 / c.pipeGrid);
+    const seat = c.blockH * MM * c.pipeRise;
+    return { hMax: B.hMax, crown: seat + R0, box: seat + R0 * 1.22 };
+  }, gcfg);
+  /* with the fittings slider at zero there are no couplings and no elbows, so
+     anything standing above a bare pipe's crown is a junction box — and there
+     has to be one, because a dead end is not optional */
+  ok("greeble: a dead end gets its box even with fittings off", gm.hMax >= gm.box,
+     "tallest " + (gm.hMax * 1000).toFixed(1) + " vs a bare crown at " +
+     (gm.crown * 1000).toFixed(1) + " and a box at " + (gm.box * 1000).toFixed(1) +
+     " tile-thousandths");
+}
+
 /* ==================== greeble's conduit, stacked ====================
    The third routing model, and the oldest: a walker on a lattice rather than a
    polyline. It gained the same two properties by a different mechanism — a

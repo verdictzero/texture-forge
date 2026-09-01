@@ -1010,6 +1010,9 @@ function readmeText(st){
   const B=st.B;
   let txt=st.mode.readme(st.P,{
     W:B.W,H:B.H,hMin:B.hMin,hMax:B.hMax,
+    /* whatever the build recorded about itself, for a mode whose readme wants
+       to say what came out rather than only what was asked for */
+    census:B.census||null,
     normalNote:st.P.flipG?"DirectX (green down)":"OpenGL (green up)"
   });
   /* a palettised basecolor that does not say so is a file somebody re-exports

@@ -92,6 +92,9 @@ function buildPipes(o){
   const HE=new Uint8Array(NN),VE=new Uint8Array(NN);      // route id + 1; 0 = bare
   const occ=new Uint8Array(L*NN);                         // who holds a node, per layer
   const fdeg=new Uint8Array(L*NN),fg=new Uint8Array(L*NN);
+  /* which of the four directions leave a node, per layer. A dead end has
+     exactly one, and that one is which way its junction box faces. */
+  const fdir=new Uint8Array(L*NN);
   const fmask=new Uint8Array(NN);
   const gauge=[],rlayer=[];
   const DX=[1,0,-1,0],DY=[0,1,0,-1];
@@ -122,9 +125,11 @@ function buildPipes(o){
         else      {ei=(dy>0?j:wrap(j-1))*N+i;if(VE[ei])break;VE[ei]=id;}
         let k=j*N+i;
         occ[base+k]=id;fg[base+k]=g;fmask[k]|=1<<Ly;
+        fdir[base+k]|=1<<d;
         if(fdeg[base+k]<255)fdeg[base+k]++;
         i=ni;j=nj;k=nk;
         occ[base+k]=id;fg[base+k]=g;fmask[k]|=1<<Ly;
+        fdir[base+k]|=1<<((d+2)&3);
         if(fdeg[base+k]<255)fdeg[base+k]++;
         run--;budget--;moved++;
       }
@@ -132,7 +137,7 @@ function buildPipes(o){
       d=(d+(rng()<0.5?1:3))&3;                             // ninety degrees, either way
     }
   }
-  return {n:N,layers:L,HE:HE,VE:VE,fdeg:fdeg,fg:fg,fmask:fmask,
+  return {n:N,layers:L,HE:HE,VE:VE,fdeg:fdeg,fg:fg,fmask:fmask,fdir:fdir,
           gauge:gauge,rlayer:rlayer};
 }
 
@@ -499,21 +504,52 @@ function build(params,io){
             while(msk){
               const lo=msk&-msk,Ly=31-Math.clz32(lo);
               msk^=lo;
-              const dg=PN.fdeg[Ly*Ng*Ng+k];
+              const kk=Ly*Ng*Ng+k;
+              const dg=PN.fdeg[kk];
               if(!dg)continue;
-              /* a tee or a cross always gets a body; an elbow or a coupling gets
-                 one only sometimes, or every joint on the run reads as machined
-                 out of one billet */
-              if(dg<3&&hashi(ni,nj,seed+809+Ly*911)>=P.pipeFit*0.32)continue;
-              const R=RAD[PN.fg[Ly*Ng*Ng+k]];
-              const Rf=Math.min(R*(dg>=3?1.44:(dg===1?1.30:1.22)),fitCap);
-              const ddx=u-ni/Ng,ddy=v-nj/Ng,dr=Math.sqrt(ddx*ddx+ddy*ddy);
+              const R=RAD[PN.fg[kk]];
+              const ddx=u-ni/Ng,ddy=v-nj/Ng;
+              if(dg===1){
+                /* A RUN THAT STOPS GOES INTO A JUNCTION BOX, always — this is
+                   the one fitting that is not optional, because the thing it
+                   replaces is a conduit ending in mid-air. It is a rectangle
+                   rather than a body of revolution, squared to the run that
+                   enters it, and it is the whole reason a dead end reads as
+                   somewhere the cable was going rather than as a mistake. */
+                const dm=PN.fdir[kk];
+                const horiz=(dm&5)!==0;              // its one edge runs east-west
+                /* the box lies ALONG that edge and mostly on the run's side of
+                   the node, so the conduit goes into it rather than stopping
+                   beside it */
+                const sgn=horiz?((dm&1)?1:-1):((dm&2)?1:-1);
+                const a=(horiz?ddx:ddy)*sgn, b=horiz?ddy:ddx;
+                /* THE CELL IS THE HORIZON. A fitting is looked up against the
+                   four corners of the cell a texel sits in, so nothing may
+                   reach more than half a cell from its node or the far side of
+                   it is cut off square at the cell boundary. */
+                const hl=Math.min(R*2.4,0.38/Ng),hw=Math.min(R*1.8,0.45/Ng);
+                const aLo=-hl*0.45,aHi=hl*1.25;
+                if(a<aLo||a>aHi||b<-hw||b>hw)continue;
+                const ea=Math.min(aHi-a,a-aLo),eb=hw-Math.abs(b);
+                const face=clamp(Math.min(ea,eb)/bev,0,1);
+                /* the lid, sitting down in its rebate */
+                const lid=(Math.abs(b)<hw*0.60&&a>aLo+hl*0.32&&a<aHi-hl*0.32)?0.955:1;
+                const ph=(SEAT[Ly]+R*1.30)*lid*face;
+                if(ph>top){top=ph;mask=face;gsel=PN.fg[kk];lsel=Ly;fitFace=face;}
+                continue;
+              }
+              /* a tee or a cross always gets a body; a straight-through
+                 coupling gets one only sometimes, or every joint on the run
+                 reads as machined out of one billet */
+              if(dg===2&&hashi(ni,nj,seed+809+Ly*911)>=P.pipeFit*0.32)continue;
+              const Rf=Math.min(R*(dg>=3?1.44:1.22),fitCap);
+              const dr=Math.sqrt(ddx*ddx+ddy*ddy);
               if(dr>=Rf)continue;
               const face=1-smoothstep(Rf-bev,Rf,dr);
-              const ph=SEAT[Ly]+R*(dg===1?0.95:1.06)*face;
+              const ph=SEAT[Ly]+R*1.06*face;
               /* only the fitting that WINS the height test may tint the
                  surface — one buried under the run over it is not visible */
-              if(ph>top){top=ph;mask=face;gsel=PN.fg[Ly*Ng*Ng+k];lsel=Ly;fitFace=face;}
+              if(ph>top){top=ph;mask=face;gsel=PN.fg[kk];lsel=Ly;fitFace=face;}
             }
           }
           fit=fitFace;

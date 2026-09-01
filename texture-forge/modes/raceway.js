@@ -104,6 +104,7 @@ function walk(g,o){
   const openAt=(hx,hy,d)=>C.clearAt(x+hx*d,y+hy*d,-hy,hx,o.half);
 
   let x=o.x,y=o.y,head=o.head,n=0;
+  let why="len";
   let arc=o.firstCorner?nArc:0;
   let dir=o.firstDir||(rng()<0.5?-1:1);
   let leg=arc?0:o.legSteps();
@@ -119,7 +120,7 @@ function walk(g,o){
        be fooled by either. A run that finds itself on top of another has no
        move left, mid-corner least of all, so it ends there and its tail dives
        under what it met, which is what the picture wants anyway. */
-    if(C&&i>=skip&&!C.clearAt(x,y,-hy,hx,o.half*0.92))break;
+    if(C&&i>=skip&&!C.clearAt(x,y,-hy,hx,o.half*0.92)){why="blocked";break;}
     if(arc>0){
       head+=arcTurn*dir;
       arc--;
@@ -132,7 +133,7 @@ function walk(g,o){
       if(C&&i>=skip&&!openAt(hx,hy,sight)){
         /* -hy,hx is a left turn from the heading; hy,-hx a right one */
         const okL=openAt(-hy,hx,sight),okR=openAt(hy,-hx,sight);
-        if(!okL&&!okR)break;
+        if(!okL&&!okR){why="blocked";break;}
         dir=okL?-1:1;forced=true;
       }
       if(forced){
@@ -159,7 +160,7 @@ function walk(g,o){
     const tx=Math.cos(head),ty=Math.sin(head);
     x+=tx*stepM;y+=ty*stepM;
     if(bay){
-      if(x<-o.half||y<-o.half||x>g.Wm+o.half||y>g.Hm+o.half)break;
+      if(x<-o.half||y<-o.half||x>g.Wm+o.half||y>g.Hm+o.half){why="out";break;}
     }else{
       if(x<0)x+=g.Wm;else if(x>=g.Wm)x-=g.Wm;
       if(y<0)y+=g.Hm;else if(y>=g.Hm)y-=g.Hm;
@@ -170,7 +171,132 @@ function walk(g,o){
     if(trail)trail.push(x,y,-ty,tx);
   }
   if(trail)trail.flush();
-  return {pts:pts,nPts:n};
+  return {pts:pts,nPts:n,why:why};
+}
+
+/* ===================== A RACEWAY THAT DOES NOT END =====================
+   The same idea as the loom's endless run and a different construction,
+   because a raceway is not a curve, it is a CIRCUIT: a cyclic list of
+   axis-aligned moves whose displacement is a whole number of tiles across and
+   exactly nothing down. Walk it and you come back to where you started, on the
+   heading you started on, having crossed the tile — so there is nothing to
+   terminate.
+
+   IT IS BUILT GEOMETRICALLY RATHER THAN INTEGRATED. The open walk turns by a
+   fixed amount per step and snaps its heading square at the end of each
+   fillet, which is a hundredth of a millimetre out per corner and does not
+   matter when the run has ends. A loop has to arrive back on its own start
+   exactly or the wrap shows a step, so here the vertices are computed, the
+   quarter circles are drawn as quarter circles, and the closure is a property
+   of the arithmetic rather than of the tolerance.
+
+   EVERY LEG HAS TO BE LONGER THAN TWO FILLETS or consecutive corners eat each
+   other and the run crosses itself. That is the whole constraint on how many
+   excursions a circuit can have, and on a small tile with a wide group the
+   answer is often none — which is not a failure, it is a straight run across
+   the tile, and a straight run across a torus is as endless as anything. */
+function closedLoop(g,o){
+  const R=o.bendR,grid=o.grid,rng=o.rng;
+  const prim=o.primary?1:0;
+  const Wp=prim?g.Hm:g.Wm, Ws=prim?g.Wm:g.Hm;
+  const need=2*R+grid*0.5;              // the shortest a leg may be
+  const span=o.m*Wp;
+
+  /* how many excursions fit: each one costs two primary legs and two
+     secondary ones, and every one of them has to clear two fillets */
+  let k=0;
+  if(span>=2.4*need&&Ws>=2.2*need)k=1;
+  if(span>=4.6*need&&Ws>=2.2*need&&rng()<0.5)k=2;
+
+  const moves=[];
+  const snap=v=>Math.max(1,Math.round(v/grid))*grid;
+  if(k===0){
+    moves.push({ax:prim,d:1,len:span});
+  }else{
+    /* the primary is cut into 2k pieces, each at least a leg long */
+    const pieces=new Array(2*k).fill(0);
+    let left=span;
+    for(let i=0;i<2*k;i++){
+      const remaining=2*k-1-i;
+      const most=left-remaining*need;
+      const v=snap(need+rng()*Math.max(0,most-need));
+      pieces[i]=Math.min(v,left-remaining*need);
+      left-=pieces[i];
+    }
+    pieces[2*k-1]+=left;                // the rounding goes on the last piece
+    for(let i=0;i<k;i++){
+      const e=snap(need+rng()*Math.max(0,Ws*0.34-need));
+      const dir=rng()<0.5?1:-1;
+      moves.push({ax:prim,d:1,len:pieces[i*2]});
+      moves.push({ax:1-prim,d:dir,len:e});
+      moves.push({ax:prim,d:1,len:pieces[i*2+1]});
+      moves.push({ax:1-prim,d:-dir,len:e});
+    }
+  }
+  for(let i=0;i<moves.length;i++)if(moves[i].len<=2*R+1e-9)return null;
+
+  /* the vertices, then the fillets between them */
+  const n=moves.length;
+  const DX=[],DY=[],VX=[],VY=[];
+  let x=o.x0,y=o.y0;
+  for(let i=0;i<n;i++){
+    const m=moves[i];
+    const dx=m.ax===0?m.d:0, dy=m.ax===1?m.d:0;
+    DX.push(dx);DY.push(dy);
+    x+=dx*m.len;y+=dy*m.len;
+    VX.push(x);VY.push(y);              // the vertex at the END of move i
+  }
+
+  const pts=[];
+  const push=(px,py,tx,ty)=>{pts.push(px,py,tx,ty);};
+  const HALF=Math.PI*0.5;
+
+  if(n===1){
+    const steps=Math.max(16,Math.round(moves[0].len/o.stepM));
+    const ds=moves[0].len/steps;
+    for(let i=0;i<steps;i++)
+      push(o.x0+DX[0]*ds*i,o.y0+DY[0]*ds*i,DX[0],DY[0]);
+  }else{
+    /* B is where the previous fillet let go, A where the next one takes hold.
+       THE FIRST B IS THE LAST ARC'S END, and the last vertex is the start again
+       — a whole number of tiles further along, which is the same point on the
+       torus and emphatically not the same number. Taking the unwrapped vertex
+       here runs the opening straight backwards across the entire tile. */
+    let bx=o.x0+DX[0]*R, by=o.y0+DY[0]*R;
+    for(let i=0;i<n;i++){
+      const ax2=VX[i]-DX[i]*R, ay2=VY[i]-DY[i]*R;
+      const segx=ax2-bx, segy=ay2-by;
+      const segL=Math.sqrt(segx*segx+segy*segy);
+      const sN=Math.max(1,Math.round(segL/o.stepM));
+      for(let q=0;q<sN;q++)
+        push(bx+segx*q/sN,by+segy*q/sN,DX[i],DY[i]);
+      /* the quarter circle onto the next leg */
+      const j=(i+1)%n;
+      const ox=ax2+DX[j]*R, oy=ay2+DY[j]*R;
+      const a0=Math.atan2(ay2-oy,ax2-ox);
+      const cross=DX[i]*DY[j]-DY[i]*DX[j];
+      const turn=cross>0?HALF:-HALF;
+      const aN=Math.max(2,Math.round(Math.abs(turn)*R/o.stepM));
+      for(let q=0;q<aN;q++){
+        const a=a0+turn*q/aN;
+        const px=ox+Math.cos(a)*R, py=oy+Math.sin(a)*R;
+        const tx=-Math.sin(a)*Math.sign(turn), ty=Math.cos(a)*Math.sign(turn);
+        push(px,py,tx,ty);
+      }
+      bx=ox+Math.cos(a0+turn)*R;by=oy+Math.sin(a0+turn)*R;
+    }
+  }
+
+  const cnt=pts.length/4;
+  if(cnt<24)return null;
+  const out=new Float64Array(cnt*4);
+  for(let i=0;i<cnt;i++){
+    let px=pts[i*4],py=pts[i*4+1];
+    px=px%g.Wm;if(px<0)px+=g.Wm;
+    py=py%g.Hm;if(py<0)py+=g.Hm;
+    out[i*4]=px;out[i*4+1]=py;out[i*4+2]=pts[i*4+2];out[i*4+3]=pts[i*4+3];
+  }
+  return {pts:out,nPts:cnt,len:cnt*o.stepM};
 }
 
 /* ============================ the routes ============================ */
@@ -264,8 +390,50 @@ function routes(g,p){
   for(let i=0;i<spec.length;i++)if(spec[i].half<hMin)hMin=spec[i].half;
   const C=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
 
-  const out=[];
+  const out=[],BOXES=[];
+  /* a second grid holding nothing but enclosures, never cleared between
+     layers: a run may pass over a box, two boxes may not share ground */
+  const CB=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+  const endless=g.bay?0:clamp(+p.endless,0,1);
+  const rngW=mulberry32((p.seed|0)*69621+13);
   const legMin=Math.max(2,Math.round(grid/stepM));
+
+  /* every point of a candidate circuit before one of them is marked: a loop
+     cannot back out half way and has to be all or nothing */
+  const loopFits=(w,half)=>{
+    for(let k=0;k<w.nPts;k++){
+      const q=k*4;
+      if(!C.clearAt(w.pts[q],w.pts[q+1],-w.pts[q+3],w.pts[q+2],half))return false;
+    }
+    return true;
+  };
+  const markAll=(w,rad)=>{
+    for(let k=0;k<w.nPts;k++){
+      const q=k*4;
+      C.span(w.pts[q],w.pts[q+1],-w.pts[q+3],w.pts[q+2],rad);
+    }
+  };
+
+  /* A BOX HAS TO HAVE ROOM TO EXIST — the same rule as the loom's, and the
+     same answer: shorten the run until one fits rather than let it stop at
+     nothing, and fall back to a bulkhead grommet only when it cannot. */
+  const place=(RT,end)=>{
+    for(let t=0;t<16;t++){
+      const bx=L.boxOf(RT,end);
+      if(CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw)){
+        CB.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+        C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+        BOXES.push(bx);
+        return true;
+      }
+      const cut=Math.max(2,Math.round(RT.nPts*0.05));
+      if(RT.nPts-cut<28)return false;
+      if(end)RT.nPts-=cut;
+      else{RT.pts=RT.pts.subarray(cut*4);RT.nPts-=cut;}
+      RT.len=RT.nPts*stepM;
+    }
+    return false;
+  };
 
   /* one bundle, given what it is and where it starts */
   function lay(B,z0,start,skip){
@@ -273,26 +441,51 @@ function routes(g,p){
     const seed=start?((rng()*1e9)|0):B.seed;
     const wrng=mulberry32(seed^0x2545f491);
     const len=start?Math.max(g.Wm,g.Hm)*rr(0.8,2.0):B.len;
-    const w=walk(g,{
+    const rad=B.half+Math.max(C.cell*0.6,B.r*0.6);
+    let w=null,closed=false;
+
+    /* ---- a circuit first, where one is wanted and one will fit ---- */
+    if(!start&&B.wantLoop){
+      for(let a=0;a<10&&!w;a++){
+        const cand=closedLoop(g,{
+          grid:grid,bendR:bendR,stepM:stepM,
+          primary:(a+(B.seed&1))&1,m:1,
+          x0:B.x,y0:B.y,rng:mulberry32((B.seed^0x85ebca6b)+a*7919)
+        });
+        if(cand&&loopFits(cand,B.half)){w=cand;closed=true;}
+      }
+    }
+    if(!w)w=walk(g,{
       x:start?start.x:B.x, y:start?start.y:B.y,
       head:start?start.head:B.head0,
       firstCorner:!!(start&&start.corner),
       firstDir:start?start.dir:0,
       len:len,bendR:bendR,half:B.half,stepM:stepM,rng:wrng,
-      claims:C,rad:B.half+Math.max(C.cell*0.6,B.r*0.6),skip:skip|0,
+      claims:C,rad:rad,skip:skip|0,
       /* legs are whole multiples of the lattice, which is what makes two
          parallel runs line up rather than merely run parallel */
       legSteps:()=>legMin*(1+Math.floor(wrng()*4))
     });
     if(w.nPts<12)return null;
+    if(closed)markAll(w,rad);
+
+    /* WHERE IT IS ALLOWED TO STOP. A circuit has no ends. A branch comes out
+       of its parent, which is a breakout rather than a termination and needs
+       nothing drawn. Everything else ends in a box, or leaves the aperture
+       through the frame. */
+    const capA=closed?"none":(start?"none":"box");
+    const capB=closed?"none":(w.why==="out"?"gland":"box");
+    const dive=Math.min(0.05,w.nPts*stepM*0.20);
     const R={
       layer:B.layer,kind:B.kind,n:B.n,r:B.r,pitch:B.pitch,half:B.half,
       mat:B.mat,z0:z0,seed:seed,
       pts:w.pts,nPts:w.nPts,len:w.nPts*stepM,
+      closed:closed,capA:capA,capB:capB,
       /* the length it GOT: a run stopped early by something in its way is
          short, and a dive sized off what it asked for can be longer than the
          run, which sinks the whole thing */
-      tail:Math.min(0.05,w.nPts*stepM*0.20),
+      tailA:capA==="gland"?dive:0,
+      tailB:capB==="gland"?dive:0,
       ident:B.ident,sleeve:B.sleeve,tint:B.tint,
       /* THE BRACING. Intermittent by definition — a comb every so often, not a
          rail the whole way — and its half-length is what makes it read as a
@@ -304,15 +497,42 @@ function routes(g,p){
       }:null,
       bendR:bendR
     };
+    if(!closed){
+      for(let e=0;e<2;e++){
+        if((e?R.capB:R.capA)!=="box")continue;
+        if(place(R,e))continue;
+        if(e){R.capB="gland";R.tailB=Math.min(0.05,R.len*0.20);}
+        else {R.capA="gland";R.tailA=Math.min(0.05,R.len*0.20);}
+      }
+      if(R.nPts*stepM<Math.max(0.05,R.half*4))return null;
+    }
     out.push(R);
     return R;
   }
 
   for(let Ly=0;Ly<layers;Ly++){
     C.clear();
-    for(let i=0;i<spec.length;i++){
+    /* a junction box is bolted to the plate and is in the way of every layer
+       it stands taller than, not only its own */
+    for(let k=0;k<BOXES.length;k++){
+      const bx=BOXES[k];
+      if(bx.top>ST.z[Ly])C.rect(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw);
+    }
+    /* the deeper the layer the more likely its runs pass through rather than
+       stop: the bottom of a tray carries the trunks and the top carries what
+       goes to equipment */
+    for(let i=0;i<spec.length;i++)if(spec[i].layer===Ly)
+      spec[i].wantLoop=rngW()<endless*(layers>1?1-0.5*(Ly/(layers-1)):1);
+    /* CIRCUITS GO DOWN FIRST. A closed circuit is rigid and either fits where
+       it is drawn or is not a circuit at all; an open run corners its way out
+       of trouble. Laying the open ones first fills the tray with obstacles no
+       circuit can get past. */
+    const order=[];
+    for(let i=0;i<spec.length;i++)if(spec[i].layer===Ly)order.push(i);
+    order.sort((a,b)=>(spec[b].wantLoop?1:0)-(spec[a].wantLoop?1:0));
+    for(let oi=0;oi<order.length;oi++){
+      const i=order[oi];
       const B=spec[i];
-      if(B.layer!==Ly)continue;
       const rad=B.half+Math.max(C.cell*0.6,B.r*0.6);
 
       /* a start on the lattice that is not already somebody else's */
@@ -476,6 +696,7 @@ Forge.register({
     {title:"The run",open:true,rows:[
       {id:"cavityMm",label:"Cavity depth",unit:"mm",min:20,max:260,step:5,value:90},
       {id:"layers",label:"Layers",min:1,max:6,step:1,value:3},
+      {id:"endless",label:"Runs with no ends",min:0,max:1,step:0.05,value:0.7,need:"tile"},
       {id:"bundles",label:"Runs per layer",min:1,max:10,step:1,value:4},
       {id:"groupMax",label:"Conduits per group",min:1,max:8,step:1,value:6},
       {id:"gaugeMinMm",label:"Finest gauge",unit:"mm",min:3,max:40,step:1,value:8},
@@ -593,6 +814,19 @@ Forge.register({
   readme:function(p,info){
     const g=geom(p);
     const bay=isBay(p);
+    /* what the build actually turned out to be, rather than what was asked
+       for: whether a run closed and whether its box had room are decided while
+       it is being laid, so this is the only place the numbers exist */
+    const c=info.census;
+    const ends=c?[
+"",
+"HOW IT TURNED OUT",
+c.closed+" of "+c.bundles+" runs have no ends at all — they leave one edge of the",
+"tile, arrive at the other and come back to where they started, so there is",
+"nothing to terminate. The rest do end, and end at something: "+c.boxes+" junction",
+"box"+(c.boxes===1?"":"es")+" bolted to the backplane and entered square through a gland, and "+c.glands,
+"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air."
+]:[];
     return [
 "TEXTURE FORGE — conduit raceway",
 "",
@@ -644,7 +878,7 @@ bay?"opacity.png    The bay silhouette.":null,
 "all read at one brightness.",
 "",
 "Seed "+(p.seed|0)+"."
-    ].filter(x=>x!==null).join("\n");
+    ].concat(ends).filter(x=>x!==null).join("\n");
   }
 });
 

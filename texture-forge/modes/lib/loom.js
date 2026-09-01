@@ -247,6 +247,38 @@ function claims(g,cellM){
       }
       return true;
     },
+    /* is a rectangle of ground free? Used before a box is put down, against a
+       grid that holds nothing but boxes: a run may pass OVER an enclosure and
+       often does, but two enclosures cannot stand in the same place. */
+    rectClear:function(cx,cy,tx,ty,hl,hw){
+      const nx=-ty,ny=tx;
+      const st=cell*0.6;
+      const nA=Math.max(1,Math.ceil(hl/st)),nB=Math.max(1,Math.ceil(hw/st));
+      for(let ka=-nA;ka<=nA;ka++){
+        const a=ka*hl/nA;
+        for(let kb=-nB;kb<=nB;kb++){
+          const b=kb*hw/nB;
+          const i=at(Math.floor((cx+tx*a+nx*b)/cw),Math.floor((cy+ty*a+ny*b)/ch));
+          if(i>=0&&A[i])return false;
+        }
+      }
+      return true;
+    },
+    /* a rectangle of ground, for something that is not a run — a junction box
+       standing on the plate is taken ground for every layer it is taller than */
+    rect:function(cx,cy,tx,ty,hl,hw){
+      const nx=-ty,ny=tx;
+      const st=cell*0.6;
+      const nA=Math.max(1,Math.ceil(hl/st)),nB=Math.max(1,Math.ceil(hw/st));
+      for(let ka=-nA;ka<=nA;ka++){
+        const a=ka*hl/nA;
+        for(let kb=-nB;kb<=nB;kb++){
+          const b=kb*hw/nB;
+          const i=at(Math.floor((cx+tx*a+nx*b)/cw),Math.floor((cy+ty*a+ny*b)/ch));
+          if(i>=0)A[i]=1;
+        }
+      }
+    },
     span:function(x,y,nx,ny,rad){
       const st=Math.min(cw,ch)*0.6;
       const nS=Math.max(1,Math.ceil(rad/st));
@@ -509,17 +541,37 @@ function stamp(BUF,ROUTES,g,p){
     /* hoisted out of two nested loops: these are plain-object property loads,
        and the inner one runs a few million times a build */
     const Rr=R.r,Rz0=R.z0,Rn=R.n,Rpitch=R.pitch,Rhalf=R.half,Rseed=R.seed;
-    const detR=Rr*det,collarD=Rr*0.11,helixA=1/(Rr*4.2);
-    const fitPitch=F?F.pitch:0,fitHalf=F?F.half:0,fitProud=F?F.proud:0;
+    /* A RUN WITH NO ENDS HAS TO CLOSE ON ITSELF IN EVERY RESPECT, not just in
+       position. Corrugation rings, a braid's helix, jointing collars, clamps
+       and ties all repeat at a pitch in metres, and a pitch that does not
+       divide the loop's length leaves a short measure at the join — one
+       corrugation half the width of the rest, one clamp too close to the next
+       — which is the single thing that gives an endless run away. So every
+       repeat on a closed route is snapped to a whole number over its length. */
+    const len0=R.len;
+    const snapL=R.closed?(v=>len0/Math.max(1,Math.round(len0/v))):(v=>v);
+    const corrR=snapL(corrM);
+    const collarM=snapL(0.19);
+    const ribbonM=snapL(0.085);
+    const detR=Rr*det,collarD=Rr*0.11;
+    const helixA=R.closed
+      ?Math.max(1,Math.round(len0/(Rr*4.2)))/len0
+      :1/(Rr*4.2);
+    const fitPitch=F?snapL(F.pitch):0,fitHalf=F?F.half:0,fitProud=F?F.proud:0;
     const T=F&&F.tie?F.tie:null;
-    const tiePitch=T?T.pitch:0,tieHalf=T?T.half:0,tieProud=T?T.proud:0;
+    const tiePitch=T?snapL(T.pitch):0,tieHalf=T?T.half:0,tieProud=T?T.proud:0;
     /* A ROUTE HAS TO GO SOMEWHERE. Left to stop where its length runs out, a
        run ends in a flat disc in the middle of the bay, which reads as a pipe
        somebody sawed through. So the last few centimetres at each end sink
        below whatever is around them — through a hole in the structure, behind
        the layer underneath, out of the tile — and a collar marks where it
        goes, the way a bulkhead grommet does. */
-    const tailM=R.tail||0;
+    /* THE DIVE IS NOW PER END, because the two ends of a run are not the same
+       thing any more. One that leaves a bay through the frame dives, with a
+       grommet where it goes; one that stops inside the panel does not — it
+       ends in a junction box, which is stamped after every route. */
+    const tailA=R.tailA!==undefined?R.tailA:(R.tail||0);
+    const tailB=R.tailB!==undefined?R.tailB:(R.tail||0);
     const sinkD=Rr*2.6+Rz0;
     const len=R.len;
 
@@ -531,10 +583,8 @@ function stamp(BUF,ROUTES,g,p){
       const s=st*stepM;
 
       let sink=0;
-      if(tailM>0){
-        if(s<tailM)sink=1-s/tailM;
-        else if(s>len-tailM)sink=1-(len-s)/tailM;
-      }
+      if(tailA>0&&s<tailA)sink=1-s/tailA;
+      else if(tailB>0&&s>len-tailB)sink=1-(len-s)/tailB;
       const zNow=Rz0-sink*sink*sinkD;
 
       /* fourteen bits of it, so the whole tag fits one word: 16.3 m of run,
@@ -586,17 +636,17 @@ function stamp(BUF,ROUTES,g,p){
       /* ---- the along-the-route half of every finish, once per step ---- */
       let dStep=0,sA=0,cA=0,collar=0;
       if(det>0){
-        if(kind===1)dStep=Math.sin(s/corrM*TAU);
+        if(kind===1)dStep=Math.sin(s/corrR*TAU);
         else if(kind===2||kind===3){
           const A=s*helixA*TAU;
           sA=Math.sin(A);cA=Math.cos(A);
         }
         else if(kind===4)dStep=1;
-        else if(kind===5)dStep=(edgeDist(s,0.085)<0.006)?1.1:0;
+        else if(kind===5)dStep=(edgeDist(s,ribbonM)<0.006)?1.1:0;
       }
-      if(kind===0&&edgeDist(s,0.19)<Rr*0.55)collar=collarD;
+      if(kind===0&&edgeDist(s,collarM)<Rr*0.55)collar=collarD;
       /* the grommet the run disappears into */
-      if(tailM>0&&sink===0&&(s<tailM*1.5||s>len-tailM*1.5))collar=Rr*0.16;
+      if(sink===0&&((tailA>0&&s<tailA*1.5)||(tailB>0&&s>len-tailB*1.5)))collar=Rr*0.16;
 
       for(let c=0;c<Rn;c++){
         const off=(c-(Rn-1)*0.5)*Rpitch;
@@ -641,6 +691,146 @@ function stamp(BUF,ROUTES,g,p){
   }
 }
 
+
+/* ======================= WHERE A RUN IS ALLOWED TO STOP =======================
+   A conduit that stops in the middle of a panel is not a conduit. Nothing in an
+   airframe or a machine ends in mid-air: a run goes to something, and if it
+   does not go to something then it does not end at all — it carries on round
+   and comes back, which on a seamless tile is a run with no ends in it.
+
+   So there are exactly three ways a run may finish, and every route carries one
+   at each end:
+
+     "box"    a JUNCTION BOX. A cast enclosure bolted to the backplane, the
+              conduit entering square through a gland in one face and
+              terminating inside it. The box is the reason the run stops.
+     "gland"  it leaves the piece. Only a framed bay has anywhere to leave TO,
+              so this is the bulkhead grommet in the frame, and the run dives
+              away under a collar the way it always did.
+     "none"   there is no end. The route is closed and the polyline's last
+              point continues into its first.
+
+   THE BOX IS PLACED BACKWARDS OVER THE RUN, not beyond it. A run that stopped
+   because something was in the way has nothing but taken ground in front of it,
+   so a box centred on the tip would be standing on a neighbour. Centring it a
+   half-length BACK puts its far face exactly at the tip, covers the last
+   stretch of conduit, and needs no ground the run was not already occupying —
+   which is also what it looks like from the front: the cable goes into the box
+   and does not come out.
+
+   IT IS A PRISM FROM THE BACKPLANE UP, because that is how a box is mounted.
+   Standing it on the layer its conduit belongs to would leave it floating
+   several centimetres off the plate with nothing under it; a box on a deep
+   layer is simply a shallower box than one serving a run near the panel line. */
+function junctions(BUF,ROUTES,g){
+  for(let ri=0;ri<ROUTES.length&&ri<250;ri++){
+    const R=ROUTES[ri];
+    if(!R.pts||R.nPts<4)continue;
+    for(let e=0;e<2;e++){
+      if((e?R.capB:R.capA)!=="box")continue;
+      paintBox(BUF.HGT,BUF.TAG,boxOf(R,e),g);
+    }
+  }
+}
+
+/* the box's own dimensions and where it sits, from the route it terminates */
+function boxOf(R,end){
+  const K=KIND[R.kind];
+  const stepM=R.len/Math.max(1,R.nPts);
+  /* ALONG the run a box is shorter than it is wide: a cable entry box is
+     entered on its long face and is not a corridor. Across, it has to clear
+     the group it swallows and then some wall. Never more than a fifth of a
+     run either — a stub swallowed whole by its own box reads as a box with a
+     bump beside it rather than as a terminated run. */
+  const hw=R.half+Math.max(0.0035,R.r*0.5);
+  const hl=Math.min(Math.max(0.010,Math.min(hw*0.80,R.half*0.75)),R.len*0.20);
+  /* the index a half-length in from the end, which puts the far face on the tip */
+  const back=Math.max(1,Math.round(hl/stepM));
+  const idx=end?Math.max(0,R.nPts-1-back):Math.min(R.nPts-1,back);
+  const q=idx*4;
+  let tx=R.pts[q+2],ty=R.pts[q+3];
+  if(!end){tx=-tx;ty=-ty;}                    // the outward direction at that end
+  return {
+    x:R.pts[q],y:R.pts[q+1],tx:tx,ty:ty,
+    hl:hl,hw:hw,
+    /* the lid clears the crown of what goes into it, and no more: a box that
+       stands as tall as the panel line is a slab, not an enclosure */
+    top:R.z0+R.r*(K.hs+K.det)+Math.max(0.003,R.r*0.40),
+    z0:R.z0,
+    /* the gland: a collar round the bundle just outside the entry face */
+    gl:Math.min(hl*0.55,Math.max(0.004,R.r*1.5)),
+    gw:R.half*1.06,
+    gh:R.z0+R.r*K.hs*1.16,
+    r:R.r
+  };
+}
+
+function paintBox(HGT,TAG,B,g){
+  const TW=g.TW,TH=g.TH,pxM=g.pxM,mpp=g.mpp,bay=g.bay;
+  const nx=-B.ty,ny=B.tx;
+  /* THE FOOT IT IS BOLTED DOWN BY. An enclosure floating with nothing under it
+     is the same lie as a cable ending in mid-air; a flange a little wider than
+     the body, low down, is what says the thing is fixed to the plate. */
+  const foot=Math.min(B.hl,B.hw)*0.26;
+  const footH=Math.min(B.z0*0.75+mpp*0.6,B.top*0.32);
+  /* the outline in texels, wide enough for the flange and the gland both */
+  const reach=(B.hl+Math.max(B.gl,foot)+mpp*2)*pxM,across=(B.hw+foot+mpp*2)*pxM;
+  const cx=B.x*pxM,cy=B.y*pxM;
+  const rad=Math.ceil(Math.sqrt(reach*reach+across*across))+1;
+  const x0=Math.floor(cx-rad),x1=Math.ceil(cx+rad);
+  const y0=Math.floor(cy-rad),y1=Math.ceil(cy+rad);
+
+  const bev=Math.min(B.hl,B.hw)*0.10;
+  const inset=Math.min(B.hl,B.hw)*0.22;
+  const lidD=Math.max(mpp*0.9,B.top*0.030);     // the lid sits down in its rebate
+  const fr=inset*0.32;                          // a fastener
+  const fa=B.hl-inset*0.50,fb=B.hw-inset*0.50;
+
+  for(let gy=y0;gy<=y1;gy++){
+    for(let gx=x0;gx<=x1;gx++){
+      let sx=gx,sy=gy;
+      if(bay){if(sx<0||sx>=TW||sy<0||sy>=TH)continue;}
+      else{
+        while(sx<0)sx+=TW;while(sx>=TW)sx-=TW;
+        while(sy<0)sy+=TH;while(sy>=TH)sy-=TH;
+      }
+      /* into the box's own frame, in metres */
+      const dx=(gx+0.5)/pxM-B.x,dy=(gy+0.5)/pxM-B.y;
+      const a=dx*B.tx+dy*B.ty, b=dx*nx+dy*ny;
+      const i=(sy*TW+sx)|0;
+
+      if(a>=-B.hl-foot&&a<=B.hl+foot&&b>=-B.hw-foot&&b<=B.hw+foot&&
+         (a<-B.hl||a>B.hl||b<-B.hw||b>B.hw)){
+        if(footH>HGT[i]){HGT[i]=footH;TAG[i]=(253<<24);}
+      }
+      if(a>=-B.hl&&a<=B.hl&&b>=-B.hw&&b<=B.hw){
+        /* the body: a prism with a draft on its top edge, so the silhouette is
+           crisp but the crown is not a knife edge */
+        const edge=Math.min(Math.min(B.hl-Math.abs(a),B.hw-Math.abs(b)),bev);
+        let h=B.top-(1-edge/bev)*B.top*0.045;
+        let part=0;
+        if(Math.abs(a)<B.hl-inset&&Math.abs(b)<B.hw-inset){h=B.top-lidD;part=1;}
+        else{
+          /* four screws holding the lid down, one near each corner */
+          const da=Math.abs(Math.abs(a)-fa),db=Math.abs(Math.abs(b)-fb);
+          const dd=Math.sqrt(da*da+db*db);
+          if(dd<fr){h-=fr*0.55*Math.sqrt(Math.max(0,1-(dd/fr)*(dd/fr)));part=3;}
+        }
+        if(h>HGT[i]){HGT[i]=h;TAG[i]=(253<<24)|(part<<22);}
+      }else if(a<-B.hl&&a>=-B.hl-B.gl&&b>=-B.gw&&b<=B.gw){
+        /* THE GLAND. Without it the conduit disappears into a flat wall, which
+           is the same lie as ending in mid-air one step further back — a cable
+           entering an enclosure goes through a fitting, and the fitting is the
+           thing that says the hole is sealed and the cable is held. */
+        const t=Math.min(1,(a+B.hl+B.gl)/B.gl);
+        const un=Math.min(1,Math.abs(b)/B.gw);
+        const h=B.gh*(0.55+0.45*Math.sqrt(Math.max(0,1-un*un)))+
+                B.gh*0.10*Math.sin(t*Math.PI);
+        if(h>HGT[i]){HGT[i]=h;TAG[i]=(253<<24)|(2<<22);}
+      }
+    }
+  }
+}
 
 /* ============================ the bay frame ============================
    The opening this is all seen through: a lip standing proud of the skin, a
@@ -728,6 +918,24 @@ function build(p,io,spec){
   const BUF={HGT:HGT,TAG:TAG,ALP:ALP};
 
   const R=spec.routes(g,P);
+  /* WHAT THE LOOM TURNED OUT TO BE, counted once and carried with the build.
+     A route's ends are decided while it is being laid — whether a loop closed,
+     whether a box had room — so nothing outside can work it out from the
+     parameters, and the exported readme is the right place for it: what is in
+     the picture is part of what the picture is. */
+  const census={bundles:R.length,closed:0,boxes:0,glands:0,tees:0};
+  for(let i=0;i<R.length;i++){
+    if(R[i].closed){census.closed++;continue;}
+    for(let e=0;e<2;e++){
+      const c=e?R[i].capB:R[i].capA;
+      /* a "none" on a run that is not closed is a BREAKOUT: the end where a
+         branch leaves its parent, which is a junction rather than a
+         termination and needs nothing standing at it */
+      if(c==="box")census.boxes++;
+      else if(c==="gland")census.glands++;
+      else census.tees++;
+    }
+  }
   const cav=Math.max(0.01,(+P.cavityMm||95)/1000);
   let hMin=0,hMax=1;
 
@@ -735,6 +943,10 @@ function build(p,io,spec){
     backplane(HGT,g,P,N);
     io.progress(0.16);
     stamp(BUF,R,g,P);
+    /* after every route, so a box may stand over a neighbour of its own layer
+       — which is what a box does — while a run passing higher still wins the
+       height test and crosses over it */
+    junctions(BUF,R,g);
     io.progress(0.44);
     if(bay)frame(BUF,g,P,N);
     io.progress(0.50);
@@ -752,6 +964,16 @@ function build(p,io,spec){
     const py=q=>Math.max(1,Math.round(q*g.Hm/g.Wm));
     const lamps=clamp(+P.lamps,0,1);
     const cLamp=hex2rgb(P.cLamp||"#49ff9c");
+    /* the two things that repeat along a run in COLOUR rather than in height —
+       ident bands and lamps — close with a closed run for the same reason the
+       corrugations do, and the pitch is per route, so it is worked out once
+       here rather than divided out a few million times below */
+    const BANDP=new Float64Array(R.length),LAMPP=new Float64Array(R.length);
+    for(let k=0;k<R.length;k++){
+      const L2=R[k].len||1;
+      BANDP[k]=R[k].closed?L2/Math.max(1,Math.round(L2/0.22)):0.22;
+      LAMPP[k]=R[k].closed?L2/Math.max(1,Math.round(L2/0.31)):0.31;
+    }
 
     for(let y=0;y<TH;y++){
       for(let x=0;x<TW;x++){
@@ -776,6 +998,21 @@ function build(p,io,spec){
           r=cFrame[0];gg=cFrame[1];b=cFrame[2];rg=0.42;met=0.85;
           const n=fbm2(u,v,64,py(64),2,seed+11);
           r*=0.9+n*0.2;gg*=0.9+n*0.2;b*=0.9+n*0.2;
+        }else if(own===253){
+          /* A JUNCTION BOX. Cast and painted rather than bare: an enclosure is
+             a different object from the conduit going into it and has to read
+             as one, or the run appears to swell and stop. The lid is the same
+             casting a shade lighter for sitting proud in the light, the screws
+             are steel, and the gland is machined and brighter than either. */
+          const part=fit;
+          if(part===3){r=178;gg=180;b=184;rg=0.30;met=0.95;}
+          else if(part===2){r=150;gg=146;b=138;rg=0.34;met=0.92;}
+          else{
+            const lid=part===1?1.10:1.0;
+            r=96*lid;gg=100*lid;b=106*lid;rg=0.55;met=0.62;
+          }
+          const n=fbm2(u,v,72,py(72),2,seed+29);
+          r*=0.92+n*0.16;gg*=0.92+n*0.16;b*=0.92+n*0.16;
         }else{
           const B=R[own],M=MAT[B.mat],K=KIND[B.kind];
           const acr=(((tag>>>14)&255)-128)/127,alg=(tag&16383)/1000;
@@ -809,7 +1046,7 @@ function build(p,io,spec){
             /* IDENT SLEEVING. Short bands of colour at intervals, which is how
                anybody finds one wire in forty a year later. */
             if(B.ident){
-              const bandOn=edgeDist(alg,0.22)<0.016?1:0;
+              const bandOn=edgeDist(alg,BANDP[own])<0.016?1:0;
               if(bandOn){
                 r=lerp(r,B.ident[0],0.88);gg=lerp(gg,B.ident[1],0.88);
                 b=lerp(b,B.ident[2],0.88);
@@ -831,9 +1068,9 @@ function build(p,io,spec){
 
           /* a lamp on a junction: rare, and only ever on the top layer */
           if(lamps>0&&B.layer>=1&&fit===0){
-            const cell=Math.floor(alg/0.31);
+            const lp=LAMPP[own],cell=Math.floor(alg/lp);
             if(hashi(own*7919+cell,3331)/4294967295<lamps*0.22){
-              const d=Math.abs(edgeDist(alg,0.31));
+              const d=Math.abs(edgeDist(alg,lp));
               const k2=(1-smoothstep(0,B.r*0.75,d))*(1-smoothstep(0.35,0.9,Math.abs(acr)));
               if(k2>0.02){
                 emi=k2;
@@ -975,7 +1212,7 @@ function build(p,io,spec){
     }
     io.progress(1);
     io.done({A:A,RGH:RGH,MET:MET,AO:AOc,NRM:NRM,HGT:HGT,ALP:ALP,EMI:EMI,
-             hMin:hMin,hMax:hMax});
+             hMin:hMin,hMax:hMax,census:census});
   }
 
   io.progress(0.02);
@@ -985,7 +1222,7 @@ function build(p,io,spec){
 window.ForgeLoom={
   MAT:MAT,MATBY:MATBY,KIND:KIND,IDENT:IDENT,
   isBay:isBay,geom:geom,edgeDist:edgeDist,n1:n1,fbm1:fbm1,
-  claims:claims,strata:strata,standing:standing,
+  claims:claims,strata:strata,standing:standing,boxOf:boxOf,
   /* the spacing every router must resample its polyline at */
   stepM:function(g){return g.mpp*0.8;},
   build:build

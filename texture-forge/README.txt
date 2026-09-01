@@ -400,6 +400,13 @@ Greeble — machined surface clutter
   capacity; adding layers adds conduit rather than thinning what is there over
   more planes.
 
+  A RUN THAT STOPS GOES INTO A JUNCTION BOX. Not a capped stub and not nothing:
+  a rectangular enclosure with a recessed lid, squared to the run entering it
+  and long enough to swallow the end of it. It is the one fitting that is not
+  optional — couplings and elbows come and go with the fittings slider, but a
+  dead end always gets its box, because the thing it replaces is a conduit
+  ending in mid-air.
+
   This one is the opposite of the hull mode next door: nearly all of its
   character is in HEIGHT, and the colour map is mostly dirt. Blocks stand tens
   of millimetres proud before the tiers stack on top of them, which is more
@@ -578,6 +585,42 @@ Conduit — the loom behind an access panel
   is scaled until it fits, and the readout says by how much: that is the honest
   answer to five layers in sixty millimetres.
 
+  NOTHING ENDS IN MID-AIR. A conduit that stops in the middle of a panel is not
+  a conduit; nothing in an airframe ends in nothing. So there are exactly three
+  ways a run may finish and every route carries one at each end.
+
+  A run may have NO ENDS. It is constructed as a closed curve with a whole
+  number of tiles of winding — P(t) = t·D + Σ A sin(2πkt) + B cos(2πkt), where D
+  is the winding — so it leaves one edge, arrives at the other and comes back to
+  where it started, exactly, by arithmetic rather than by tolerance. Walking a
+  heading and hoping to arrive home does not converge, and steering it home over
+  the last stretch leaves a kink at the join that nothing hides. The only thing
+  left to control is the shape, and that is the bend clamp: curvature comes
+  straight off the same derivatives, so the harmonics are scaled back until the
+  tightest point on the loop is inside the minimum radius. Everything that
+  REPEATS along such a run is snapped to a whole number over its length too —
+  corrugations, the braid helix, jointing collars, clamps, ties, ident bands,
+  lamps — because a pitch that does not divide the loop leaves one short measure
+  at the join, which is the single thing that gives an endless run away.
+
+  Or it terminates in a JUNCTION BOX: a cast enclosure with a lid, four screws
+  and a mounting flange, bolted to the backplane, the conduit entering square
+  through a gland and stopping inside. The box is placed BACKWARDS over the run
+  rather than beyond it — a run that stopped because something was in the way
+  has nothing but taken ground in front of it — so its far face lands on the tip
+  and it needs no ground the run was not already occupying. A box has to have
+  room to exist: where one will not fit, the run is SHORTENED until it does.
+
+  Or, in a framed bay only, it leaves through the FRAME, which is a bulkhead
+  grommet and a real penetration rather than a fade. That is also the last
+  resort on a seamless tile when a run can be shortened no further and still no
+  box will fit.
+
+  Two enclosures may not stand in the same place, so the boxes keep a claims
+  grid of their own that is never cleared; and a box is bolted to the plate, so
+  it is in the way of every layer it stands taller than, not only the one whose
+  run it terminates. A run may still pass OVER one, which is what runs do.
+
   AND NOTHING IN A LAYER PASSES THROUGH ANYTHING ELSE IN IT. Two bundles at one
   height that cross do not read as one over the other — the stamp Z-tests, so
   there is nothing to separate them and the join comes out a lumpy mass. So each
@@ -646,6 +689,18 @@ Raceway — conduit dressed to a lattice, braced at intervals
   a fillet, so its conduits leave the group parallel to the ones staying behind
   and peel away through the bend. Started square instead, it would be a pipe
   butted against another pipe.
+
+  AND IT DOES NOT END EITHER. Same three terminations as the loom, and the
+  endless one is built differently because a raceway is not a curve, it is a
+  CIRCUIT: a cyclic list of axis-aligned moves whose displacement is a whole
+  number of tiles across and exactly nothing down. It is constructed
+  geometrically — the vertices computed, the quarter circles drawn as quarter
+  circles — because the open walk's integrated corners are a hundredth of a
+  millimetre out apiece, which does not matter when a run has ends and shows as
+  a step at the wrap when it does not. Every leg has to be longer than two
+  fillets or consecutive corners eat each other, and on a small tile with a wide
+  group the answer is often no corners at all — which is not a failure. A
+  straight run across a torus is as endless as anything.
 
   KEEPING OUT OF EACH OTHER. Same rule as the loom next door — nothing in a
   layer passes through anything else in it — but a raceway cannot swerve, since
@@ -1176,7 +1231,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the nine things that are easy to break silently:
+It also covers the ten things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -1212,6 +1267,25 @@ It also covers the nine things that are easy to break silently:
   greeble   a second conduit layer is a second HEIGHT rather than a painting
             order, and it carries conduit standing above anything a flat build
             can reach
+  ends      nothing is left ending in mid-air. THE COUNT COMES OFF THE BUILD
+            rather than off the picture: whether a loop closed and whether a
+            box had room are decided while a run is being laid, and no amount
+            of measuring the height field afterwards recovers it — a box's area
+            depends on the bundle it swallows and on how long the run got, so
+            an area is as much a measure of what size things came out as of how
+            many there are. So the build carries a census (which also goes into
+            the exported readme, because what is in the picture is part of what
+            the picture is), and the check asserts the invariant on it: every
+            end of every open run is a box, a bulkhead grommet or a breakout
+            where a branch leaves its parent, and almost all of them are boxes.
+            Then that the boxes are real objects and not just a flag —
+            A JUNCTION BOX IS THE ONLY FLAT THING IN THE PICTURE, since every
+            other surface a loom has is curved and a conduit's crown falls a
+            thirtieth of a millimetre a texel, so counting dead-flat plateaux
+            counts lids. Greeble is checked differently: with its fittings
+            slider at zero there are no couplings and no elbows, so anything
+            standing above a bare pipe's crown is a box — and there has to be
+            one, because a dead end is the one fitting that is not optional
   strata    the two guarantees the loom library exists for, on both routing
             models: that a layer's floor clears the crown of the layer under
             it, and that nothing in a layer passes through anything else in it.

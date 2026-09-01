@@ -398,6 +398,16 @@ Both take a mode's own decisions as input rather than making them: `conduit`
 dodges by leaning on its heading, `raceway` cannot and turns a corner early
 instead.
 
+A third piece of the same contract is `capA` / `capB` on every route, which say
+what is standing at each end — `"box"`, `"gland"` or `"none"` — and `closed`,
+which says the polyline's last point runs into its first. The library stamps the
+boxes and closes every repeat on a closed run; `ForgeLoom.boxOf(route, end)`
+hands back the box a mode is about to ask for, so the mode can check it has room
+before committing to it. The rule this exists to enforce is worth stating
+plainly, because it is a modelling rule rather than a rendering one: **nothing
+may end in mid-air.** A run either has no ends, or it ends at something that
+could be bolted there.
+
 The cost of sharing is that **parameter names become an interface**. The library
 reads `cavityMm`, `ribMm`, `oil`, `aoStr` and a dozen more straight off the
 mode's parameters, so both modes declare controls with those ids. That is
