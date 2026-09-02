@@ -822,6 +822,7 @@ function renderView(){
      and are out of the way the rest of the time */
   const bb=el("bakebar");
   if(bb)bb.hidden=(view!=="unlit");
+  townBarSync();
   if(box)stageSync();
   else if(lit)refreshGL();
   else drawFlat();
@@ -1266,25 +1267,45 @@ const STRUCTURES=Forge.structures,STRUCT_BY=Forge.structById;
    `piece`, because naming which side of the thing this step draws is the one
    job a step exists to do. */
 const WIZ_NEVER={size:1,face:1,piece:1};
-let wiz=null;                                    // {s, i, vals, reached}
+let wiz=null;                                    // {s, i, snap, vals, reached}
 
 function wizSteps(){return wiz?wiz.s.steps:[];}
 
-/* everything the steps so far have settled on, ready for the next one to take
-   what it recognises */
-function wizRecord(){
-  if(!wiz)return;
-  wiz.vals=wizVals();
+/* WHERE ONE THING ENDS AND THE NEXT BEGINS. A structure used to be one
+   building, and one building's faces should all inherit from its front: change
+   the cladding on the front and the side follows, which is the whole point.
+
+   A TOWN IS NOT ONE BUILDING. Its steps are a house, then a diner, then a
+   works, then the road — and a diner that opened on the house's clapboard and
+   the house's storey height would be a house with a neon sign on it. So a step
+   may declare itself `fresh`: nothing is carried into it, it opens on whatever
+   its own mode is holding, and it starts a new pool for the steps after it.
+   Within a group nothing changes; between groups nothing carries. */
+function wizGroupStart(i){
+  const steps=wizSteps();
+  for(let k=Math.min(i,steps.length-1);k>=0;k--)if(steps[k].fresh)return k;
+  return 0;
 }
 
-/* Everything the steps so far have settled on, PLUS whatever the step on screen
-   has moved since. wizRecord only writes on the way OUT of a step, which is
-   soon enough for the step after it to inherit and far too late for a building
-   that has to change shape while the slider is still moving. */
-function wizVals(){
+/* What the steps of THIS group settled on before step i. Built from per-step
+   snapshots rather than from a running total, because a running total cannot
+   be walked backwards: stepping back from the diner to the house roof used to
+   hand the roof the diner's numbers. */
+function wizPool(i){
   const out={};
   if(!wiz)return out;
-  for(const k in wiz.vals)out[k]=wiz.vals[k];
+  for(let k=wizGroupStart(i);k<i;k++){
+    const sn=wiz.snap[k];
+    if(sn)for(const id in sn)out[id]=sn[id];
+  }
+  return out;
+}
+
+/* the live values of whichever step is on screen, which is what a snapshot is
+   taken of */
+function wizLive(){
+  const out={};
+  if(!wiz)return out;
   const st=STATE[wiz.s.steps[wiz.i].mode];
   if(st&&st.params){
     readParams(st);
@@ -1293,6 +1314,24 @@ function wizVals(){
       out[d.id]=st.P[d.id];
     }
   }
+  return out;
+}
+
+/* everything this step's group has settled on, ready for the next one to take
+   what it recognises */
+function wizRecord(){
+  if(!wiz)return;
+  wiz.snap[wiz.i]=wizLive();
+  wiz.vals=wizPool(wiz.i);
+}
+
+/* Everything the group settled on, PLUS whatever the step on screen has moved
+   since. Snapshots are only written on the way OUT of a step, which is soon
+   enough for the step after it to inherit and far too late for a building that
+   has to change shape while the slider is still moving. */
+function wizVals(){
+  const out=wizPool(wiz?wiz.i:0),live=wizLive();
+  for(const k in live)out[k]=live[k];
   return out;
 }
 
@@ -1371,16 +1410,172 @@ function stageAccent(){
 
 /* The same call, with the same plans, that writes model.gltf when the wizard
    packs the archive. Not a second idea of what the building is. */
-function stageScene(){
-  if(!wiz||!stageOK||!window.ForgeModel)return;
-  const steps=wizSteps(),vals=wizVals(),by={};
-  for(const step of steps){
-    const st=STATE[step.mode];
-    const P=wizProjected(step,vals);
-    if(!st||!P)continue;
+
+/* every step's plan, worked out without visiting it. The step on screen
+   contributes what it is showing right now; every other step contributes what
+   its own group settled on, which is what keeps a town's diner off the house's
+   numbers. */
+function stagePlans(){
+  const steps=wizSteps(),by={};
+  for(let k=0;k<steps.length;k++){
+    const step=steps[k],st=STATE[step.mode];
+    if(!st)continue;
+    const P=wizProjected(step,(k===wiz.i)?wizVals():wizPool(k));
+    if(!P)continue;
     const plan=ForgeModel.planOf(st.mode,P);
     by[step.id]={plan:plan,material:{name:step.id,maps:{},cutout:plan.cutout}};
   }
+  return by;
+}
+
+/* ---------------------------------------------------------------------------
+   THE TOWN
+
+   Same idea as one building's massing and the same plans behind it, only the
+   thing being assembled is a street grid with a few hundred buildings on it.
+   The layout is pure arithmetic off the plans — how wide a house is, how deep,
+   how wide the road tile covers — so the town reorganises itself while a
+   slider is still moving, with nothing forged at all, exactly as one
+   building's box does.
+   --------------------------------------------------------------------------- */
+const TOWN={seed:1963,cols:5,rows:4,blockW:70,blockD:55,jitter:0.35,
+            setback:5,gap:2.5,density:0.85,industry:0.6,
+            mix:{house:1,diner:1,factory:1}};
+let townL=null;                        // the layout the stage is showing
+
+/* the kit, as {type:{front,side,back,roof}} of plan-and-material objects, plus
+   the real footprint of each type for the layout to fit its lots to */
+function townKit(by){
+  const K=wiz&&wiz.s.town&&wiz.s.town.kit;
+  if(!K)return null;
+  const kit={},sizes={};
+  for(const type in K){
+    const m=K[type];
+    if(type==="street"){
+      const run=by[m.run],inter=by[m.inter];
+      if(run)kit.street={run:run,inter:inter||run};
+      continue;
+    }
+    const front=by[m.front];
+    if(!front)continue;
+    const side=by[m.side]||front,back=by[m.back]||front,roof=by[m.roof]||null;
+    if(TOWN.mix[type]===0)continue;              // switched off, so not in the kit
+    kit[type]={front:front,side:side,back:back,roof:roof};
+    sizes[type]={w:front.plan.w,d:side.plan.w};
+  }
+  return {kit:kit,sizes:sizes};
+}
+
+function townLayout(by){
+  const K=townKit(by);
+  if(!K||!K.kit.house&&!K.kit.diner&&!K.kit.factory)return null;
+  /* THE ROAD'S OWN TILE IS THE CORRIDOR WIDTH. The street texture spans a
+     whole cross-section — lanes, shoulders, kerbs, footways — so a town that
+     picked its own road width would be stretching the kerbs to reach it. */
+  const road=K.kit.street&&K.kit.street.run;
+  const roadM=(road&&(road.plan.tile||road.plan.w))||14;
+  const P={};
+  for(const k in TOWN)P[k]=TOWN[k];
+  P.roadM=roadM;
+  const L=ForgeTown.layout(P,K.sizes);
+  L.kit=K.kit;L.sizes=K.sizes;
+  townApplyEdits(L);
+  ForgeTown.settle(L);
+  return L;
+}
+
+/* ---------------------------------------------------------------------------
+   DESIGN MODE
+
+   The generator's answer is a starting point, not a verdict. Click a building
+   and it lights up on its own; then swap what it is, turn it, slide it along
+   its frontage or take it away, and the town keeps the rest of itself exactly
+   where it was.
+
+   EDITS ARE KEPT BY LOT, NOT BAKED IN. Regenerating from the same numbers
+   lands the same lots in the same order, so an edit survives a rebuild of the
+   scene, a re-forged texture and a change of camera. It does not survive a
+   change to the GRID — different block sizes are different lots and there is
+   nothing honest to map an edit onto — so those clear the edits and say so.
+   --------------------------------------------------------------------------- */
+let townEdits={},townSel=-1;
+
+function townApplyEdits(L){
+  const drop=[];
+  for(const lot of L.lots){
+    const e=townEdits[lot.i];
+    if(!e)continue;
+    if(e.gone){drop.push(lot.i);continue;}
+    if(e.type&&e.type!==lot.type)ForgeTown.retype(lot,e.type,L.sizes);
+    if(e.rot!==undefined)lot.rot=e.rot;
+    if(e.along!==undefined)lot.along=e.along;
+    if(e.variant!==undefined)lot.variant=e.variant;
+  }
+  if(drop.length){
+    const gone={};
+    for(const i of drop)gone[i]=1;
+    /* the index a lot answers to is the index it was BORN with, because that is
+       what an edit is filed under — so removing one must not renumber the rest */
+    L.lots=L.lots.filter(x=>!gone[x.i]);
+  }
+}
+
+/* the scene, with whatever is selected split out so it can be lit on its own */
+function townDraw(){
+  if(!wiz||!wiz.s.town||!townL||!stageOK)return;
+  ForgeStage.setScene(ForgeModel.townScene(wiz.s.id,townL,townL.kit,{select:townSel}));
+}
+function townLotAt(i){
+  if(!townL)return null;
+  for(const lot of townL.lots)if(lot.i===i)return lot;
+  return null;
+}
+/* a change to the town's own numbers: the grid moves, so the edits cannot
+   follow and the scene is built from scratch */
+function townRegrid(){
+  townEdits={};townSel=-1;
+  stageSig="";townL=null;
+  stageSync();townBarSync();
+}
+/* a change to ONE building: the grid is untouched, so only the scene is */
+function townEdit(fn){
+  const lot=townLotAt(townSel);
+  if(!lot)return;
+  const e=townEdits[lot.i]||(townEdits[lot.i]={});
+  fn(lot,e);
+  townApplyEdits(townL);
+  ForgeTown.settle(townL);
+  townDraw();
+  ForgeStage.draw();
+  townBarSync();
+}
+
+function stageScene(){
+  if(!wiz||!stageOK||!window.ForgeModel)return;
+  const by=stagePlans();
+  const steps=wizSteps();
+
+  if(wiz.s.town&&window.ForgeTown){
+    const sig=JSON.stringify([TOWN,steps.map(x=>by[x.id]&&by[x.id].plan)]);
+    if(sig===stageSig)return;
+    stageSig=sig;
+    try{
+      const L=townLayout(by);
+      const first=!townL;
+      townL=L;
+      if(L){
+        if(townSel>=0&&!townLotAt(townSel))townSel=-1;
+        townDraw();
+        /* a town is looked DOWN at. At the street-view pitch a building is
+           right and four hundred metres of grid is edge-on slots between
+           roofs, so the first sight of it is from the air; after that the
+           pitch is whatever the last drag left. */
+        if(first&&ForgeStage.look)ForgeStage.look(-0.62,0.62);
+      }
+    }catch(e){console.warn("ForgeStage: "+(e&&e.message||e));}
+    return;
+  }
+
   const order=steps.map(x=>x.id);
   const at=i=>(order[i]&&order[i]!=="roof")?by[order[i]]:null;
   const front=by.front||at(0);
@@ -1396,9 +1591,153 @@ function stageScene(){
   }catch(e){console.warn("ForgeStage: "+(e&&e.message||e));}
 }
 
+/* ---------------------------------------------------------------------------
+   THE TOWN BAR
+
+   A street grid is not a texture, so its numbers do not belong in a mode's
+   panel — they belong next to the picture of the town, where you can see what
+   they do. Built in script because it is the same row whatever is loaded, and
+   shown only in the 3D view of a structure that declares itself a town.
+   --------------------------------------------------------------------------- */
+const TOWN_ROWS=[
+  {id:"cols",   label:"Across", min:1,max:10,step:1,grid:true},
+  {id:"rows",   label:"Deep",   min:1,max:10,step:1,grid:true},
+  {id:"blockW", label:"Block",  min:24,max:160,step:2,unit:"m",grid:true},
+  {id:"blockD", label:"Depth",  min:24,max:160,step:2,unit:"m",grid:true},
+  {id:"jitter", label:"Ragged", min:0,max:1,step:0.05,grid:true},
+  {id:"density",label:"Built",  min:0,max:1,step:0.05,grid:true},
+  {id:"industry",label:"Works", min:0,max:1,step:0.05,grid:true}
+];
+let townBarBuilt=false;
+
+function townBar(){
+  const bar=el("townbar");
+  if(!bar||townBarBuilt)return;
+  townBarBuilt=true;
+  bar.appendChild(make("span","pallab","Town"));
+
+  const seed=document.createElement("label");
+  seed.innerHTML='<span>Seed</span>';
+  const sn=document.createElement("input");
+  sn.type="number";sn.id="town-seed";sn.step="1";sn.value=TOWN.seed;
+  sn.addEventListener("change",()=>{TOWN.seed=sn.value|0;townRegrid();});
+  seed.appendChild(sn);
+  bar.appendChild(seed);
+
+  const roll=make("button","tab","Re-roll");
+  roll.type="button";
+  roll.title="A different town off the same numbers";
+  roll.addEventListener("click",()=>{
+    TOWN.seed=(Math.random()*1e6)|0;
+    const n=el("town-seed");if(n)n.value=TOWN.seed;
+    townRegrid();
+  });
+  bar.appendChild(roll);
+
+  for(const r of TOWN_ROWS){
+    const lab=document.createElement("label");
+    lab.title=r.label;
+    lab.innerHTML="<span>"+r.label+"</span>";
+    const inp=document.createElement("input");
+    inp.type="range";inp.id="town-"+r.id;
+    inp.min=r.min;inp.max=r.max;inp.step=r.step;inp.value=TOWN[r.id];
+    const out=make("span","","");
+    out.id="town-"+r.id+"-val";
+    const show=()=>{out.textContent=(r.step<1?(+inp.value).toFixed(2):inp.value)+(r.unit||"");};
+    show();
+    inp.addEventListener("input",()=>{
+      TOWN[r.id]=+inp.value;show();
+      townRegrid();
+    });
+    lab.appendChild(inp);lab.appendChild(out);
+    bar.appendChild(lab);
+  }
+
+  /* what is selected, and the four things you can do to it */
+  const note=make("span","selnote","Click a building to work on it");
+  note.id="town-sel";
+  bar.appendChild(note);
+  const act=(label,title,fn)=>{
+    const b=make("button","tab",label);
+    b.type="button";b.title=title;b.dataset.townact="1";
+    b.addEventListener("click",fn);
+    bar.appendChild(b);
+    return b;
+  };
+  act("Type","Put a different kind of building on this lot",()=>{
+    const lot=townLotAt(townSel);
+    if(!lot||!townL)return;
+    const kinds=Object.keys(townL.sizes||{});
+    if(!kinds.length)return;
+    const at=kinds.indexOf(lot.type);
+    /* the next kind that will actually FIT this ground, because a works does
+       not go on a house lot and offering it anyway is a lie */
+    for(let k=1;k<=kinds.length;k++){
+      const want=kinds[(at+k)%kinds.length];
+      if(want===lot.type)continue;
+      const trial=Object.assign({},lot);
+      if(ForgeTown.retype(trial,want,townL.sizes)){
+        townEdit((l,e)=>{e.type=want;});
+        return;
+      }
+    }
+    setStatus("Nothing else fits on that lot");
+  });
+  act("Turn","A quarter turn on the spot",()=>
+    townEdit((l,e)=>{e.rot=(l.rot||0)+Math.PI/2;}));
+  act("Shift","Slide it along its own frontage",()=>
+    townEdit((l,e)=>{
+      const step=Math.max(0.5,l.slide*0.5);
+      let a=(l.along||0)+step;
+      if(a>l.slide+0.001)a=-l.slide;
+      e.along=a;
+    }));
+  act("Re-roll","A different draw of the dice for this one building",()=>
+    townEdit((l,e)=>{e.variant=(Math.random()*1e9)|0;}));
+  act("Clear","Take this building away and leave the lot empty",()=>{
+    const lot=townLotAt(townSel);
+    if(!lot)return;
+    townEdits[lot.i]=Object.assign(townEdits[lot.i]||{},{gone:true});
+    townSel=-1;
+    townApplyEdits(townL);ForgeTown.settle(townL);
+    townDraw();ForgeStage.draw();townBarSync();
+  });
+  act("Put back","Undo every edit and take the generator's answer",()=>{
+    townEdits={};townSel=-1;
+    stageSig="";stageSync();townBarSync();
+  });
+}
+
+function townBarSync(){
+  const bar=el("townbar");
+  if(!bar)return;
+  const on=!!(wiz&&wiz.s.town&&view===BUILD_VIEW&&stageOK);
+  bar.hidden=!on;
+  if(!on)return;
+  townBar();
+  for(const r of TOWN_ROWS){
+    const n=el("town-"+r.id);
+    if(n&&+n.value!==TOWN[r.id]){
+      n.value=TOWN[r.id];
+      const o=el("town-"+r.id+"-val");
+      if(o)o.textContent=(r.step<1?(+n.value).toFixed(2):n.value)+(r.unit||"");
+    }
+  }
+  const lot=townLotAt(townSel),note=el("town-sel");
+  if(note)note.textContent=lot
+    ?("Selected: "+lot.type+(lot.main?" on Main Street":"")+
+      " · "+lot.w.toFixed(1)+" × "+lot.d.toFixed(1)+" m"+
+      (townEdits[lot.i]?" · edited":""))
+    :(Object.keys(townEdits).length
+        ?Object.keys(townEdits).length+" buildings edited · click one to work on it"
+        :"Click a building to work on it");
+  for(const b of bar.querySelectorAll("[data-townact]"))b.disabled=!lot;
+}
+
 function stageSync(){
   if(!wiz||!stageOK)return;
   stageScene();
+  townBarSync();
   stageAccent();
   const step=wizSteps()[wiz.i];
   ForgeStage.mark(step?step.id:null);
@@ -1413,8 +1752,15 @@ function stageLabel(){
   const steps=wizSteps();
   let n=0;
   for(const x of steps)if(wiz.made[x.id])n++;
-  return wiz.s.label+" · "+n+" of "+steps.length+" faces forged"+
-         (n<steps.length?" · the rest is massing":"");
+  const made=n+" of "+steps.length+" textures forged"+
+             (n<steps.length?" · the rest is massing":"");
+  if(wiz.s.town&&townL){
+    const c=ForgeTown.census(townL);
+    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+k+(c.by[k]===1?"":"s")).join(" · ");
+    return wiz.s.label+" · "+c.lots+" buildings on "+c.blocks+" blocks"+
+           (kinds?" · "+kinds:"")+" · "+made;
+  }
+  return wiz.s.label+" · "+made;
 }
 
 /* A face, as it stands, onto the building. These are the same canvases
@@ -1441,27 +1787,37 @@ function wizMade(id,st){
 /* the rail says which faces exist and which of them have been overtaken */
 function wizTicks(){
   if(!wiz)return;
-  const rail=el("wiz-steps"),steps=wizSteps(),vals=wizVals();
+  const rail=el("wiz-steps"),steps=wizSteps();
   for(let k=0;k<steps.length&&k<rail.children.length;k++){
     const made=wiz.made[steps[k].id],b=rail.children[k];
-    if(!made)b.removeAttribute("data-made");
-    else b.dataset.made=(made.sig===wizSig(steps[k],vals))?"yes":"stale";
+    if(!made){b.removeAttribute("data-made");continue;}
+    /* EACH STEP AGAINST ITS OWN GROUP. A town's diner does not go stale
+       because the house moved; measured against one pool for the whole
+       structure, every step after the first came out marked for rebuild the
+       moment anything anywhere changed. */
+    const vals=(k===wiz.i)?wizVals():wizPool(k);
+    b.dataset.made=(made.sig===wizSig(steps[k],vals))?"yes":"stale";
   }
 }
 
 function wizEnter(i){
   const steps=wizSteps();
+  /* the step being left leaves its numbers behind whether or not the caller
+     remembered to record them — wizSeeAll walks every step without stopping */
+  if(steps[wiz.i])wiz.snap[wiz.i]=wizLive();
   wiz.i=clamp(i,0,steps.length-1);
   if(wiz.i>wiz.reached)wiz.reached=wiz.i;
   const step=steps[wiz.i];
+  const pool=wizPool(wiz.i);
+  wiz.vals=pool;
   activate(step.mode);
   const st=STATE[step.mode];
   const carried={};
   if(st&&st.params){
     for(const d of st.params){
       if(WIZ_NEVER[d.id])continue;
-      if(!(d.id in wiz.vals))continue;
-      Forge.setParam(step.mode,d.id,wiz.vals[d.id]);
+      if(!(d.id in pool))continue;
+      Forge.setParam(step.mode,d.id,pool[d.id]);
       carried[d.id]=1;
     }
     /* what the STEP pins beats anything carried: this is the side elevation
@@ -1515,7 +1871,8 @@ function wizStart(id){
   if(!s)return;
   /* every step's mode has to be loaded, or the walk would stop halfway */
   for(const st of s.steps)if(!STATE[st.mode]){setStatus("The "+st.mode+" mode is not loaded");return;}
-  wiz={s:s,i:0,vals:{},reached:0,made:{}};
+  wiz={s:s,i:0,snap:{},vals:{},reached:0,made:{}};
+  townL=null;
   stageSig="";
   /* the building is what a wizard is FOR, so it opens on it */
   if(stageOK){ForgeStage.reset();view=BUILD_VIEW;}
@@ -1526,6 +1883,7 @@ function wizExit(){
   const steps=wizSteps();
   for(const st of steps)wizMark(st.mode,{});
   wiz=null;
+  townL=null;townEdits={};townSel=-1;
   stageSig="";
   if(stageOK)ForgeStage.reset();
   if(view===BUILD_VIEW)view="lit";     // buildViewTabs corrects this where there is no WebGL
@@ -1639,7 +1997,17 @@ async function wizBuildAll(){
        assembles itself: the front and back at their own widths, the side
        elevation used twice because that is what the two sides of a building
        are, and whatever roof the front described sitting at the eaves. */
-    if(window.ForgeModel&&faceBy.front){
+    /* THE TOWN, not thirteen planes. Same idea one step out: the kit that was
+       just forged at full size goes onto the layout the 3D view is showing —
+       the same layout, edits and all, so what leaves is what you were looking
+       at rather than a fresh roll of the dice. */
+    if(window.ForgeModel&&wiz.s.town&&window.ForgeTown){
+      const L=townLayout(faceBy);
+      if(L){
+        const model=ForgeModel.filesForTown(wiz.s.id+"_"+(TOWN.seed|0),L,L.kit,planList);
+        for(const f of model)files.push(f);
+      }
+    }else if(window.ForgeModel&&faceBy.front){
       const order=steps.map(x=>x.id);
       const at=i=>(order[i]&&order[i]!=="roof")?faceBy[order[i]]:null;
       const model=ForgeModel.filesForBuilding(wiz.s.id+"_"+(wiz.vals.seed|0),{
@@ -1651,7 +2019,8 @@ async function wizBuildAll(){
       for(const f of model)files.push(f);
     }
     files.push({name:"readme.txt",data:new TextEncoder().encode(wizReadme())});
-    const zip=makeZip(files),name=wiz.s.id+"_"+(wiz.vals.seed|0)+"_all.zip";
+    const zip=makeZip(files),
+          name=wiz.s.id+"_"+((wiz.s.town?TOWN.seed:wiz.vals.seed)|0)+"_all.zip";
     /* back to the step we were on FIRST, and let it finish rebuilding: both
        activate() and the end of a build clear the save link as stale, so a link
        put up before that lands is taken straight back down again */
@@ -1712,18 +2081,48 @@ function wizReadme(){
     wiz.s.blurb||"","",
     "One folder per face, each with its own maps and its own readme:",""];
   for(const st of steps)out.push("  "+st.id+"/   "+st.label+"  ("+st.mode+" mode)");
+  if(wiz.s.town&&townL&&window.ForgeTown){
+    const c=ForgeTown.census(townL);
+    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+k+(c.by[k]===1?"":"s")).join(", ");
+    const edits=Object.keys(townEdits).length;
+    out.push("",
+      "THIS IS A TOWN, so these thirteen are a KIT rather than one building's",
+      "faces. model.gltf stands them up "+c.lots+" times: "+kinds+", on "+c.blocks,
+      "blocks between "+c.streets+" street runs and "+c.junctions+" junctions, over",
+      Math.round(townL.bounds.w)+" x "+Math.round(townL.bounds.d)+" m. Seed "+(TOWN.seed|0)+"."+
+      (edits?"  "+edits+" building"+(edits===1?" was":"s were")+" edited by hand.":""),
+      "",
+      "Every instance of a face shares one material and one mesh, which is what",
+      "makes a town of this size affordable: thirteen textures, not eight hundred.",
+      "In Blender that arrives as a handful of objects you can select rather than",
+      "as several hundred you cannot.","",
+      "There is no ground plane in the file. The town sits on y = 0 with the",
+      "streets a centimetre above it, so drop it onto whatever ground you have.","");
+  }
   out.push("",
-    "These faces were built in one pass off shared settings, so they belong to",
-    "one building: the same seed, the same materials, the same weathering. Keep",
-    "them together and they line up; rebuild one on its own with different",
-    "settings and it stops matching the others.","",
+    wiz.s.town
+      ?"Each GROUP of faces above was built off shared settings and belongs to one"
+      :"These faces were built in one pass off shared settings, so they belong to",
+    wiz.s.town
+      ?"building — the house's four, the diner's three, the works's three. Between"
+      :"one building: the same seed, the same materials, the same weathering. Keep",
+    wiz.s.town
+      ?"groups nothing is shared, which is why the diner is not a house with a sign."
+      :"them together and they line up; rebuild one on its own with different",
+    wiz.s.town?"":"settings and it stops matching the others.","",
     "Resolution is deliberately per-face — how many texels a face needs is a",
     "property of the export, not of the building.",
     "",
-    "model.gltf, model.obj and model.mtl are the building itself: a box at true",
-    "scale in metres with these faces mapped onto it and a roof on top. Import the",
-    "glTF into Blender and the materials arrive wired. model_readme.txt has the",
-    "dimensions and the caveats.");
+    wiz.s.town
+      ?"model.gltf, model.obj and model.mtl are the town itself, at true scale in"
+      :"model.gltf, model.obj and model.mtl are the building itself: a box at true",
+    wiz.s.town
+      ?"metres. Import the glTF into Blender and the materials arrive wired."
+      :"scale in metres with these faces mapped onto it and a roof on top. Import the",
+    wiz.s.town
+      ?"model_readme.txt has the dimensions and the caveats."
+      :"glTF into Blender and the materials arrive wired. model_readme.txt has the",
+    wiz.s.town?"":"dimensions and the caveats.");
   return out.join("\n");
 }
 
@@ -2363,8 +2762,22 @@ function boot(){
   solid=el("solid");
   stageOK=!!(solid&&window.ForgeStage&&window.ForgeModel&&ForgeStage.attach(solid));
   if(stageOK){
-    ForgeStage.onPick(id=>{
+    ForgeStage.onPick((id,tag)=>{
       if(!wiz)return;
+      /* IN A TOWN A CLICK IS A SELECTION, not a change of step. There are a
+         hundred houses wearing the house texture and jumping to the house step
+         because one of them was clicked would be answering a question nobody
+         asked; the step rail is right there for that. A click on the road,
+         which carries no lot, clears the selection. */
+      if(wiz.s.town&&townL){
+        const want=(typeof tag==="number"&&tag>=0)?tag:-1;
+        if(want!==townSel){
+          townSel=want;
+          townDraw();ForgeStage.draw();
+        }
+        townBarSync();
+        return;
+      }
       const steps=wizSteps();
       for(let k=0;k<steps.length;k++)if(steps[k].id===id){
         /* the same reach the rail enforces: a face two steps ahead has not
@@ -2374,11 +2787,20 @@ function boot(){
         return;
       }
     });
-    ForgeStage.onHover(id=>{
+    ForgeStage.onHover((id,lotTag)=>{
       const tag=el("stagetag");
       if(!tag||!wiz)return;
-      let step=null;
       const steps=wizSteps();
+      if(wiz.s.town&&townL){
+        const lot=(typeof lotTag==="number"&&lotTag>=0)?townLotAt(lotTag):null;
+        tag.textContent=lot
+          ?(lot.i===townSel?"Selected — the bar below is working on this one"
+                           :"Click to work on this "+lot.type+
+                            (lot.main?" on Main Street":""))
+          :stageLabel();
+        return;
+      }
+      let step=null;
       for(const x of steps)if(x.id===id)step=x;
       tag.textContent=step
         ?(step.id===steps[wiz.i].id?"This is the "+step.label.toLowerCase()+" — the face you are on"

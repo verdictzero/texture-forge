@@ -593,6 +593,48 @@ shelf instead fixes it, and costs more than it fixes: a taller thing is taken
 ground for more layers, and in the loom that shifted every route in the bay.
 Measure both sides before you take that trade.
 
+## A structure whose steps are not one building
+
+`Forge.registerStructure` walks a list of steps and each one **opens on what the
+steps before it settled**, which is the whole point when the steps are the four
+faces of one house. It is the wrong thing entirely when they are not: the town
+structure's steps are a house, then a diner, then a works, then the road, and a
+diner opening on the house's clapboard and storey height is a house with a neon
+sign on it.
+
+Mark the first step of each group `fresh: true`. It opens on its own mode's
+defaults and starts a new pool for the steps after it; within a group nothing
+changes. The rail's tick-and-recycle marks follow the same grouping, so a
+town's diner does not go stale because the house moved.
+
+A structure may also declare `town: {kit: {...}}`, which names which step's
+texture goes on which face of which type. `modes/lib/town.js` reads it to work
+out what sizes it is fitting lots to, `forge-model.js` reads it to know what to
+put triangles on, and the 3D view reads it to know what to draw — one list of
+what the thing is made of rather than three.
+
+## Standing one texture up several hundred times
+
+`ForgeModel.townScene` is the worked example, and two things in it are the
+difference between a town and a slideshow.
+
+**One mesh per material, not one per instance.** Two hundred houses off four
+textures is four meshes, not two hundred; two hundred meshes of twenty vertices
+each is two hundred draw calls, two hundred buffer uploads, and a viewer in
+single figures. It is also what makes the export a handful of objects a person
+can select in Blender. Close a mesh off and start another before it can pass
+65535 vertices, because glTF and WebGL 1 both index with unsigned shorts.
+
+**Tag every triangle with the instance it belongs to.** Once a hundred houses
+share one mesh and one material, "which one did I just click" has no answer
+without it — and picking one instance out of a batch is the whole of any design
+mode. `prepMesh` in `forge-stage.js` carries the tag array through and the
+picker hands it back beside the material name.
+
+Lighting one instance is a separate problem, because the highlight is a uniform
+and a uniform is per draw call: the scene splits the selected instance into its
+own mesh for as long as it is selected, and costs one draw call for it.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

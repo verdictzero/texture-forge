@@ -196,7 +196,7 @@ let prog=null,U={},A={},sky=null,SU={},skyBuf=null;
 let scene=null;                       // {meshes:[…], mats:[…]}  prepared for drawing
 let faces={};                         // step id -> {tex:{b,n,o,e}, cutout, ready}
 let white=null,flatN=null,black=null;
-let markId=null,hoverId=null;
+let markId=null,hoverId=null,pickTag=null,hoverTag=null;
 /* A STREET VIEW, not a drone shot. These modes draw elevations — what a
    building looks like from the pavement — and a flat roof sits at the eaves
    with the parapet standing past it, so a steep opening angle looks down into
@@ -348,6 +348,12 @@ function prepMesh(m,mats){
     uv0:[u0,v0],uvSpan:[Math.max(1e-6,u1-u0),Math.max(1e-6,v1-v0)],
     name:m.name,
     face:mat.name,                             // the step id: the material IS the face
+    /* WHICH INSTANCE, per triangle. A town is a hundred houses off one texture
+       in one mesh, so the material cannot answer "which one did I click"; the
+       scene that built the mesh tags every triangle with the thing it belongs
+       to and the picker hands that back. */
+    tag:m.tag||null,
+    sel:!!m.sel,
     pos:m.pos,uv:m.uv,idx:m.idx,               // kept for the hit test
     bP:upload(gl.ARRAY_BUFFER,m.pos,Float32Array),
     bN:upload(gl.ARRAY_BUFFER,m.nrm,Float32Array),
@@ -433,7 +439,13 @@ function fitFor(aspect){
   const tall=bounds.h*ce+deep*se;              // a plan view of a shed is deep, not tall
   const th=Math.tan(cam.fov/2);
   const need=Math.max(tall/2/th,wide/2/(th*Math.max(0.2,aspect)))/0.78;
-  return Math.max((cam.near||0.1)*4,need+deep/2);
+  /* STANDING CLEAR OF THE NEAR HALF is what the depth term is for: from the
+     street, half a deep building lies between its middle and the camera. From
+     above it does not — you are over it, not in front of it — and charging the
+     full half anyway is what left four hundred metres of town sitting in the
+     middle of the frame with the rest of it sky. So the term falls away with
+     the pitch, which at a street view is a cosine of one and changes nothing. */
+  return Math.max((cam.near||0.1)*4,need+deep/2*Math.abs(Math.cos(cam.el)));
 }
 
 function frame(){cam.dist=null;}
@@ -569,7 +581,13 @@ function draw(){
     gl.uniform1i(U.uMode,m.ground?2:(f?0:1));
     gl.uniform1f(U.uCut,(f&&f.cutout)?1:0);
     gl.uniform1f(U.uMark,(!m.ground&&markId&&m.face===markId)?1:0);
-    gl.uniform1f(U.uHover,(!m.ground&&hoverId&&m.face===hoverId)?1:0);
+    /* A SELECTED INSTANCE BEATS A HOVERED MATERIAL. In one building the two
+       are the same thing — the face you are pointing at is the face. In a town
+       they are not: lighting every mesh whose material is under the cursor
+       lights all hundred houses, so a scene that splits out the one you picked
+       says so with a flag and the material match is only used where nothing
+       is split. */
+    gl.uniform1f(U.uHover,m.sel?1:((!m.ground&&hoverId&&hoverTag===null&&m.face===hoverId)?1:0));
     gl.uniform4f(U.uUv,m.uv0?m.uv0[0]:0,m.uv0?m.uv0[1]:0,
                        m.uvSpan?m.uvSpan[0]:1,m.uvSpan?m.uvSpan[1]:1);
     const bind=(unit,t,fallback)=>{
@@ -637,16 +655,17 @@ function triHit(R,a,b,c){
 function pick(px,py){
   if(!ok||!scene)return null;
   const R=rayAt(px,py);
-  let best=Infinity,hit=null;
+  let best=Infinity,hit=null,tag=null;
   for(const m of scene.meshes){
     if(m.ground||!m.face)continue;
     const p=m.pos;
     for(let i=0;i<m.idx.length;i+=3){
       const a=m.idx[i]*3,b=m.idx[i+1]*3,c=m.idx[i+2]*3;
       const t=triHit(R,[p[a],p[a+1],p[a+2]],[p[b],p[b+1],p[b+2]],[p[c],p[c+1],p[c+2]]);
-      if(t>0&&t<best){best=t;hit=m.face;}
+      if(t>0&&t<best){best=t;hit=m.face;tag=m.tag?m.tag[i/3]:null;}
     }
   }
+  pickTag=hit?tag:null;
   return hit;
 }
 
@@ -666,11 +685,11 @@ function wire(){
   });
   cv.addEventListener("pointermove",e=>{
     if(!down){
-      const h=pick(e.clientX,e.clientY);
-      if(h!==hoverId){
-        hoverId=h;
+      const h=pick(e.clientX,e.clientY),ht=pickTag;
+      if(h!==hoverId||ht!==hoverTag){
+        hoverId=h;hoverTag=ht;
         cv.style.cursor=h?"pointer":"grab";
-        if(onHover)onHover(h);
+        if(onHover)onHover(h,ht);
         invalidate();
       }
       return;
@@ -695,12 +714,12 @@ function wire(){
     try{cv.releasePointerCapture(id);}catch(err){}
     if(moved<5&&!sunDrag){
       const h=pick(e.clientX,e.clientY);
-      if(h&&onPick)onPick(h);
+      if(h&&onPick)onPick(h,pickTag);
     }
   };
   cv.addEventListener("pointerup",up);
   cv.addEventListener("pointerleave",()=>{
-    if(hoverId!==null){hoverId=null;if(onHover)onHover(null);invalidate();}
+    if(hoverId!==null){hoverId=null;hoverTag=null;if(onHover)onHover(null,null);invalidate();}
   });
   cv.addEventListener("pointercancel",()=>{down=false;});
   cv.addEventListener("contextmenu",e=>e.preventDefault());
@@ -752,7 +771,19 @@ window.ForgeStage={
   pick:pick,
   bounds:()=>({w:bounds.w,d:bounds.d,h:bounds.h}),
   camera:()=>({az:cam.az,el:cam.el,dist:cam.dist}),
+  /* WHERE TO STAND, which is not the same question for a building and for a
+     town. A street view is right for one house — that is the view somebody
+     has of it — and hopeless for four hundred metres of grid, where the
+     streets are the subject and at seventeen degrees they are edge-on slots
+     between roofs. Set the pitch and let the fit work out the distance. */
+  look:function(az,el){
+    if(az===az)cam.az=az;
+    if(el===el)cam.el=Math.max(-1.45,Math.min(1.45,el));
+    cam.dist=null;
+    invalidate();
+  },
   hovered:()=>hoverId,
+  hoveredTag:()=>hoverTag,
   /* what the stage is actually holding — for the feature test, which has to be
      able to ask rather than infer it from pixels */
   debug:()=>({
@@ -765,7 +796,7 @@ window.ForgeStage={
   onHover:function(fn){onHover=fn;},
   reset:function(){
     clearFaces();dropScene();
-    markId=hoverId=null;
+    markId=hoverId=pickTag=hoverTag=null;
     cam.az=-0.62;cam.el=0.17;cam.dist=null;cam.r=0;
   }
 };

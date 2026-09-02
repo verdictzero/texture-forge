@@ -219,6 +219,213 @@ function buildingScene(name,faces){
   return S;
 }
 
+/* ---------------------------------------------------------------------------
+   A WHOLE TOWN
+
+   The same building, four walls and a roof off three textures, standing a few
+   hundred times over on ground a street grid worked out — plus the streets
+   themselves. modes/lib/town.js decides where everything goes and this puts
+   triangles on it; neither knows anything about the other beyond the plain
+   object between them.
+
+   ONE MESH PER MATERIAL, not one per building. A town is two hundred houses
+   sharing four textures, and two hundred meshes of twenty vertices each is
+   two hundred draw calls, two hundred buffer uploads and a stage that drops
+   to single figures. Every instance of a face appends into the one mesh that
+   face's texture owns, which is also what makes the export a handful of
+   objects a person can select in Blender rather than a list they scroll.
+
+   THE 16-BIT CEILING IS REAL. glTF and the stage both index with unsigned
+   shorts, so a mesh is closed off and a fresh one started before it can pass
+   65535 vertices. At twenty vertices a building that is three thousand
+   buildings to a mesh, which no town here reaches, but a town that did would
+   otherwise wrap its indices round to zero and draw a knot.
+
+   THE KIT is what the wizard forged: for each type, the same {plan, material}
+   objects buildingScene takes, and for the streets a run and a junction. A
+   type the kit has no entry for is simply not built — a town with the works
+   switched off is a town with no works in it, not a town with a hole.
+   --------------------------------------------------------------------------- */
+
+/* rotation about Y, the only rotation a town needs: everything meets the road
+   square and the road is on the grid */
+function spin(a){const c=Math.cos(a),s=Math.sin(a);return function(x,y,z){
+  return [x*c+z*s,y,-x*s+z*c];};}
+
+function townScene(name,L,kit,opts){
+  const sel=(opts&&opts.select!==undefined&&opts.select!==null)?opts.select:-1;
+  const S=scene(name);
+  const matIdx={},meshBy={};
+  /* the material a face's texture belongs to, made once and shared by every
+     instance of it */
+  const use=f=>{
+    if(!f||!f.material)return -1;
+    const n=f.material.name;
+    if(matIdx[n]!==undefined)return matIdx[n];
+    S.materials.push(f.material);
+    return (matIdx[n]=S.materials.length-1);
+  };
+  /* THE MESH CURRENTLY TAKING THAT MATERIAL'S TRIANGLES, rolled over before it
+     can outgrow a 16-bit index — and every triangle tagged with the lot it
+     belongs to, because a town of a hundred houses off one texture is one mesh
+     and "which house did I just click" cannot be answered by the material.
+
+     A SELECTED BUILDING GETS ITS OWN MESH. It is the only way to light one
+     instance and not all hundred of them: the highlight is a uniform, and a
+     uniform is per draw call. Splitting one building out of the batch costs a
+     draw call for as long as it is selected and nothing at all after. */
+  const into=(mi,label,tag,own)=>{
+    if(own){
+      const m=mesh(label+"_selected",mi);
+      m.sel=true;m.tag=[];
+      S.meshes.push(m);
+      return m;
+    }
+    const cur=meshBy[mi];
+    if(cur&&cur.pos.length/3<65000)return cur;
+    const m=mesh(label+(cur?"_"+(S.meshes.length):""),mi);
+    m.tag=[];
+    S.meshes.push(m);
+    return (meshBy[mi]=m);
+  };
+  /* one entry per TRIANGLE, and quad() lays down two of them */
+  const tagQuads=(m,tag,n)=>{for(let i=0;i<(n||1)*2;i++)m.tag.push(tag);};
+
+  /* --- the ground the streets are laid on ------------------------------- */
+  const B=L.bounds;
+
+  /* --- the streets ------------------------------------------------------
+     A run is one quad with v across the whole cross-section and u repeating
+     along it, because that is how the street texture is drawn: a square tile
+     covering its own corridor width, laid in the direction of travel. A
+     junction is one tile square, unrepeated. Both sit a whisker above zero so
+     the ground plane underneath them does not fight for the same depth. */
+  const road=kit.street&&kit.street.run,junc=kit.street&&kit.street.inter;
+  const Y=0.02;
+  if(road){
+    const mi=use(road),tile=Math.max(0.5,road.plan.tile||road.plan.w||L.roadM);
+    for(const st of L.streets){
+      const m=into(mi,"street");
+      const h=st.w/2;
+      tagQuads(m,-1);
+      /* wound clockwise seen from above, which is what faces the sky, and
+         laid u ALONG the road and v across it, because that is the way the
+         street texture is drawn — one square tile spanning the whole
+         cross-section, repeating in the direction of travel */
+      if(st.axis==="z"){
+        const len=st.z1-st.z0;
+        if(len<=0.05)continue;
+        const u=len/tile;
+        quad(m,[st.x-h,Y,st.z1],[st.x+h,Y,st.z1],[st.x+h,Y,st.z0],[st.x-h,Y,st.z0],
+             [0,1,0],[[u,0],[u,1],[0,1],[0,0]]);
+      }else{
+        const len=st.x1-st.x0;
+        if(len<=0.05)continue;
+        const u=len/tile;
+        quad(m,[st.x0,Y,st.z-h],[st.x0,Y,st.z+h],[st.x1,Y,st.z+h],[st.x1,Y,st.z-h],
+             [0,1,0],[[0,0],[0,1],[u,1],[u,0]]);
+      }
+    }
+  }
+  if(junc){
+    const mi=use(junc);
+    for(const nd of L.nodes){
+      const m=into(mi,"junction"),h=nd.w/2;
+      tagQuads(m,-1);
+      quad(m,[nd.x-h,Y+0.001,nd.z+h],[nd.x+h,Y+0.001,nd.z+h],
+             [nd.x+h,Y+0.001,nd.z-h],[nd.x-h,Y+0.001,nd.z-h],
+           [0,1,0],[[1,0],[1,1],[0,1],[0,0]]);
+    }
+  }
+
+  /* --- the buildings ---------------------------------------------------- */
+  let built=0;
+  for(const lot of L.lots){
+    const K=kit[lot.type];
+    if(!K||!K.front)continue;
+    const front=K.front,side=K.side||K.front,back=K.back||K.front,roof=K.roof;
+    const sc=lot.scale||1;
+    const W=front.plan.w*sc,D=(side?side.plan.w:front.plan.w*0.6)*sc;
+    const eaves=front.plan.eaves*sc;
+    const fh=front.plan.h*sc,bh=back.plan.h*sc,sh=(side?side.plan.h:fh)*sc;
+    /* px/pz is where design mode slid it along its own frontage; the formula
+       for that lives in the layout library with the leash it is clamped to, so
+       the picture and the export cannot end up with two ideas of it */
+    const R=spin(lot.rot||0);
+    const ox=(lot.px===undefined?lot.x:lot.px),oz=(lot.pz===undefined?lot.z:lot.pz);
+    const at=(x,y,z)=>{const p=R(x,y,z);return [p[0]+ox,p[1],p[2]+oz];};
+    const nAt=(x,y,z)=>R(x,y,z);
+
+    const own=(lot.i===sel);
+    const mF=into(use(front),"front",0,own);
+    quad(mF,at(-W/2,0,D/2),at(W/2,0,D/2),at(W/2,fh,D/2),at(-W/2,fh,D/2),
+         nAt(0,0,1),[[0,1],[1,1],[1,0],[0,0]]);
+    tagQuads(mF,lot.i);
+    const mB=into(use(back),"back",0,own);
+    quad(mB,at(W/2,0,-D/2),at(-W/2,0,-D/2),at(-W/2,bh,-D/2),at(W/2,bh,-D/2),
+         nAt(0,0,-1),[[0,1],[1,1],[1,0],[0,0]]);
+    tagQuads(mB,lot.i);
+    if(side){
+      const mi=use(side);
+      const mR=into(mi,"side",0,own);
+      quad(mR,at(W/2,0,D/2),at(W/2,0,-D/2),at(W/2,sh,-D/2),at(W/2,sh,D/2),
+           nAt(1,0,0),[[0,1],[1,1],[1,0],[0,0]]);
+      tagQuads(mR,lot.i);
+      const mL=into(mi,"side",0,own);
+      quad(mL,at(-W/2,0,-D/2),at(-W/2,0,D/2),at(-W/2,sh,D/2),at(-W/2,sh,-D/2),
+           nAt(-1,0,0),[[0,1],[1,1],[1,0],[0,0]]);
+      tagQuads(mL,lot.i);
+    }
+    if(roof){
+      const tile=(roof.plan.tile||roof.plan.w||2);
+      const kind=(front.plan.roof&&front.plan.roof.kind)||"flat";
+      const m=into(use(roof),"roof",0,own);
+      if(kind==="gable"){
+        const ridgeX=(front.plan.roof.ridge||"x")==="x";
+        const span=(ridgeX?D:W)/2;
+        const pitch=Math.max(0.5,(front.plan.roof.pitch||6))/12;
+        /* the ridge comes off the gable face's own silhouette, exactly as one
+           building does, or the plane lands short of the triangle it closes */
+        const gf=ridgeX?side:front;
+        const gh=(gf?gf.plan.h*sc:0);
+        const top=Math.max(eaves+0.01,gh>eaves?gh:eaves+span*pitch);
+        const rise=top-eaves,slope=Math.sqrt(span*span+rise*rise);
+        const nz=span/slope,ny=rise/slope;
+        if(ridgeX){
+          quad(m,at(-W/2,eaves,D/2),at(W/2,eaves,D/2),at(W/2,top,0),at(-W/2,top,0),
+               nAt(0,nz,ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
+          quad(m,at(W/2,eaves,-D/2),at(-W/2,eaves,-D/2),at(-W/2,top,0),at(W/2,top,0),
+               nAt(0,nz,-ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
+        }else{
+          quad(m,at(W/2,eaves,D/2),at(W/2,eaves,-D/2),at(0,top,-D/2),at(0,top,D/2),
+               nAt(ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
+          quad(m,at(-W/2,eaves,-D/2),at(-W/2,eaves,D/2),at(0,top,D/2),at(0,top,-D/2),
+               nAt(-ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
+        }
+        tagQuads(m,lot.i,2);
+      }else{
+        quad(m,at(-W/2,eaves,D/2),at(W/2,eaves,D/2),at(W/2,eaves,-D/2),at(-W/2,eaves,-D/2),
+             [0,1,0],[[0,D/tile],[W/tile,D/tile],[W/tile,0],[0,0]]);
+        tagQuads(m,lot.i);
+      }
+    }
+    built++;
+  }
+
+  const by={};
+  for(const lot of L.lots)by[lot.type]=(by[lot.type]|0)+1;
+  const kinds=Object.keys(by).map(k=>by[k]+" "+k+(by[k]===1?"":"s")).join(", ");
+  S.notes.push("Town: "+built+" buildings — "+(kinds||"none")+" — on "+L.blocks.length+
+               " blocks, over "+(B.w/1).toFixed(0)+" x "+(B.d).toFixed(0)+" m.");
+  S.notes.push("Streets: "+L.streets.length+" runs and "+L.nodes.length+
+               " junctions, corridors "+L.roadM.toFixed(1)+" m wide — which is the street "+
+               "texture's own tile, so the kerbs land where the kerbs are drawn.");
+  S.notes.push("Every instance of a face shares one material and one mesh. There is no "+
+               "ground plane in this file: the town sits on y = 0 and the streets a "+
+               "centimetre above it, so drop it on whatever ground you already have.");
+  return S;
+}
+
 /* ============================ glTF 2.0 ============================ */
 
 function b64(bytes){
@@ -451,6 +658,14 @@ window.ForgeModel={
   filesForBuilding:function(name,faces,plans){
     const S=buildingScene(name,faces);
     return pack(S,plans);
+  },
+
+  townScene:townScene,
+
+  /* Files for a whole town: every building the layout placed, standing on the
+     streets that placed them. */
+  filesForTown:function(name,L,kit,plans){
+    return pack(townScene(name,L,kit),plans);
   }
 };
 

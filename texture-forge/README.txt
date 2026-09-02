@@ -996,6 +996,71 @@ House walks front, side, back, roof. Diner walks front, side, back off one
 streamline body, so the bands land at the same heights on each face and the
 neon carries round the corner.
 
+AND TOWN, WHICH IS NOT ONE BUILDING
+-----------------------------------
+The "Town" structure walks thirteen textures — a house and its side, back and
+roof; a diner and its side and back; a works and its side and back; one flat
+roof for the two of them; and a road with its junction — and then stands them
+up two hundred times on a street grid. That is the only way a town of this size
+is affordable at all: thirteen textures, not eight hundred.
+
+BETWEEN GROUPS NOTHING IS INHERITED. A structure used to be one building, where
+a step opening on what the step before it settled is the whole point — change
+the cladding on the front and the side follows. A town's steps are a house,
+then a diner, then a works, then the road, and a diner that opened on the
+house's clapboard and the house's storey height would be a house with a neon
+sign on it. So the first step of each group starts fresh and the steps after it
+inherit from that one. Within a group nothing has changed.
+
+THE ROAD DECIDES HOW WIDE THE STREETS ARE. The street texture is a square tile
+spanning a whole cross-section — lanes, shoulders, kerbs, footways — laid with
+u along the direction of travel. So the corridor IS that tile: whatever "Tile
+covers" says on the road step is exactly how wide every street in the town is,
+and moving it moves the grid. A town that picked its own road width would be
+stretching the kerbs to reach it.
+
+WHAT THE LAYOUT DOES. A grid of blocks with the block sizes jittered, two
+through roads crossing near the middle, and lots round the perimeter of every
+block facing the street they front. Shops go on the through roads and houses go
+on the streets behind — which is a better model of a town than a bullseye is,
+and it holds at any size; a four-by-three grid has no middle to put a
+commercial ring in. A works does not get a lot, it gets a BLOCK: twenty-six
+metres across and thirty-four deep does not stand in a row of houses, and one
+squeezed to where it does is a shed. The corner of a block belongs to the rows
+fronting the wider street and the side rows start clear of them, which is what
+a real block does.
+
+Nothing is resized to fit that is not resized UNIFORMLY, because the front of a
+building is an elevation and squashing one axis of it makes a building nobody
+built. A type that will not fit a lot at a sane scale is not put there at all.
+
+THE TOWN BAR, under the 3D view, is where the grid lives: seed, blocks across
+and deep, block size, how ragged, how built up, how much industry — and a
+re-roll. Everything on it moves the town while you drag, with nothing forged,
+exactly as one building's box follows a slider.
+
+DESIGN MODE. The generator's answer is a starting point, not a verdict. Click a
+building and it lights up on its own — not all hundred wearing the same
+texture, which is what a material-wide highlight would do — and then: TYPE puts
+a different kind of building on that lot, resized the way the layout would have
+and refused where it will not fit; TURN gives it a quarter turn; SHIFT slides it
+along its own frontage as far as its neighbours allow; RE-ROLL gives that one
+building a different draw of the dice; CLEAR takes it away and leaves the lot
+empty; PUT BACK undoes the lot.
+
+Edits are kept BY LOT rather than baked in, so they survive a re-forged texture
+and a rebuilt scene. They do not survive a change to the grid — different block
+sizes are different lots and there is nothing honest to map an edit onto — so
+those clear them.
+
+WHAT LEAVES. The same archive button: thirteen folders of maps, and a
+model.gltf / model.obj / model.mtl of the whole town at true scale, standing on
+the layout you were looking at, edits and all. Every instance of a face shares
+one material and one mesh, so what arrives in Blender is a handful of objects
+you can select rather than several hundred you cannot. There is no ground plane
+in the file — the town sits on y = 0 with the streets a centimetre above it —
+so drop it onto whatever ground you have.
+
 No WebGL, no tab: everything else in the wizard works exactly as it did.
 
 THE LINK, for when you already have a house and want to change it. Tick
@@ -1560,6 +1625,19 @@ It also covers the thirteen things that are easy to break silently:
             and the WORST is only a guard: a run that ends mid-fillet, boxed
             in, has no room to bend its own tail and no straight leg to walk
             back to
+  town      the town is a town and not a diagram. THE LAYOUT: no building
+            stands in another, none of them stands in the road, the shops front
+            the through road rather than being scattered, the works stands in
+            its own ground, and the grid follows the ROAD TEXTURE's width
+            rather than a number of its own — 14 m of road makes a 502 m town
+            and 24 m makes 572. THE GEOMETRY: one mesh per texture rather than
+            one per building (two hundred meshes of twenty vertices is two
+            hundred draw calls), nothing over the 16-bit index ceiling, every
+            triangle wound to its own normal, and every triangle tagged with
+            the building it belongs to — because a hundred houses share one
+            material and "which one did I click" cannot be answered by it. And
+            DESIGN MODE swaps a type, resizes it the way the layout would have,
+            and refuses a works on a house lot
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the
