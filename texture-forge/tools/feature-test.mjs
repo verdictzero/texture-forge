@@ -1830,6 +1830,50 @@ if (want("boxes")) {
        (frames.worstSkew * 180 / Math.PI).toFixed(1) + " deg at the worst heading");
   }
 
+  /* ---- and squaring the tail is all or nothing ------------------------- */
+  /* squareInto MOVES THE TIP, so the box that gets painted is not the one the
+     mode tested for clear ground. settleBox tests the one that will be painted
+     and, when it lands on something, has to put the tail back exactly. */
+  const settle2 = await page.evaluate(() => {
+    const L = window.ForgeLoom;
+    if (!L.settleBox) return { missing: true };
+    const mk = () => {
+      const n = 160, pts = new Float64Array(n * 4);
+      let x = 0.2, y = 0.2, h = 0.4;
+      for (let i = 0; i < n; i++) {
+        h += 0.02;                                   // a run that curves, so it has skew to lose
+        pts[i * 4] = x; pts[i * 4 + 1] = y; pts[i * 4 + 2] = Math.cos(h); pts[i * 4 + 3] = Math.sin(h);
+        x += Math.cos(h) * 0.001; y += Math.sin(h) * 0.001;
+      }
+      return { kind: 0, pts, nPts: n, len: n * 0.001, half: 0.012, r: 0.004,
+               z0: 0.010, pitch: 0.012, n: 1 };
+    };
+    const g = { Wm: 0.62, Hm: 0.62, bay: false };
+    const no = mk(), before = Array.from(no.pts);
+    /* accept only the box the run already had — which is to say, refuse the
+       one squaring the tail would have produced */
+    const was = L.boxOf(no, true);
+    const kept = L.settleBox(no, true, 0.05, g, b => b.x === was.x && b.y === was.y);
+    let moved = 0;
+    for (let i = 0; i < before.length; i++) if (before[i] !== no.pts[i]) moved++;
+    const yes = mk();
+    const done = L.settleBox(yes, true, 0.05, g, () => true);
+    let shifted = 0;
+    for (let i = 0; i < before.length; i++) if (before[i] !== yes.pts[i]) shifted++;
+    return { restored: moved, keptSkew: kept ? kept.skew : -1,
+             squaredSkew: done ? done.skew : -1, shifted };
+  });
+  ok("settleBox is reachable", !settle2.missing);
+  if (!settle2.missing) {
+    ok("a refused squaring leaves the run exactly as the router laid it",
+       settle2.restored === 0, `${settle2.restored} of the run's numbers changed`);
+    ok("and an accepted one bends the tail and takes the skew out",
+       settle2.shifted > 0 && settle2.squaredSkew < settle2.keptSkew,
+       `${(settle2.squaredSkew * 180 / Math.PI).toFixed(1)} deg squared vs ` +
+       `${(settle2.keptSkew * 180 / Math.PI).toFixed(1)} deg as laid, ` +
+       `${settle2.shifted} numbers moved`);
+  }
+
   /* ---- and the run arrives square ------------------------------------- */
   for (const [mode, seeds] of [["conduit", [4118, 7, 2201]], ["raceway", [4118, 77]]]) {
     for (const seed of seeds) {
@@ -1844,19 +1888,37 @@ if (want("boxes")) {
       const c = await page.evaluate(() => window.Forge.active().B.census || null);
       ok(`${mode} @${seed}: the census survives the build`, !!c && c.boxes >= 0,
          c ? `${c.boxes} boxes, ${c.closed}/${c.bundles} closed` : "no census came back");
+      if (c && c.boxes && c.loadAvg !== undefined) {
+        /* NOT AN ASSERTION, A READING. How much of a box's footprint was
+           already cable when it was put down. It cannot be driven to zero from
+           here: the cable is under the box because the RUN is over that cable,
+           and an upper layer is allowed to lie along a lower one. Printed so a
+           change that makes it worse is at least visible. */
+        console.log(`       cable already under a box: mean ` +
+                    `${(c.loadAvg * 100).toFixed(0)}%, worst ${(c.loadMax * 100).toFixed(0)}%`);
+      }
       if (c && c.boxes && c.skewMax !== undefined) {
-        /* THE MEAN IS THE CLAIM, THE WORST IS ONLY A GUARD. Before the snap the
+        /* THE CLAIM IS ABOUT THE BOXES THAT WERE SQUARED. Before the snap the
            conduit met its box at whatever angle it happened to be on — 8
            degrees on average across these seeds and 39 at the worst. The run is
-           now walked back for a place where it nearly agrees and then bent the
-           rest of the way, which takes the mean to a fraction of a degree. A
-           few are worse: a run that ends mid-fillet, boxed in, has no room left
-           to bend its own tail and no straight leg to walk back to, and there
-           is nothing to be done about that one short of not putting a box there
-           at all. */
+           walked back for a place where it nearly agrees and then bent the rest
+           of the way, and where that is allowed to happen it lands under a
+           degree.
+
+           IT IS NOT ALWAYS ALLOWED TO HAPPEN, and lumping the two together
+           would hide which half moved. Bending the tail moves the tip, so the
+           box that gets painted is not the one the ground was checked for;
+           when THAT one lands on another enclosure the tail goes back exactly
+           as the router laid it and the run keeps its angle. A box at twenty
+           degrees is a smaller lie than two boxes in the same place, and a run
+           that ends mid-fillet, boxed in, has no room to bend and no straight
+           leg to walk back to either. So the squared ones carry the claim and
+           the declined ones are reported beside them. */
         ok(`${mode} @${seed}: the run enters its box square`,
-           c.skewAvg < 3 && c.skewMax < 20,
-           `worst ${c.skewMax.toFixed(1)} deg, mean ${c.skewAvg.toFixed(1)} deg`);
+           c.skewSq < 3,
+           `${c.squared} squared, mean ${c.skewSq.toFixed(1)} deg · ` +
+           `${c.refused} declined, all ends mean ${c.skewAvg.toFixed(1)} deg, ` +
+           `worst ${c.skewMax.toFixed(1)}`);
       }
     }
   }

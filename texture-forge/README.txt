@@ -730,11 +730,44 @@ Conduit — the loom behind an access panel
   and it costs no length at all — the run is bent, not shortened.
 
   Across a spread of seeds that takes the angle the conduit meets its box at
-  from eight degrees on average and thirty-nine at the worst, to a tenth of a
-  degree and under three. The readme each build writes reports its own. A run
-  that ends mid-fillet, boxed in, has no room left to bend and no straight leg
-  to walk back to, and stays crooked; there is nothing to be done about that
-  one short of not putting a box there at all.
+  from eight degrees on average and thirty-nine at the worst, to under two on
+  average. The readme each build writes reports its own. A run that ends
+  mid-fillet, boxed in, has no room left to bend and no straight leg to walk
+  back to, and stays crooked; there is nothing to be done about that one short
+  of not putting a box there at all.
+
+  BENDING THE TAIL MOVES THE TIP, and the box is worked out from the tip — so
+  the rectangle that gets painted is not the one the mode tested for clear
+  ground before it committed. It can be nearly a box length away from it, which
+  is how an enclosure ends up standing on top of another one that was nowhere
+  near it when the ground was checked. The rectangle that will be painted is
+  the one that gets tested, and when it lands on something the tail goes back
+  exactly as the router laid it and the box that was known clear is kept:
+  square to the plate as every box is, just met at an angle. That is a rare
+  outcome — none to one box a tile — and the readme each build writes counts
+  the squared ones and the declined ones separately, because a mean over both
+  hides which half moved.
+
+  WHAT IS STILL THERE, and it is worth being plain about it: a box put down
+  where a cable was already lying buries that cable, and the run vanishes at
+  one edge of a grey rectangle and comes back at the other. Each box reports
+  the fraction of its footprint that was already spoken for and the census
+  prints the average and the worst, because the honest thing is to measure it.
+  Steering the placement away from it was tried three ways and none of them
+  survived. Refusing occupied ground outright took a tile from eight
+  enclosures to one, since by the last layers there is hardly a rectangle of
+  bare plate left. Scoring cable against squareness moved boxes a third of the
+  way off it and put the skew back, because the quiet patches are further down
+  the run and the points traded to reach one are the points the tail squaring
+  needs to bend with; penalising the walk-back as well still left runs meeting
+  their boxes at twenty-five and forty degrees. And raising the lid to clear
+  the whole shelf — which does fix the finer version of the same fault, a
+  fatter run on the same layer poking its crown through a box and coming out
+  sliced along the outline — made a taller box, taken ground for more layers,
+  which shifted every route in the bay and took a tile from ten bundles to
+  seven. The cable is under the box because the RUN is over that cable: an
+  upper layer is allowed to lie along a lower one, and the box goes where the
+  run ends. The place to fix it is the router, not the box.
 
   AND THE OUTSIDE OF A BEND TRAVELS FURTHER than the centreline the route was
   resampled along. Eight tenths of a texel at the centre carries the far edge of
@@ -1515,7 +1548,8 @@ It also covers the thirteen things that are easy to break silently:
             and at 256, 512, 1024 and 2048 px, because the first fault was the
             span's spacing against the grid and that is what a resolution
             changes
-  boxes     junction boxes land on a quarter turn and the run arrives square.
+  boxes     junction boxes land on a quarter turn, the run arrives square, and
+            squaring a tail is all or nothing.
             Two claims, two tests. That the BOX is square is a property of one
             function and is checked as one — boxOf is handed a run pointing at
             every angle in turn and has to come back with an axis vector every

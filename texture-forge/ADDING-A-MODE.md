@@ -580,6 +580,19 @@ length for the best spot can cost you a third of the routes in the picture.
 Then bend the last stretch onto the axis at the tightest radius the thing will
 take. `boxOf` / `squareInto` in `modes/lib/loom.js` are the pair.
 
+Bending the tail **moves the tip**, and anything worked out from the tip moves
+with it — so the rectangle you end up painting is not the one you tested for
+clear ground. Test the one that will be painted, and be able to put the tail
+back exactly when it fails: `settleBox` does both, and a run entering its box a
+few degrees off is a smaller lie than a box parked on somebody else's conduit.
+
+When you stack things in layers over one Z-buffer, a lid that clears only its
+own contents comes out **interleaved** with anything fatter on the same shelf —
+crown through the lid, flanks under it, sliced along the outline. Clearing the
+shelf instead fixes it, and costs more than it fixes: a taller thing is taken
+ground for more layers, and in the loom that shifted every route in the bay.
+Measure both sides before you take that trade.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

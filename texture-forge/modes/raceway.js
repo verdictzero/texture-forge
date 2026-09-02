@@ -394,6 +394,33 @@ function routes(g,p){
   /* a second grid holding nothing but enclosures, never cleared between
      layers: a run may pass over a box, two boxes may not share ground */
   const CB=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+  /* THE GROUND EVERY LAID RUN IS LYING ON — every layer, never cleared, and
+     KEPT FOR THE RECORD RATHER THAN FOR STEERING. A box bolted down on a cable
+     that was already lying there buries it, and a bundle that vanishes at one
+     edge of a grey rectangle and comes back at the other reads as a Z-order
+     mistake however truthful the heights are. It is worth knowing how often
+     that happens, so each box reports the fraction of its footprint that was
+     already spoken for and the census prints the average and the worst.
+
+     IT IS NOT USED TO CHOOSE THE PLACE, and it was tried three ways. Refusing
+     occupied ground outright took a tile from eight enclosures to one — by the
+     last layers there is hardly a rectangle of bare plate left. Scoring it
+     against squareness moved boxes a third of the way off the cable but put
+     the skew back: the quiet patches are further down the run, and the points
+     traded to reach one are the points the tail squaring needs to bend with.
+     Penalising the walk-back as well still left runs meeting their boxes at
+     twenty-five and forty degrees. The cable is under the box because the RUN
+     is over that cable — an upper layer is allowed to lie along a lower one —
+     so the place to fix it is the router, not the box. Marked only once this
+     run's own boxes are placed, so a box is never counted against the cable it
+     terminates. */
+  const CG=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+  const ground=R=>{
+    for(let k=0;k<R.nPts;k++){
+      const q=k*4;
+      CG.span(R.pts[q],R.pts[q+1],-R.pts[q+3],R.pts[q+2],R.half);
+    }
+  };
   const endless=g.bay?0:clamp(+p.endless,0,1);
   const rngW=mulberry32((p.seed|0)*69621+13);
   const legMin=Math.max(2,Math.round(grid/stepM));
@@ -435,20 +462,21 @@ function routes(g,p){
     const maxCut=RT.nPts-28;
     const near=Math.min(maxCut,Math.max(8,Math.round(RT.nPts*0.10)));
     const far=Math.min(maxCut,Math.max(16,Math.round(RT.nPts*0.28)));
-    let best=null;
+    let any=null;
     for(let cut=0;cut<=maxCut;cut+=2){
       const bx=L.boxOf(RT,end,cut);
       if(!bx)continue;
       if(!CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw))continue;
-      if(!best||bx.skew<best.skew)best=bx;
+      if(!any||bx.skew<any.skew)any=bx;
       /* square enough that squaring the tail will finish it off */
-      if(best.skew<0.12)break;
+      if(any.skew<0.12)break;
       /* otherwise stop at a tenth of the run — unless nothing found so far
          is even close, in which case a short run with no room to bend its
          own tail is worth a bit more hunting */
-      if(cut>=near&&best.skew<0.30)break;
+      if(cut>=near&&any.skew<0.30)break;
       if(cut>=far)break;
     }
+    const best=any;
     if(best){
       const cut=best.trim;
       if(cut>0){
@@ -457,11 +485,12 @@ function routes(g,p){
         RT.len=RT.nPts*stepM;
       }
       /* and bring the last stretch onto the box's own axis, so the conduit
-         goes into the gland straight. That moves the tip, so the box is
-         worked out again from where the run actually ends up — and it is
-         THAT rectangle which gets marked and painted. */
-      L.squareInto(RT,end,bendR,g);
-      const fin=L.boxOf(RT,end)||best;
+         goes into the gland straight — but only if the box that ends up
+         painted is still on clear ground, because squaring moves the tip
+         and the box moves with it. */
+      const fin=L.settleBox(RT,end,bendR,g,
+        b=>CB.rectClear(b.x,b.y,b.tx,b.ty,b.hl,b.hw))||best;
+      fin.load=CG.rectLoad(fin.x,fin.y,fin.tx,fin.ty,fin.hl*1.26,fin.hw*1.26);
       CB.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
       C.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
       if(end)RT.boxB=fin;else RT.boxA=fin;
@@ -542,6 +571,7 @@ function routes(g,p){
       }
       if(R.nPts*stepM<Math.max(0.05,R.half*4))return null;
     }
+    ground(R);
     out.push(R);
     return R;
   }
@@ -861,8 +891,17 @@ c.closed+" of "+c.bundles+" runs have no ends at all — they leave one edge of 
 "tile, arrive at the other and come back to where they started, so there is",
 "nothing to terminate. The rest do end, and end at something: "+c.boxes+" junction",
 "box"+(c.boxes===1?"":"es")+" bolted to the backplane and entered square through a gland, and "+c.glands,
-"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air."
-]:[];
+"bulkhead grommet"+(c.glands===1?"":"s")+". Nothing stops in mid-air.",
+c.boxes?("Every box is bolted on a quarter turn to the plate and the run is brought\n"+
+  "round to meet it, entering within "+c.skewMax.toFixed(1)+"\u00b0 of square at the worst of them\n"+
+  "and "+c.skewAvg.toFixed(1)+"\u00b0 on average — "+c.squared+" bent round to meet it square, at "+
+  c.skewSq.toFixed(1)+"\u00b0,\nand "+c.refused+" left as the router laid "+(c.refused===1?"it":"them")+
+  ", because the box that bending\nwould have moved into landed on another one."):null,
+c.boxes&&c.loadAvg!==undefined?("On average "+Math.round(c.loadAvg*100)+"% of a box here came down on cable that was\n"+
+  "already lying there, "+Math.round(c.loadMax*100)+"% at the worst of them \u2014 the run\u2019s own doing\n"+
+  "rather than the box\u2019s, since an upper layer may lie along a lower one and the\n"+
+  "box goes where the run ends."):null
+].filter(x=>x!==null):[];
     return [
 "TEXTURE FORGE — conduit raceway",
 "",

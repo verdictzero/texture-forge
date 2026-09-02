@@ -205,6 +205,34 @@ function routes(g,p){
   const axis=clamp(+p.axis,0,1);
   const rngW=mulberry32((p.seed|0)*40503+17);
 
+  /* THE GROUND EVERY LAID RUN IS LYING ON — every layer, never cleared, and
+     KEPT FOR THE RECORD RATHER THAN FOR STEERING. A box bolted down on a cable
+     that was already lying there buries it, and a bundle that vanishes at one
+     edge of a grey rectangle and comes back at the other reads as a Z-order
+     mistake however truthful the heights are. It is worth knowing how often
+     that happens, so each box reports the fraction of its footprint that was
+     already spoken for and the census prints the average and the worst.
+
+     IT IS NOT USED TO CHOOSE THE PLACE, and it was tried three ways. Refusing
+     occupied ground outright took a tile from eight enclosures to one — by the
+     last layers there is hardly a rectangle of bare plate left. Scoring it
+     against squareness moved boxes a third of the way off the cable but put
+     the skew back: the quiet patches are further down the run, and the points
+     traded to reach one are the points the tail squaring needs to bend with.
+     Penalising the walk-back as well still left runs meeting their boxes at
+     twenty-five and forty degrees. The cable is under the box because the RUN
+     is over that cable — an upper layer is allowed to lie along a lower one —
+     so the place to fix it is the router, not the box. Marked only once this
+     run's own boxes are placed, so a box is never counted against the cable it
+     terminates. */
+  const CG=L.claims(g,Math.max(g.mpp*3,hMin*0.85));
+  const ground=R=>{
+    for(let k=0;k<R.nPts;k++){
+      const q=k*4;
+      CG.span(R.pts[q],R.pts[q+1],-R.pts[q+3],R.pts[q+2],R.half);
+    }
+  };
+
   /* every point of a candidate loop, before a single one of them is marked:
      a closed run cannot back out half way and has to be all or nothing */
   const loopFits=(w,half)=>{
@@ -351,25 +379,27 @@ function routes(g,p){
            The trim is worked out without cutting anything — boxOf answers what
            the box WOULD be that many points shorter — so the hunt is BOUNDED:
            take the first clear spot if it is already near-square, otherwise look
-           for a better one within a tenth of the run and take the best of those. Whatever is left over is bent out by
-           squaring the tail below, which costs no length at all. */
+           for a better one within a tenth of the run and take the best of
+           those. Whatever is left over is bent out by squaring the tail
+           below, which costs no length at all. */
         const maxCut=RT.nPts-28;
         const near=Math.min(maxCut,Math.max(8,Math.round(RT.nPts*0.10)));
         const far=Math.min(maxCut,Math.max(16,Math.round(RT.nPts*0.28)));
-        let best=null;
+        let any=null;
         for(let cut=0;cut<=maxCut;cut+=2){
           const bx=L.boxOf(RT,end,cut);
           if(!bx)continue;
           if(!CB.rectClear(bx.x,bx.y,bx.tx,bx.ty,bx.hl,bx.hw))continue;
-          if(!best||bx.skew<best.skew)best=bx;
+          if(!any||bx.skew<any.skew)any=bx;
           /* square enough that squaring the tail will finish it off */
-          if(best.skew<0.12)break;
+          if(any.skew<0.12)break;
           /* otherwise stop at a tenth of the run — unless nothing found so far
              is even close, in which case a short run with no room to bend its
              own tail is worth a bit more hunting */
-          if(cut>=near&&best.skew<0.30)break;
+          if(cut>=near&&any.skew<0.30)break;
           if(cut>=far)break;
         }
+        const best=any;
         if(best){
           const cut=best.trim;
           if(cut>0){
@@ -378,12 +408,13 @@ function routes(g,p){
             RT.len=RT.nPts*stepM;
           }
           /* and bring the last stretch onto the box's own axis, so the conduit
-             goes into the gland straight. That moves the tip, so the box is
-             worked out again from where the run actually ends up — and it is
-             THAT rectangle which gets marked and painted. */
-          L.squareInto(RT,end,minR,g);
-          const fin=L.boxOf(RT,end)||best;
-          CB.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
+             goes into the gland straight — but only if the box that ends up
+             painted is still on clear ground, because squaring moves the tip
+             and the box moves with it. */
+          const fin=L.settleBox(RT,end,minR,g,
+            b=>CB.rectClear(b.x,b.y,b.tx,b.ty,b.hl,b.hw))||best;
+          fin.load=CG.rectLoad(fin.x,fin.y,fin.tx,fin.ty,fin.hl*1.26,fin.hw*1.26);
+      CB.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
           C.rect(fin.x,fin.y,fin.tx,fin.ty,fin.hl,fin.hw);
           if(end)RT.boxB=fin;else RT.boxA=fin;
           BOXES.push(fin);
@@ -401,6 +432,7 @@ function routes(g,p){
         /* a run shorter than a couple of its own boxes is not a run */
         if(RT.nPts*stepM<Math.max(0.05,RT.half*4))continue;
       }
+      ground(RT);
       out.push(RT);
     }
   }
@@ -839,7 +871,14 @@ c.boxes?("Every box is bolted on a quarter turn to the plate — the plate is ri
   "drilled square and nobody drills a mounting pattern off-axis to suit a cable —\n"+
   "and the run is brought round to meet it, entering within "+
   c.skewMax.toFixed(1)+"\u00b0 of square\nat the worst of them and "+
-  c.skewAvg.toFixed(1)+"\u00b0 on average."):null
+  c.skewAvg.toFixed(1)+"\u00b0 on average — "+c.squared+" of them bent round to meet it\nsquare, at "+
+  c.skewSq.toFixed(1)+"\u00b0, and "+c.refused+" left as the router laid "+(c.refused===1?"it":"them")+
+  " because the box that\nbending would have moved into landed on another one."):null,
+c.boxes&&c.loadAvg!==undefined?("An enclosure is bolted to the plate, so a run already lying where one goes\n"+
+  "down is buried by it. On average "+Math.round(c.loadAvg*100)+"% of a box here came down on cable\n"+
+  "that was already there, "+Math.round(c.loadMax*100)+"% at the worst of them. That is the run\u2019s own\n"+
+  "doing rather than the box\u2019s: an upper layer is allowed to lie along a lower\n"+
+  "one, and the box goes where the run ends."):null
 ].filter(x=>x!==null):[];
     return [
 "TEXTURE FORGE — conduit loom",
