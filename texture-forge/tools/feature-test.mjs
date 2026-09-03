@@ -153,7 +153,8 @@ if (want("palette")) {
 /* ============================ the structure wizard ============================ */
 if (want("wizard")) {
   console.log("\n— structure wizard —");
-  const structs = await page.evaluate(() => window.Forge.structures.map(s => ({ id: s.id, n: s.steps.length })));
+  const structs = await page.evaluate(() => window.Forge.structures.map(s =>
+    ({ id: s.id, n: s.steps.length, fresh: s.steps.map(x => !!x.fresh) })));
   ok("structures registered", structs.length > 0, JSON.stringify(structs));
 
   for (const s of structs) {
@@ -182,14 +183,40 @@ if (want("wizard")) {
     await page.click(`#${await page.evaluate(() => window.Forge.active().mode.id)}--forge`);
     await settle();
 
+    /* WHERE A GROUP ENDS, INHERITANCE ENDS. A structure whose steps are the
+       faces of one building carries everything forward, which is the whole
+       point. A structure whose steps are several DIFFERENT buildings — the
+       town's house, then its diner, then its works, then the road — marks the
+       first step of each as `fresh`, and that step is supposed to arrive with
+       nothing: a diner opening on the house's clapboard and storey height is a
+       house with a neon sign on it. So a fresh step is checked for the
+       opposite of what the others are. */
+    let group = 0;
     for (let k = 1; k < s.n; k++) {
       await page.click("#wiz-next");
       await settle();
+      if (s.fresh[k]) group = k;
+      const fresh = s.fresh[k];
       const seed = await page.evaluate(() => window.Forge.active().P.seed);
-      ok(`${s.id}: step ${k + 1} inherits the seed`, seed === 4242, String(seed));
       const marked = await page.evaluate(() =>
         document.querySelectorAll("#panel-" + window.Forge.active().mode.id + " .row.carried").length);
-      ok(`${s.id}: step ${k + 1} marks what it inherited`, marked > 0, marked + " rows");
+      if (fresh) {
+        /* NOTHING CARRIED IN is the claim, and it is the only one available:
+           a fresh step opens on whatever its own mode is holding, which in a
+           session that has already walked the diner structure is the seed that
+           walk left behind. What must not happen is the step BEFORE it writing
+           into it. */
+        ok(`${s.id}: step ${k + 1} starts fresh`, marked === 0,
+           `${marked} rows carried in — it opens on what its own mode holds`);
+      } else if (group > 0) {
+        /* inside a later group: it inherits from that group's own first step,
+           which never saw 4242 */
+        ok(`${s.id}: step ${k + 1} inherits from its own group`, marked > 0,
+           marked + " rows, seed " + seed);
+      } else {
+        ok(`${s.id}: step ${k + 1} inherits the seed`, seed === 4242, String(seed));
+        ok(`${s.id}: step ${k + 1} marks what it inherited`, marked > 0, marked + " rows");
+      }
       /* Resolution must not follow the building around. Only checkable where
          the step is a DIFFERENT mode — steps that re-enter one mode share its
          single state, so there is no second resolution for it to leak into. */
@@ -1137,42 +1164,73 @@ if (want("strata")) {
    different mode is that everything is axis-aligned between filleted corners,
    so that is what gets measured — and measured against the wandering one next
    door rather than against a number picked out of the air, because "how
-   orthogonal is this picture" has no absolute scale. */
+   orthogonal is this picture" has no absolute scale.
+
+   MEASURED OFF THE RUNS THEMSELVES, not off the picture. This used to fold the
+   height gradient of every strongly-sloped texel in the tile, which counts the
+   backplane ribs, the frame, the fastener rows and the lids of the junction
+   boxes along with the cable — most of a tile that is mostly not cable. That
+   was survivable while the boxes sat at whatever angle their run happened to
+   be on. Once every box lands on a quarter turn in BOTH modes the box lids
+   stopped telling the two apart and started diluting the thing that does, and
+   at one seed the contrast had already collapsed to 1.14 with no change to
+   either router.
+
+   The tag has the answer exactly: every texel a route owns carries how far
+   along that route it is, in millimetres, so the gradient of THAT field points
+   along the run. No lighting, no backplane, no lids — just the direction the
+   cable is travelling, which is what the claim was always about. */
 if (want("raceway")) {
   console.log("\n— the conduit raceway —");
 
-  /* the fraction of strongly-sloped texels whose height gradient points within
-     12° of an axis. A raceway's straights are all axis-aligned, so their edges
-     are too; a hand-dressed loom's runs point anywhere. */
-  const axisness = async id => {
+  /* the fraction of a mode's route length whose heading is within 12° of an
+     axis. A raceway is straights between fillets, so most of its length is on
+     an axis; a hand-dressed loom's runs point anywhere. */
+  const axisness = async (id, seed) => {
     await page.click(`#modebar-tabs [data-mode="${id}"]`);
     await settle();
-    await page.evaluate(m => window.Forge.setParam(m, "size", 512), id);
+    await page.evaluate(([m, sd]) => {
+      window.Forge.setParam(m, "size", 512);
+      window.Forge.setParam(m, "seed", sd);
+    }, [id, seed]);
     await page.click(`#${id}--forge`);
     await settle();
     return await page.evaluate(() => {
-      const B = window.Forge.active().B, W = B.W, H = B.H, HGT = B.HGT;
+      const B = window.Forge.active().B, W = B.W, H = B.H, TAG = B.TAG;
+      if (!TAG) return -1;
+      const own = i => (TAG[i] >>> 24) & 255, alo = i => TAG[i] & 0x3fff;
       let on = 0, tot = 0;
       for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
-        const i = y * W + x;
-        const dx = HGT[i + 1] - HGT[i - 1], dy = HGT[i + W] - HGT[i - W];
-        const m = Math.hypot(dx, dy);
-        if (m < 1e-4) continue;
-        tot++;
+        const i = y * W + x, o = own(i);
+        if (o >= 253) continue;                       // backplane, frame, box
+        /* all four neighbours on the same route, or the difference is across a
+           boundary rather than along a run */
+        if (own(i + 1) !== o || own(i - 1) !== o || own(i + W) !== o || own(i - W) !== o) continue;
+        const dx = alo(i + 1) - alo(i - 1), dy = alo(i + W) - alo(i - W);
+        if (Math.abs(dx) > 40 || Math.abs(dy) > 40) continue;   // the seam wraps
+        if (!dx && !dy) continue;
         let a = Math.atan2(dy, dx) * 180 / Math.PI;
-        a = Math.abs(((a % 90) + 90) % 90);      // fold onto 0..90
+        a = Math.abs(((a % 90) + 90) % 90);           // fold onto 0..90
         if (a < 12 || a > 78) on++;
+        tot++;
       }
       return tot ? on / tot : 0;
     });
   };
-  const race = await axisness("raceway");
-  const loom = await axisness("conduit");
-  ok("the raceway builds", race > 0);
-  ok("its runs are axis-aligned, and the loom's are not",
-     race > loom * 1.25,
-     "within 12° of an axis: raceway " + (race * 100).toFixed(1) +
-     "%, conduit " + (loom * 100).toFixed(1) + "%");
+  /* PINNED SEEDS, and more than one of them. Whichever seed the sections above
+     happened to leave loaded is not a measurement, and the gap between the two
+     modes is a good deal wider at some seeds than others — 2201 is the
+     narrowest of the ones tried. */
+  let built = false;
+  for (const seed of [4118, 2201]) {
+    const race = await axisness("raceway", seed);
+    const loom = await axisness("conduit", seed);
+    if (!built) { ok("the raceway builds", race > 0); built = true; }
+    ok(`@${seed}: its runs are axis-aligned, and the loom's are not`,
+       race > loom * 1.25,
+       "within 12° of an axis: raceway " + (race * 100).toFixed(1) +
+       "%, conduit " + (loom * 100).toFixed(1) + "%");
+  }
 
   await page.click('#modebar-tabs [data-mode="raceway"]');
   await settle();
@@ -1285,6 +1343,9 @@ if (want("stage")) {
   const wound = await page.evaluate(() => {
     const M = window.ForgeModel, out = [];
     for (const s of window.Forge.structures) {
+      /* a town is not one building and has no front face to hand this; its own
+         section checks the winding of a whole town instead */
+      if (s.town) continue;
       const by = {};
       for (const step of s.steps) {
         const st = window.Forge.state(step.mode);
@@ -1313,7 +1374,12 @@ if (want("stage")) {
     ok(`${r.id}: every triangle is wound to its own normal`, r.bad === 0,
        `${r.tris - r.bad}/${r.tris} · ${r.meshes.join(" ")}`);
 
-  for (const s of await page.evaluate(() => window.Forge.structures.map(x => ({ id: x.id, n: x.steps.length })))) {
+  /* ONE BUILDING'S STRUCTURES ONLY. This whole section is about a box whose
+     dimensions are the front's and the side's plans; a town has neither and is
+     checked by its own section, which asks the questions a town raises
+     instead. */
+  for (const s of await page.evaluate(() => window.Forge.structures
+        .filter(x => !x.town).map(x => ({ id: x.id, n: x.steps.length })))) {
     console.log(`  · ${s.id}`);
     await page.evaluate(n => {
       for (const st of window.Forge.structures.find(x => x.id === n).steps)
@@ -1737,6 +1803,415 @@ if (want("raster")) {
     const p = await pits();
     ok(`conduit @${size} px: still no holes`, p.rate < 0.0008,
        `${p.holes} pits = ${(p.rate * 100).toFixed(3)}%`);
+  }
+}
+
+/* ========================= junction boxes on the square =========================
+   A junction box is bolted to the backplane, and the backplane is ribbed,
+   drilled and framed on the square. A cast enclosure hung at thirty-seven
+   degrees to all of it is the one thing in a picture of an equipment bay that
+   looks placed rather than installed — nobody drills a mounting pattern
+   off-axis to suit a cable.
+
+   TWO CLAIMS, and they need different tests. That the BOX is on a quarter turn
+   is a property of one function and is checked as one: boxOf is handed a route
+   pointing at every angle in turn and has to come back with an axis vector
+   every time. That the RUN ARRIVES square is a property of the whole build —
+   the run has to be walked back for a place where it nearly does and then bent
+   the rest of the way — and comes off the census, which reports the angle the
+   conduit actually meets its box at.
+   ============================================================================== */
+if (want("boxes")) {
+  console.log("\n— junction boxes on the square —");
+
+  /* ---- the box's own frame, over every heading ------------------------ */
+  const frames = await page.evaluate(() => {
+    const L = window.ForgeLoom;
+    if (!L || !L.boxOf) return { missing: true };
+    const out = { n: 0, offAxis: 0, worstSkew: 0, headings: [] };
+    for (let deg = 0; deg < 360; deg += 3) {
+      const a = deg * Math.PI / 180, tx = Math.cos(a), ty = Math.sin(a);
+      /* a straight synthetic run on that heading — nothing in boxOf cares
+         about anything but the tangents and the sizes */
+      const n = 120, pts = new Float64Array(n * 4);
+      for (let i = 0; i < n; i++) {
+        pts[i * 4] = 0.2 + tx * i * 0.001; pts[i * 4 + 1] = 0.2 + ty * i * 0.001;
+        pts[i * 4 + 2] = tx; pts[i * 4 + 3] = ty;
+      }
+      const R = { kind: 0, pts, nPts: n, len: n * 0.001,
+                  half: 0.012, r: 0.006, z0: 0.01, pitch: 0.012, n: 1 };
+      for (const end of [true, false]) {
+        const b = L.boxOf(R, end);
+        out.n++;
+        if (!b) { out.offAxis++; continue; }
+        /* an axis vector: one component exactly +/-1, the other exactly 0 */
+        const okv = (b.tx === 0 && Math.abs(b.ty) === 1) ||
+                    (b.ty === 0 && Math.abs(b.tx) === 1);
+        if (!okv) { out.offAxis++; out.headings.push(deg); }
+        if (b.skew > out.worstSkew) out.worstSkew = b.skew;
+      }
+    }
+    return out;
+  });
+  ok("boxOf is reachable", !frames.missing);
+  if (!frames.missing) {
+    ok("every box is on a quarter turn, from every heading",
+       frames.offAxis === 0,
+       `${frames.n - frames.offAxis}/${frames.n} square` +
+       (frames.headings.length ? " · off at " + frames.headings.slice(0, 6).join(", ") + " deg" : ""));
+    /* and it reports how far it had to snap, which is what the placement
+       search steers on — for a run pointing at 45 degrees that is the full 45 */
+    ok("and it reports how far it snapped", frames.worstSkew > 0.7 && frames.worstSkew < 0.8,
+       (frames.worstSkew * 180 / Math.PI).toFixed(1) + " deg at the worst heading");
+  }
+
+  /* ---- and squaring the tail is all or nothing ------------------------- */
+  /* squareInto MOVES THE TIP, so the box that gets painted is not the one the
+     mode tested for clear ground. settleBox tests the one that will be painted
+     and, when it lands on something, has to put the tail back exactly. */
+  const settle2 = await page.evaluate(() => {
+    const L = window.ForgeLoom;
+    if (!L.settleBox) return { missing: true };
+    const mk = () => {
+      const n = 160, pts = new Float64Array(n * 4);
+      let x = 0.2, y = 0.2, h = 0.4;
+      for (let i = 0; i < n; i++) {
+        h += 0.02;                                   // a run that curves, so it has skew to lose
+        pts[i * 4] = x; pts[i * 4 + 1] = y; pts[i * 4 + 2] = Math.cos(h); pts[i * 4 + 3] = Math.sin(h);
+        x += Math.cos(h) * 0.001; y += Math.sin(h) * 0.001;
+      }
+      return { kind: 0, pts, nPts: n, len: n * 0.001, half: 0.012, r: 0.004,
+               z0: 0.010, pitch: 0.012, n: 1 };
+    };
+    const g = { Wm: 0.62, Hm: 0.62, bay: false };
+    const no = mk(), before = Array.from(no.pts);
+    /* accept only the box the run already had — which is to say, refuse the
+       one squaring the tail would have produced */
+    const was = L.boxOf(no, true);
+    const kept = L.settleBox(no, true, 0.05, g, b => b.x === was.x && b.y === was.y);
+    let moved = 0;
+    for (let i = 0; i < before.length; i++) if (before[i] !== no.pts[i]) moved++;
+    const yes = mk();
+    const done = L.settleBox(yes, true, 0.05, g, () => true);
+    let shifted = 0;
+    for (let i = 0; i < before.length; i++) if (before[i] !== yes.pts[i]) shifted++;
+    return { restored: moved, keptSkew: kept ? kept.skew : -1,
+             squaredSkew: done ? done.skew : -1, shifted };
+  });
+  ok("settleBox is reachable", !settle2.missing);
+  if (!settle2.missing) {
+    ok("a refused squaring leaves the run exactly as the router laid it",
+       settle2.restored === 0, `${settle2.restored} of the run's numbers changed`);
+    ok("and an accepted one bends the tail and takes the skew out",
+       settle2.shifted > 0 && settle2.squaredSkew < settle2.keptSkew,
+       `${(settle2.squaredSkew * 180 / Math.PI).toFixed(1)} deg squared vs ` +
+       `${(settle2.keptSkew * 180 / Math.PI).toFixed(1)} deg as laid, ` +
+       `${settle2.shifted} numbers moved`);
+  }
+
+  /* ---- and the run arrives square ------------------------------------- */
+  for (const [mode, seeds] of [["conduit", [4118, 7, 2201]], ["raceway", [4118, 77]]]) {
+    for (const seed of seeds) {
+      await page.evaluate(m => window.Forge.activate(m), mode);
+      await page.waitForTimeout(150);
+      await page.evaluate(([m, sd]) => {
+        window.Forge.setParam(m, "seed", sd);
+        window.Forge.setParam(m, "size", 1024);
+      }, [mode, seed]);
+      await page.click(`#${mode}--forge`);
+      await settle();
+      const c = await page.evaluate(() => window.Forge.active().B.census || null);
+      ok(`${mode} @${seed}: the census survives the build`, !!c && c.boxes >= 0,
+         c ? `${c.boxes} boxes, ${c.closed}/${c.bundles} closed` : "no census came back");
+      if (c && c.boxes && c.loadAvg !== undefined) {
+        /* NOT AN ASSERTION, A READING. How much of a box's footprint was
+           already cable when it was put down. It cannot be driven to zero from
+           here: the cable is under the box because the RUN is over that cable,
+           and an upper layer is allowed to lie along a lower one. Printed so a
+           change that makes it worse is at least visible. */
+        console.log(`       cable already under a box: mean ` +
+                    `${(c.loadAvg * 100).toFixed(0)}%, worst ${(c.loadMax * 100).toFixed(0)}%`);
+      }
+      if (c && c.boxes && c.skewMax !== undefined) {
+        /* THE CLAIM IS ABOUT THE BOXES THAT WERE SQUARED. Before the snap the
+           conduit met its box at whatever angle it happened to be on — 8
+           degrees on average across these seeds and 39 at the worst. The run is
+           walked back for a place where it nearly agrees and then bent the rest
+           of the way, and where that is allowed to happen it lands under a
+           degree.
+
+           IT IS NOT ALWAYS ALLOWED TO HAPPEN, and lumping the two together
+           would hide which half moved. Bending the tail moves the tip, so the
+           box that gets painted is not the one the ground was checked for;
+           when THAT one lands on another enclosure the tail goes back exactly
+           as the router laid it and the run keeps its angle. A box at twenty
+           degrees is a smaller lie than two boxes in the same place, and a run
+           that ends mid-fillet, boxed in, has no room to bend and no straight
+           leg to walk back to either. So the squared ones carry the claim and
+           the declined ones are reported beside them. */
+        ok(`${mode} @${seed}: the run enters its box square`,
+           c.skewSq < 3,
+           `${c.squared} squared, mean ${c.skewSq.toFixed(1)} deg · ` +
+           `${c.refused} declined, all ends mean ${c.skewAvg.toFixed(1)} deg, ` +
+           `worst ${c.skewMax.toFixed(1)}`);
+      }
+    }
+  }
+}
+
+/* ============================== the town ==============================
+   A town is the one thing in here that is not a texture. It is a street grid
+   with a few hundred buildings standing on it, assembled out of thirteen
+   textures the wizard forges once — so what is worth checking is the
+   arithmetic and the assembly, not the pixels.
+
+   THREE CLAIMS. That the LAYOUT is a town: buildings inside their blocks and
+   not in the road, not standing in each other, and shops on the through road
+   rather than scattered. That the GEOMETRY is one town rather than four
+   hundred loose planes: one mesh per material, every triangle wound to its own
+   normal, every triangle tagged with the building it belongs to. And that
+   DESIGN MODE actually changes the town it is pointed at.
+   ====================================================================== */
+if (want("town")) {
+  console.log("\n— the town —");
+
+  const lib = await page.evaluate(() => {
+    const T = window.ForgeTown;
+    if (!T) return { missing: true };
+    const sizes = { house: {w:9.8,d:11.5}, diner: {w:14,d:9}, factory: {w:26,d:34} };
+    const P = { seed:1963, cols:6, rows:5, blockW:70, blockD:55, roadM:14,
+                jitter:0.35, setback:5, gap:2.5, density:0.9, industry:0.6 };
+    const L = T.layout(P, sizes);
+    T.settle(L);
+    const c = T.census(L);
+
+    /* the footprint of a lot, axis-aligned — every rotation here is a quarter
+       turn, so the box is the width and depth swapped or not */
+    const boxOf = l => {
+      const flat = Math.abs(Math.cos(l.rot)) > 0.5;
+      const w = flat ? l.w : l.d, d = flat ? l.d : l.w;
+      return { x0:l.px-w/2, x1:l.px+w/2, z0:l.pz-d/2, z1:l.pz+d/2 };
+    };
+    let overlaps = 0, worstOverlap = 0, outside = 0, inRoad = 0;
+    const B = L.lots.map(boxOf);
+    for (let i = 0; i < B.length; i++) {
+      const blk = L.blocks[L.lots[i].block];
+      if (B[i].x0 < blk.x0-0.05 || B[i].x1 > blk.x1+0.05 ||
+          B[i].z0 < blk.z0-0.05 || B[i].z1 > blk.z1+0.05) outside++;
+      /* a corridor is the ground between two blocks, so anything outside its
+         own block IS in the road — counted separately because that is the one
+         that looks wrong rather than merely tight */
+      for (const st of L.streets) {
+        const h = st.w/2;
+        const rx0 = st.axis==="z" ? st.x-h : st.x0, rx1 = st.axis==="z" ? st.x+h : st.x1;
+        const rz0 = st.axis==="z" ? st.z0 : st.z-h, rz1 = st.axis==="z" ? st.z1 : st.z+h;
+        if (Math.min(B[i].x1,rx1) - Math.max(B[i].x0,rx0) > 0.2 &&
+            Math.min(B[i].z1,rz1) - Math.max(B[i].z0,rz0) > 0.2) { inRoad++; break; }
+      }
+      for (let j = i+1; j < B.length; j++) {
+        const ox = Math.min(B[i].x1,B[j].x1) - Math.max(B[i].x0,B[j].x0);
+        const oz = Math.min(B[i].z1,B[j].z1) - Math.max(B[i].z0,B[j].z0);
+        if (ox > 0.05 && oz > 0.05) { overlaps++; if (ox*oz > worstOverlap) worstOverlap = ox*oz; }
+      }
+    }
+    /* the diner is a landmark rather than a lot type: one of it, on a through
+       road, over frontage it took from several house lots, and bigger than
+       anything else standing on a lot */
+    let mainLots = 0;
+    for (const l of L.lots) if (l.main) mainLots++;
+    /* SNAPSHOT IT NOW. The design-mode check further down retypes a lot in
+       place, and a live reference to it would report the house it became. */
+    const dnSnap = L.lots.filter(l => l.type === "diner")
+      .map(d => ({w:d.w, d:d.d, scale:d.scale, main:d.main,
+                  frontage:d.frontage, landmark:!!d.landmark}));
+    const houses = L.lots.filter(l => l.type === "house");
+    const widestHouse = houses.reduce((a,l) => Math.max(a,l.w), 0);
+    const three = T.layout(Object.assign({}, P, {diners:3}), sizes);
+    const none = T.layout(Object.assign({}, P, {diners:0}), sizes);
+    /* a works stands in its own ground rather than in a row */
+    const worksWhole = L.lots.filter(l => l.type==="factory").every(l => l.side==="whole");
+
+    /* and the grid follows the road texture rather than a number of its own */
+    const wide = T.layout(Object.assign({}, P, {roadM: 24}), sizes);
+
+    /* ONE TEXTURE IS NOT ONE BUILDING. Every house comes off the same four
+       faces, so what has to differ is everything else: how it is massed, which
+       way its ridge runs, how tall it is, how far back it sits and what colour
+       somebody painted it. Counted as distinct SIGNATURES, because "they look
+       different" is not a measurement. */
+    /* THE STYLE ALONE, kept apart from the size. A house is a different size
+       on a different block whatever the variety is doing — the blocks jitter —
+       so folding the size in would let the layout answer a question about the
+       buildings. */
+    const styleSig=l=>[l.style.wing,l.style.mirror?1:0,l.style.ridge,l.style.flat?1:0,
+                       l.style.stack?1:0,Math.round(l.style.hMul*40),
+                       Math.round(l.style.setbackK*20),l.style.tint%10].join(",");
+    const sig=l=>styleSig(l)+"|"+Math.round(l.w*4)+","+Math.round(l.d*4);
+    const hSig=new Set(houses.map(sig));
+    const wings={},tints=new Set(),ridges=new Set();
+    for(const l of houses){
+      wings[l.style.wing]=(wings[l.style.wing]|0)+1;
+      tints.add(l.style.tint%10);ridges.add(l.style.ridge);
+    }
+    /* and the off switch is a real one: at variety 0 every house is the
+       elevation exactly as forged, which is the town this used to make */
+    const plainT=T.settle(T.layout(Object.assign({}, P, {variety:0}), sizes));
+    const plainH=plainT.lots.filter(l=>l.type==="house");
+    const plainSig=new Set(plainH.map(styleSig));
+
+    /* design mode: put a house on a diner's lot and the size follows */
+    const lot = L.lots.find(l => l.type === "diner");
+    const was = lot ? {w:lot.w,d:lot.d,type:lot.type} : null;
+    const swapped = lot ? T.retype(lot, "house", sizes) : false;
+    /* and a works will not go on a house lot, because it does not fit */
+    const houseLot = L.lots.find(l => l.type === "house" && l.side !== "whole");
+    const refused = houseLot ? !T.retype(houseLot, "factory", sizes) : false;
+
+    return { c, overlaps, worstOverlap, outside, inRoad,
+             dn: dnSnap,
+             widestHouse, mainShare: mainLots/L.lots.length, worksWhole,
+             houses: houses.length, hSig: hSig.size, wings, nTints: tints.size,
+             stacks: houses.filter(l => l.style.stack).length,
+             nRidges: ridges.size, plainH: plainH.length, plainSig: plainSig.size,
+             three: three.lots.filter(l => l.type === "diner").length,
+             none: none.lots.filter(l => l.type === "diner").length,
+             roadM: L.roadM, wideRoadM: wide.roadM, wideW: wide.bounds.w, W: L.bounds.w,
+             was, now: lot ? {w:lot.w,d:lot.d,type:lot.type} : null, swapped, refused };
+  });
+  ok("the town library is loaded", !lib.missing);
+  if (!lib.missing) {
+    ok("it lays out a town", lib.c.lots > 60 && lib.c.blocks === 30,
+       `${lib.c.lots} buildings on ${lib.c.blocks} blocks · ` +
+       Object.keys(lib.c.by).sort().map(k => lib.c.by[k] + " " + k).join(", ") +
+       ` · ${lib.c.streets} street runs, ${lib.c.junctions} junctions`);
+    ok("no building stands in another", lib.overlaps === 0,
+       `${lib.overlaps} pairs overlap, worst ${lib.worstOverlap.toFixed(1)} m²`);
+    ok("and none of them stands in the road", lib.outside === 0 && lib.inRoad === 0,
+       `${lib.outside} outside their own block, ${lib.inRoad} in a corridor`);
+    /* ONE DINER, AND A BIG ONE. Weighted per lot it came out thirty times a
+       town, every one shrunk to a house's frontage — thirty small diners is
+       not a town, it is a food court. */
+    ok("a town gets one diner", lib.dn.length === 1,
+       `${lib.dn.length} diners in a town of ${lib.c.lots} buildings`);
+    ok("and it is a landmark rather than a lot",
+       lib.dn.length === 1 && lib.dn[0].landmark && lib.dn[0].main &&
+       lib.dn[0].scale >= 1 && lib.dn[0].w > lib.widestHouse * 1.3,
+       lib.dn.length
+         ? `${lib.dn[0].w.toFixed(1)} × ${lib.dn[0].d.toFixed(1)} m at ` +
+           `${lib.dn[0].scale.toFixed(2)}× on ${lib.dn[0].frontage.toFixed(1)} m of ` +
+           `main-street frontage, against the widest house at ${lib.widestHouse.toFixed(1)} m`
+         : "none placed");
+    /* and the count is a number, not a coincidence */
+    ok("ask for three and get three, ask for none and get none",
+       lib.three === 3 && lib.none === 0,
+       `${lib.three} and ${lib.none}`);
+    ok("and the works stands in its own ground", lib.worksWhole,
+       "every factory has a block to itself");
+    /* TWO HUNDRED HOUSES OFF ONE ELEVATION, and not two hundred of the same
+       box. The number that matters is how many of them are distinguishable
+       from each other, not how many knobs were turned. */
+    ok("no two houses in a row are the same building",
+       lib.hSig > lib.houses * 0.75 && lib.nTints >= 6 && lib.nRidges === 2,
+       `${lib.hSig} distinguishable of ${lib.houses} houses · ` +
+       Object.keys(lib.wings).sort().map(k => lib.wings[k] + " " + k).join(", ") +
+       ` · ${lib.nTints} colours · ${lib.stacks} with a stack · ridges both ways`);
+    /* and it is a control, not a coincidence: turned off, the town is the one
+       this made before any of it — every house the elevation as forged */
+    ok("and turning variety off puts every house back",
+       lib.plainSig === 1 && lib.plainH > 100,
+       `${lib.plainSig} style among ${lib.plainH} houses at variety 0 — ` +
+       "the elevation exactly as forged, which is the town this used to make");
+    /* the road texture spans a whole cross-section, so the grid has to be
+       built around ITS width or the kerbs land in the wrong place */
+    ok("the street's own tile sets the corridor width",
+       lib.roadM === 14 && lib.wideRoadM === 24 && lib.wideW > lib.W,
+       `14 m of road makes a ${lib.W.toFixed(0)} m town, 24 m makes ${lib.wideW.toFixed(0)} m`);
+    ok("design mode can put a different building on a lot",
+       lib.swapped && lib.now.type === "house" && lib.now.w !== lib.was.w,
+       `${lib.was.type} ${lib.was.w.toFixed(1)}×${lib.was.d.toFixed(1)} → ` +
+       `${lib.now.type} ${lib.now.w.toFixed(1)}×${lib.now.d.toFixed(1)} m`);
+    ok("and refuses the one that will not fit", lib.refused,
+       "a works does not go on a house lot");
+  }
+
+  /* ---- the geometry -------------------------------------------------- */
+  const geo = await page.evaluate(() => {
+    const T = window.ForgeTown, M = window.ForgeModel;
+    if (!T || !M || !M.townScene) return { missing: true };
+    const face = (n, w, h, extra) => Object.assign(
+      { plan:{w,h,cutout:true,eaves:h,tile:0,roof:null}, material:{name:n,maps:{},cutout:true} },
+      extra || {});
+    const kit = {
+      house:{ front: face("house_front",9.8,9.2,{plan:{w:9.8,h:9.2,eaves:6.4,cutout:true,tile:0,
+                                                       roof:{kind:"gable",pitch:7,ridge:"x"}}}),
+              side: face("house_side",11.5,9.2), back: face("house_back",9.8,9.2),
+              roof: {plan:{w:2,h:2,tile:2,eaves:0,cutout:false},material:{name:"house_roof",maps:{}}} },
+      diner:{ front: face("diner_front",14,6), side: face("diner_side",9,6),
+              back: face("diner_back",14,6),
+              roof: {plan:{w:2,h:2,tile:2,eaves:0,cutout:false},material:{name:"flat_roof",maps:{}}} },
+      factory:{ front: face("factory_front",26,14), side: face("factory_side",34,14),
+                back: face("factory_back",26,14),
+                roof: {plan:{w:4,h:4,tile:4,eaves:0,cutout:false},material:{name:"flat_roof",maps:{}}} },
+      street:{ run:{plan:{w:14,h:14,tile:14,cutout:false},material:{name:"road",maps:{}}},
+               inter:{plan:{w:14,h:14,tile:14,cutout:false},material:{name:"junction",maps:{}}} }
+    };
+    const sizes = { house:{w:9.8,d:11.5}, diner:{w:14,d:9}, factory:{w:26,d:34} };
+    const L = T.settle(T.layout({seed:1963,cols:6,rows:5,blockW:70,blockD:55,roadM:14,
+                                 jitter:0.35,density:0.9}, sizes));
+    const S = M.townScene("town", L, kit);
+    let verts = 0, tris = 0, biggest = 0, backwards = 0, untagged = 0;
+    for (const m of S.meshes) {
+      verts += m.pos.length/3; tris += m.idx.length/3;
+      biggest = Math.max(biggest, m.pos.length/3);
+      if (!m.tag || m.tag.length !== m.idx.length/3) untagged++;
+      for (let i = 0; i < m.idx.length; i += 3) {
+        const P = k => [m.pos[k*3], m.pos[k*3+1], m.pos[k*3+2]];
+        const a = P(m.idx[i]), b = P(m.idx[i+1]), c = P(m.idx[i+2]);
+        const u = [b[0]-a[0],b[1]-a[1],b[2]-a[2]], v = [c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+        const n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+        const k = m.idx[i]*3;
+        if (n[0]*m.nrm[k] + n[1]*m.nrm[k+1] + n[2]*m.nrm[k+2] <= 0) backwards++;
+      }
+    }
+    /* the selected building comes out on its own so it can be lit alone */
+    const S2 = M.townScene("town", L, kit, {select: L.lots[7].i});
+    const sel = S2.meshes.filter(m => m.sel);
+    const selTags = [...new Set(sel.flatMap(m => m.tag || []))];
+    const faces = new Set(S.materials.map(m => m.face || m.name));
+    const painted = S.materials.filter(m => m.tint).length;
+    return { meshes: S.meshes.length, mats: S.materials.length, faces: faces.size,
+             painted, verts, tris, biggest,
+             backwards, untagged, lots: L.lots.length,
+             selMeshes: sel.length, selTris: sel.reduce((a,m)=>a+m.idx.length/3,0),
+             selTags, want: L.lots[7].i };
+  });
+  ok("the town assembles into geometry", !geo.missing);
+  if (!geo.missing) {
+    /* ONE MESH PER MATERIAL, not one per building. Two hundred meshes of twenty
+       vertices is two hundred draw calls and a stage in single figures. */
+    ok("one mesh per texture, not one per building",
+       geo.meshes <= geo.mats + 2 && geo.tris > geo.lots * 8,
+       `${geo.lots} buildings · ${geo.tris} triangles in ${geo.meshes} meshes ` +
+       `over ${geo.mats} materials · biggest mesh ${geo.biggest} verts`);
+    ok("and no mesh can outgrow a 16-bit index", geo.biggest < 65536,
+       `${geo.biggest} vertices in the biggest one`);
+    ok("every triangle is wound to its own normal", geo.backwards === 0,
+       `${geo.backwards} wound backwards — a back-face cull makes holes of those`);
+    /* which building did I click? The material cannot answer it: a hundred
+       houses share one. */
+    ok("every triangle knows which building it belongs to", geo.untagged === 0,
+       `${geo.untagged} meshes without a tag per triangle`);
+    /* THE PAINT TRAVELS. One image worn in several colours is several
+       materials sharing one texture, which is what glTF's baseColorFactor and
+       OBJ's Kd are for — so the town arrives painted rather than arriving grey
+       with a note about it. */
+    ok("the paint is materials, not extra textures",
+       geo.painted >= 6 && geo.faces <= 12,
+       `${geo.mats} materials over ${geo.faces} forged textures, ` +
+       `${geo.painted} of them carrying a colour`);
+    ok("and the selected one comes out on its own",
+       geo.selMeshes > 0 && geo.selTags.length === 1 && geo.selTags[0] === geo.want,
+       `${geo.selTris} triangles in ${geo.selMeshes} meshes, all tagged ${geo.selTags.join(",")}`);
   }
 }
 

@@ -264,6 +264,27 @@ function claims(g,cellM){
       }
       return true;
     },
+    /* HOW MUCH of a rectangle is spoken for, 0 to 1. rectClear answers yes or
+       no, which is the wrong question about a box: a box has to go somewhere,
+       and by the last layers of a loom there is no rectangle of bare plate
+       left to put one on. This is for saying how much cable a box came down on
+       rather than for refusing it the ground. */
+    rectLoad:function(cx,cy,tx,ty,hl,hw){
+      const nx=-ty,ny=tx;
+      const st=cell*0.6;
+      const nA=Math.max(1,Math.ceil(hl/st)),nB=Math.max(1,Math.ceil(hw/st));
+      let on=0,tot=0;
+      for(let ka=-nA;ka<=nA;ka++){
+        const a=ka*hl/nA;
+        for(let kb=-nB;kb<=nB;kb++){
+          const b=kb*hw/nB;
+          const i=at(Math.floor((cx+tx*a+nx*b)/cw),Math.floor((cy+ty*a+ny*b)/ch));
+          tot++;
+          if(i>=0&&A[i])on++;
+        }
+      }
+      return tot?on/tot:0;
+    },
     /* a rectangle of ground, for something that is not a run — a junction box
        standing on the plate is taken ground for every layer it is taller than */
     rect:function(cx,cy,tx,ty,hl,hw){
@@ -820,33 +841,74 @@ function junctions(BUF,ROUTES,g){
     if(!R.pts||R.nPts<4)continue;
     for(let e=0;e<2;e++){
       if((e?R.capB:R.capA)!=="box")continue;
-      paintBox(BUF.HGT,BUF.TAG,boxOf(R,e),g);
+      /* THE BOX THE MODE ACTUALLY PLACED, where it kept one. It tested that
+         rectangle for clear ground and marked the claims grid with it, and
+         recomputing here would quietly disagree with both — the other end's
+         trim shortens the run, and the box's own length is a fraction of it. */
+      const bx=(e?R.boxB:R.boxA)||boxOf(R,e);
+      if(bx)paintBox(BUF.HGT,BUF.TAG,bx,g);
     }
   }
 }
 
 /* the box's own dimensions and where it sits, from the route it terminates */
-function boxOf(R,end){
+/* `trim` asks what the box WOULD be if the run were that many points shorter
+   at this end — so a mode can walk back along a run looking for somewhere to
+   put one without cutting the run to find out. */
+function boxOf(R,end,trim){
   const K=KIND[R.kind];
   const stepM=R.len/Math.max(1,R.nPts);
+  const cut=Math.max(0,trim|0);
+  const nPts=R.nPts-cut;
+  if(nPts<8)return null;
+  const len=nPts*stepM;
   /* ALONG the run a box is shorter than it is wide: a cable entry box is
      entered on its long face and is not a corridor. Across, it has to clear
      the group it swallows and then some wall. Never more than a fifth of a
      run either — a stub swallowed whole by its own box reads as a box with a
      bump beside it rather than as a terminated run. */
   const hw=R.half+Math.max(0.0035,R.r*0.5);
-  const hl=Math.min(Math.max(0.010,Math.min(hw*0.80,R.half*0.75)),R.len*0.20);
+  const hl=Math.min(Math.max(0.010,Math.min(hw*0.80,R.half*0.75)),len*0.20);
   /* the index a half-length in from the end, which puts the far face on the tip */
   const back=Math.max(1,Math.round(hl/stepM));
-  const idx=end?Math.max(0,R.nPts-1-back):Math.min(R.nPts-1,back);
+  const idx=end?Math.max(0,R.nPts-1-cut-back):Math.min(R.nPts-1,cut+back);
   const q=idx*4;
   let tx=R.pts[q+2],ty=R.pts[q+3];
   if(!end){tx=-tx;ty=-ty;}                    // the outward direction at that end
+
+  /* A BOX IS BOLTED TO THE BACKPLANE, and the backplane is ribbed, drilled and
+     framed on the square. A cast enclosure hung at thirty-seven degrees to all
+     of it is the one thing in the picture that looks placed rather than
+     installed — nobody drills a mounting pattern off-axis to suit a cable.
+
+     So the box takes the NEAREST QUARTER TURN to the run's own heading, and
+     how far off that heading was comes back as `skew` so the mode can walk
+     back along the run and find somewhere the two nearly agree. The gland is
+     drawn in the box's frame, so a skew is the angle at which the conduit
+     meets its own entry: a few degrees is a cable being pulled straight into
+     a gland, and forty-five is a lie. */
+  const ax=Math.abs(tx),ay=Math.abs(ty);
+  const skew=Math.acos(clamp(Math.max(ax,ay),0,1));
+  if(ax>=ay){tx=tx<0?-1:1;ty=0;}
+  else{ty=ty<0?-1:1;tx=0;}
+
   return {
-    x:R.pts[q],y:R.pts[q+1],tx:tx,ty:ty,
+    x:R.pts[q],y:R.pts[q+1],tx:tx,ty:ty,skew:skew,trim:cut,
     hl:hl,hw:hw,
     /* the lid clears the crown of what goes into it, and no more: a box that
-       stands as tall as the panel line is a slab, not an enclosure */
+       stands as tall as the panel line is a slab, not an enclosure.
+
+       IT WAS RAISED TO CLEAR THE WHOLE SHELF and put back. A lid standing only
+       over its own cable is interleaved with any fatter run sharing its layer
+       — that run's crown pokes through while its flanks fall below, so the
+       ribbon comes out sliced along the box's outline. Measured, that is one
+       or two runs a tile and a few dozen texels. Raising the lid to the shelf
+       crown removed it and cost far more than it was worth: a taller box is
+       taken ground for more layers, which shifted every route in the bay, took
+       a tile from ten bundles to seven and pushed the angle the conduit meets
+       its box at from under a degree back to three or four. Capping the
+       headroom so the lid stays under the next shelf recovered the bundles and
+       not the squareness. The interleaving is the smaller lie; it stays. */
     top:R.z0+R.r*(K.hs+K.det)+Math.max(0.003,R.r*0.40),
     z0:R.z0,
     /* the gland: a collar round the bundle just outside the entry face */
@@ -922,6 +984,92 @@ function paintBox(HGT,TAG,B,g){
       }
     }
   }
+}
+
+/* BRING THE RUN SQUARE INTO ITS BOX.
+
+   The box is on a quarter turn because the plate it is bolted to is: nobody
+   drills a mounting pattern off-axis to suit a cable. The gland is
+   perpendicular to the face it is screwed into, because that is what a gland
+   is. Those two together mean the conduit has to arrive on the box's own axis,
+   and on a run that wanders there is no reason it should.
+
+   Walking back along the run for a place where it already nearly does is the
+   first half of the answer and gets most of them under a few degrees. This is
+   the other half, for the runs too short to offer one: the last stretch — the
+   part the gland grips and the part inside the box — is turned onto the axis
+   at the tightest radius the bundle will take, and everything before it is
+   left exactly where it was. It is a few centimetres of cable being pulled
+   straight into a fitting, which is what an installer does with it.
+
+   It moves the tip, so the box has to be worked out again afterwards. */
+function squareInto(R,end,minR,g){
+  const nP=R.nPts;
+  if(!R.pts||nP<14)return false;
+  const bx=boxOf(R,end);
+  if(!bx)return false;
+  const stepM=R.len/Math.max(1,nP);
+  const maxTurn=stepM/Math.max(1e-6,minR||stepM*40);
+  /* the direction the RUN travels at this end: boxOf reports the outward one,
+     which at the near end is backwards along it */
+  const A=Math.atan2(bx.ty,bx.tx)+(end?0:Math.PI);
+  /* dead straight from the gland outward — that is the stretch the fitting
+     grips and the stretch the box has swallowed */
+  const flat=Math.ceil((bx.hl*2+bx.gl)/stepM)+2;
+  const j0i=end?(nP-1-flat):flat;
+  if(j0i<3||j0i>nP-4)return false;
+  let head=Math.atan2(R.pts[j0i*4+3],R.pts[j0i*4+2]);
+  let d=A-head;
+  while(d>Math.PI)d-=2*Math.PI;
+  while(d<-Math.PI)d+=2*Math.PI;
+  const turnPts=Math.ceil(Math.abs(d)/maxTurn);
+  const total=Math.min(flat+turnPts,nP-6);
+  const j0=end?Math.max(2,nP-1-total):Math.min(nP-3,total);
+  head=Math.atan2(R.pts[j0*4+3],R.pts[j0*4+2]);
+  let x=R.pts[j0*4],y=R.pts[j0*4+1];
+  const W=g?g.Wm:0,H=g?g.Hm:0,wrap=!!(g&&!g.bay);
+  const step=end?1:-1;
+  for(let j=j0+step;end?j<nP:j>=0;j+=step){
+    let dd=A-head;
+    while(dd>Math.PI)dd-=2*Math.PI;
+    while(dd<-Math.PI)dd+=2*Math.PI;
+    head+=clamp(dd,-maxTurn,maxTurn);
+    const tx=Math.cos(head),ty=Math.sin(head);
+    x+=tx*stepM*step;y+=ty*stepM*step;
+    if(wrap){
+      if(x<0)x+=W;else if(x>=W)x-=W;
+      if(y<0)y+=H;else if(y>=H)y-=H;
+    }
+    const q=j*4;
+    R.pts[q]=x;R.pts[q+1]=y;R.pts[q+2]=tx;R.pts[q+3]=ty;
+  }
+  return true;
+}
+
+/* SQUARE THE TAIL, BUT NOT ONTO SOMEBODY ELSE'S GROUND.
+
+   Bending the last stretch MOVES THE TIP, and the box is worked out from the
+   tip — so the rectangle that ends up painted is not the one the mode tested
+   for clear ground before it committed to squaring. It can be most of a box
+   length away from it, which is how a junction box ends up sitting across a
+   cable that was nowhere near it when the ground was checked.
+
+   So test the rectangle that will actually be painted. When it lands on
+   something, put the tail back exactly as it was and keep the box that was
+   known clear — square to the plate as every box is, just met at an angle. A
+   run entering its box eight degrees off is a smaller lie than a box parked on
+   somebody else's conduit. */
+function settleBox(R,end,minR,g,clear){
+  const was=boxOf(R,end);
+  if(!was)return null;
+  const keep=R.pts.slice(0,R.nPts*4);
+  if(squareInto(R,end,minR,g)){
+    const fin=boxOf(R,end);
+    if(fin&&(!clear||clear(fin))){fin.squared=true;return fin;}
+    R.pts.set(keep);                     // the tail exactly as the router left it
+  }
+  was.squared=false;
+  return (!clear||clear(was))?was:null;
 }
 
 /* ============================ the bay frame ============================
@@ -1015,7 +1163,11 @@ function build(p,io,spec){
      whether a box had room — so nothing outside can work it out from the
      parameters, and the exported readme is the right place for it: what is in
      the picture is part of what the picture is. */
-  const census={bundles:R.length,closed:0,boxes:0,glands:0,tees:0};
+  const census={bundles:R.length,closed:0,boxes:0,glands:0,tees:0,
+                skewMax:0,skewAvg:0,skewSq:0,squared:0,refused:0,
+                loadMax:0,loadAvg:0};
+  let loadN=0,sqN=0;
+  let skewN=0;
   for(let i=0;i<R.length;i++){
     if(R[i].closed){census.closed++;continue;}
     for(let e=0;e<2;e++){
@@ -1023,11 +1175,45 @@ function build(p,io,spec){
       /* a "none" on a run that is not closed is a BREAKOUT: the end where a
          branch leaves its parent, which is a junction rather than a
          termination and needs nothing standing at it */
-      if(c==="box")census.boxes++;
+      if(c==="box"){
+        census.boxes++;
+        /* HOW SQUARE IT CAME OUT. Every box is on a quarter turn by
+           construction; what is worth reporting is the angle the conduit
+           MEETS it at, because that is the one the picture is judged on. */
+        const bx=e?R[i].boxB:R[i].boxA;
+        if(bx&&bx.skew!==undefined){
+          const d=bx.skew*180/Math.PI;
+          if(d>census.skewMax)census.skewMax=d;
+          census.skewAvg+=d;skewN++;
+          /* SQUARED, OR DECLINED. Bending the tail moves the tip and the box
+             goes with it; where the box that would be painted lands on another
+             enclosure the tail goes back and the run keeps whatever angle it
+             had. Those two populations are worth keeping apart — the first
+             says whether the squaring works, the second only how often there
+             was somewhere to put it. */
+          if(bx.squared){census.squared++;census.skewSq+=d;sqN++;}
+          else census.refused++;
+        }
+        /* AND HOW MUCH CABLE IT CAME DOWN ON. A box is bolted to the plate; a
+           run already lying under one is buried by it, and a bundle that
+           vanishes at one edge of a grey rectangle and comes back at the other
+           reads as a Z-order mistake however truthful the heights are. This is
+           the fraction of the box's footprint that was already spoken for when
+           it was put down. It is a reading, not a lever: steering the
+           placement off it was tried three ways and every one of them cost
+           more than it bought — see the note beside the grid in conduit.js. */
+        if(bx&&bx.load!==undefined){
+          if(bx.load>census.loadMax)census.loadMax=bx.load;
+          census.loadAvg+=bx.load;loadN++;
+        }
+      }
       else if(c==="gland")census.glands++;
       else census.tees++;
     }
   }
+  census.skewAvg=skewN?census.skewAvg/skewN:0;
+  census.loadAvg=loadN?census.loadAvg/loadN:0;
+  census.skewSq=sqN?census.skewSq/sqN:0;
   const cav=Math.max(0.01,(+P.cavityMm||95)/1000);
   let hMin=0,hMax=1;
 
@@ -1323,6 +1509,7 @@ window.ForgeLoom={
   MAT:MAT,MATBY:MATBY,KIND:KIND,IDENT:IDENT,
   isBay:isBay,geom:geom,edgeDist:edgeDist,n1:n1,fbm1:fbm1,
   claims:claims,strata:strata,standing:standing,boxOf:boxOf,
+  squareInto:squareInto,settleBox:settleBox,
   /* the spacing every router must resample its polyline at */
   stepM:function(g){return g.mpp*0.8;},
   build:build

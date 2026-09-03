@@ -712,6 +712,63 @@ Conduit — the loom behind an access panel
   than off how far along the walk it is, so the cross-section is read where the
   texel actually sits.
 
+  A JUNCTION BOX IS BOLTED ON A QUARTER TURN. The plate behind it is ribbed,
+  drilled and framed square, and nobody drills a mounting pattern off-axis to
+  suit a cable — so the box takes the nearest quarter turn to the run whatever
+  the run's heading, and a box in this mode is never at any other angle.
+
+  Which leaves the conduit having to arrive on that axis, because the gland is
+  perpendicular to the face it is screwed into: that is what a gland is. Two
+  things do it. The run is walked back from its tip for a place where it
+  already nearly agrees — bounded, at a tenth of the run, because every point
+  traded for a squarer approach is a point off the run and hunting the whole
+  length for the best one cost a third of the bundles in the bay. Then the last
+  stretch, the part the gland grips and the part the box has swallowed, is
+  turned onto the axis at the tightest radius the bundle will take. That is
+  three or four centimetres of cable being pulled round into a fitting on most
+  runs and twelve at the very worst, which is what an installer does with it,
+  and it costs no length at all — the run is bent, not shortened.
+
+  Across a spread of seeds that takes the angle the conduit meets its box at
+  from eight degrees on average and thirty-nine at the worst, to under two on
+  average. The readme each build writes reports its own. A run that ends
+  mid-fillet, boxed in, has no room left to bend and no straight leg to walk
+  back to, and stays crooked; there is nothing to be done about that one short
+  of not putting a box there at all.
+
+  BENDING THE TAIL MOVES THE TIP, and the box is worked out from the tip — so
+  the rectangle that gets painted is not the one the mode tested for clear
+  ground before it committed. It can be nearly a box length away from it, which
+  is how an enclosure ends up standing on top of another one that was nowhere
+  near it when the ground was checked. The rectangle that will be painted is
+  the one that gets tested, and when it lands on something the tail goes back
+  exactly as the router laid it and the box that was known clear is kept:
+  square to the plate as every box is, just met at an angle. That is a rare
+  outcome — none to one box a tile — and the readme each build writes counts
+  the squared ones and the declined ones separately, because a mean over both
+  hides which half moved.
+
+  WHAT IS STILL THERE, and it is worth being plain about it: a box put down
+  where a cable was already lying buries that cable, and the run vanishes at
+  one edge of a grey rectangle and comes back at the other. Each box reports
+  the fraction of its footprint that was already spoken for and the census
+  prints the average and the worst, because the honest thing is to measure it.
+  Steering the placement away from it was tried three ways and none of them
+  survived. Refusing occupied ground outright took a tile from eight
+  enclosures to one, since by the last layers there is hardly a rectangle of
+  bare plate left. Scoring cable against squareness moved boxes a third of the
+  way off it and put the skew back, because the quiet patches are further down
+  the run and the points traded to reach one are the points the tail squaring
+  needs to bend with; penalising the walk-back as well still left runs meeting
+  their boxes at twenty-five and forty degrees. And raising the lid to clear
+  the whole shelf — which does fix the finer version of the same fault, a
+  fatter run on the same layer poking its crown through a box and coming out
+  sliced along the outline — made a taller box, taken ground for more layers,
+  which shifted every route in the bay and took a tile from ten bundles to
+  seven. The cable is under the box because the RUN is over that cable: an
+  upper layer is allowed to lie along a lower one, and the box goes where the
+  run ends. The place to fix it is the router, not the box.
+
   AND THE OUTSIDE OF A BEND TRAVELS FURTHER than the centreline the route was
   resampled along. Eight tenths of a texel at the centre carries the far edge of
   a wide bundle eight tenths times (1 + reach / bend radius), which on a flat
@@ -938,6 +995,140 @@ than as four exports you have to remember to line up afterwards.
 House walks front, side, back, roof. Diner walks front, side, back off one
 streamline body, so the bands land at the same heights on each face and the
 neon carries round the corner.
+
+AND TOWN, WHICH IS NOT ONE BUILDING
+-----------------------------------
+The "Town" structure walks thirteen textures — a house and its side, back and
+roof; a diner and its side and back; a works and its side and back; one flat
+roof for the two of them; and a road with its junction — and then stands them
+up two hundred times on a street grid. That is the only way a town of this size
+is affordable at all: thirteen textures, not eight hundred.
+
+BETWEEN GROUPS NOTHING IS INHERITED. A structure used to be one building, where
+a step opening on what the step before it settled is the whole point — change
+the cladding on the front and the side follows. A town's steps are a house,
+then a diner, then a works, then the road, and a diner that opened on the
+house's clapboard and the house's storey height would be a house with a neon
+sign on it. So the first step of each group starts fresh and the steps after it
+inherit from that one. Within a group nothing has changed.
+
+THE ROAD DECIDES HOW WIDE THE STREETS ARE. The street texture is a square tile
+spanning a whole cross-section — lanes, shoulders, kerbs, footways — laid with
+u along the direction of travel. So the corridor IS that tile: whatever "Tile
+covers" says on the road step is exactly how wide every street in the town is,
+and moving it moves the grid. A town that picked its own road width would be
+stretching the kerbs to reach it.
+
+WHAT THE LAYOUT DOES. A grid of blocks with the block sizes jittered, two
+through roads crossing near the middle, and lots round the perimeter of every
+block facing the street they front. The lots are houses; the two things that
+are not houses do not get lots at all.
+
+A WORKS GETS A BLOCK. Twenty-six metres across and thirty-four deep does not
+stand in a row of houses, and one squeezed to where it does is a shed. The edge
+blocks are zoned industrial outright and take one building each, in their own
+ground.
+
+AND A TOWN GETS ONE DINER. Weighted per lot it came out thirty times over,
+every one of them shrunk to a house's frontage — thirty small diners is not a
+town, it is a food court. So it is placed as a LANDMARK: a run of neighbouring
+lots on a through road is lifted out and the diner stands on the ground they
+were sharing, centred on it, never below its own natural size and up to the
+same ceiling everything else is held to. That comes out around eighteen metres
+across on twenty-five of frontage, against a widest house of eleven — it reads
+as the middle of town rather than as a building that happens to be larger. The
+run chosen is the one nearest the middle, and short enough not to eat a whole
+block. The bar has a count if you want none, or three.
+
+The corner of a block belongs to the rows fronting the wider street and the
+side rows start clear of them, which is what a real block does.
+
+Nothing is resized to fit that is not resized UNIFORMLY, because the front of a
+building is an elevation and squashing one axis of it makes a building nobody
+built. A type that will not fit a lot at a sane scale is not put there at all.
+
+ONE TEXTURE IS NOT ONE BUILDING
+-------------------------------
+Two hundred houses off one elevation was two hundred identical boxes in rows,
+which is the one thing a town never looks like — and forging two hundred
+textures is not the answer either. Everything below is variation that costs NO
+texture at all, and every one of them is per instance:
+
+  it is mirrored or it is not     the front elevation flipped, which is half
+                                  the houses on any street
+  the ridge runs the other way    across or front-to-back, and flat now and
+                                  then. From the air this is most of what a
+                                  town IS, and the roof is a tiling material
+                                  either way, so it is free
+  it is taller or shorter         a few per cent of height is a skyline rather
+                                  than a stretch anybody can see
+  it sits further back            the setback jittered per lot, because a
+                                  street where every front wall is on one line
+                                  is a terrace
+  and most of them have           a garage off the back, a wing off the back
+  SOMETHING STUCK ON THEM         corner, a porch across the front, a chimney
+                                  up the side
+
+THE ATTACHED MASSES ARE THE BIG ONE, and they wear a WINDOW of the parent's own
+elevation. A garage is not a small house: it is a wall four metres high with a
+door in it, and a whole two-storey elevation squashed onto it is a doll's
+house. So it samples the bottom four metres of the same image at the SAME texel
+scale — real wall at a real size — and the cut-out sky up above the eaves never
+comes into it.
+
+THE GARAGE WENT BEHIND AFTER BEING MEASURED. A lot is the house's own width
+plus a gap — nine metres of buildable frontage for a nine-metre house — so a
+garage BESIDE one never once fitted and every one of them was quietly dropped
+by the fit test. Behind it there is depth to spare, which is also where the
+garage on a gridded town's alley actually is.
+
+AND THEY ARE PAINTED. A street where every house is the same colour is the last
+thing saying "this is one texture" once the massing has stopped saying it, and
+it costs nothing but a multiplier on the base colour — which is also what
+repainting a house is. One image, one material per colour: glTF carries that as
+baseColorFactor and OBJ as Kd, so the town arrives in Blender painted rather
+than arriving grey with a note about it. Roofs move separately and less, because
+a street of different houses under one colour of shingle is a street and a
+street of different shingle is a fairground.
+
+The composition is worked out in the LAYOUT rather than in the renderer, which
+is the only place it can be: a garage that widened the building after its ground
+had been checked would be a garage standing in next door's kitchen. The fit is
+of the whole composition, so the footprint the overlap test sees is the
+footprint that gets drawn — and where the ground will not take what a building
+wanted, it loses the wing rather than the building.
+
+"Variety" on the town bar is a real off switch. At zero every house is the
+elevation exactly as forged, standing square, unpainted, on the same setback as
+its neighbours: 241 houses and one style between them, which is the town this
+made before any of this existed.
+
+THE TOWN BAR, under the 3D view, is where the grid lives: seed, blocks across
+and deep, block size, how ragged, how built up, how much industry, how many
+diners, how much variety — and a re-roll. Everything on it moves the town while you drag, with nothing forged,
+exactly as one building's box follows a slider.
+
+DESIGN MODE. The generator's answer is a starting point, not a verdict. Click a
+building and it lights up on its own — not all hundred wearing the same
+texture, which is what a material-wide highlight would do — and then: TYPE puts
+a different kind of building on that lot, resized the way the layout would have
+and refused where it will not fit; TURN gives it a quarter turn; SHIFT slides it
+along its own frontage as far as its neighbours allow; RE-ROLL gives that one
+building a different draw of the dice; CLEAR takes it away and leaves the lot
+empty; PUT BACK undoes the lot.
+
+Edits are kept BY LOT rather than baked in, so they survive a re-forged texture
+and a rebuilt scene. They do not survive a change to the grid — different block
+sizes are different lots and there is nothing honest to map an edit onto — so
+those clear them.
+
+WHAT LEAVES. The same archive button: thirteen folders of maps, and a
+model.gltf / model.obj / model.mtl of the whole town at true scale, standing on
+the layout you were looking at, edits and all. Every instance of a face shares
+one material and one mesh, so what arrives in Blender is a handful of objects
+you can select rather than several hundred you cannot. There is no ground plane
+in the file — the town sits on y = 0 with the streets a centimetre above it —
+so drop it onto whatever ground you have.
 
 No WebGL, no tab: everything else in the wizard works exactly as it did.
 
@@ -1450,9 +1641,12 @@ It also covers the thirteen things that are easy to break silently:
             The claims grid and the stack are also exercised directly
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
-            since "how orthogonal is this picture" has no absolute scale; and
-            the bracing reaches the HEIGHT field rather than only the
-            parameters
+            since "how orthogonal is this picture" has no absolute scale — and
+            measured on the RUNS, off the tag's along-the-route field, not on
+            the height gradient of the whole picture, which is mostly backplane
+            and frame and box lid and told the two modes apart only by
+            accident; and the bracing reaches the HEIGHT field rather than only
+            the parameters
   stage     the wizard's 3D building is the BUILDING: its box is as wide as the
             front's plan says and as deep as the side's, four walls and a roof
             stand on a ground, and both sides come off the one side elevation.
@@ -1488,6 +1682,38 @@ It also covers the thirteen things that are easy to break silently:
             and at 256, 512, 1024 and 2048 px, because the first fault was the
             span's spacing against the grid and that is what a resolution
             changes
+  boxes     junction boxes land on a quarter turn, the run arrives square, and
+            squaring a tail is all or nothing.
+            Two claims, two tests. That the BOX is square is a property of one
+            function and is checked as one — boxOf is handed a run pointing at
+            every angle in turn and has to come back with an axis vector every
+            time (before this it managed two headings out of 240, the two that
+            were already on an axis). That the RUN arrives square is a property
+            of the whole build and comes off the census, which reports the
+            angle the conduit actually meets its box at. The MEAN is the claim
+            and the WORST is only a guard: a run that ends mid-fillet, boxed
+            in, has no room to bend its own tail and no straight leg to walk
+            back to
+  town      the town is a town and not a diagram. THE LAYOUT: no building
+            stands in another, none of them stands in the road, there is ONE
+            diner and it is a landmark — on a through road, over frontage
+            taken from several house lots, half again as wide as the widest
+            house — the works stands in its own ground, and the grid follows
+            the ROAD TEXTURE's width rather than a number of its own: 14 m of
+            road makes a 502 m town and 24 m makes 572. THE BUILDINGS: no two
+            houses in a row are the same building, 241 of 241 distinguishable
+            over four kinds of attached mass, ten colours and ridges both ways
+            — and turning variety off puts every one of them back to a single
+            style, so it is the control doing the work and not the seed. The
+            paint is MATERIALS rather than extra textures, forty of them over
+            ten forged images. THE GEOMETRY: one mesh per material rather than
+            one per building (two hundred meshes of twenty vertices is two
+            hundred draw calls), nothing over the 16-bit index ceiling, every
+            triangle wound to its own normal, and every triangle tagged with
+            the building it belongs to — because a hundred houses share one
+            material and "which one did I click" cannot be answered by it. And
+            DESIGN MODE swaps a type, resizes it the way the layout would have,
+            and refuses a works on a house lot
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the

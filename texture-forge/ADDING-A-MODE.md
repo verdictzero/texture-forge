@@ -565,6 +565,103 @@ one step long by construction, so anything several times that is a wrap.
 
 `stamp()` in `modes/lib/loom.js` is the worked example for all of it.
 
+## Things bolted to a surface belong on that surface's axes
+
+A cast enclosure, a bracket, a nameplate — anything mounted rather than routed
+— is fixed with a pattern somebody drilled, and nobody drills off-axis to suit
+a cable. So snap its orientation to the nearest quarter turn, and then deal
+with the consequence: whatever attaches to it has to arrive on that axis too,
+or the fitting between them sits crooked.
+
+Two moves, and you generally want both. Look for a place along the route where
+it already nearly agrees — but **bound that search**, because every step you
+trim off a run to square it up is a step off the run, and hunting the whole
+length for the best spot can cost you a third of the routes in the picture.
+Then bend the last stretch onto the axis at the tightest radius the thing will
+take. `boxOf` / `squareInto` in `modes/lib/loom.js` are the pair.
+
+Bending the tail **moves the tip**, and anything worked out from the tip moves
+with it — so the rectangle you end up painting is not the one you tested for
+clear ground. Test the one that will be painted, and be able to put the tail
+back exactly when it fails: `settleBox` does both, and a run entering its box a
+few degrees off is a smaller lie than a box parked on somebody else's conduit.
+
+When you stack things in layers over one Z-buffer, a lid that clears only its
+own contents comes out **interleaved** with anything fatter on the same shelf —
+crown through the lid, flanks under it, sliced along the outline. Clearing the
+shelf instead fixes it, and costs more than it fixes: a taller thing is taken
+ground for more layers, and in the loom that shifted every route in the bay.
+Measure both sides before you take that trade.
+
+## A structure whose steps are not one building
+
+`Forge.registerStructure` walks a list of steps and each one **opens on what the
+steps before it settled**, which is the whole point when the steps are the four
+faces of one house. It is the wrong thing entirely when they are not: the town
+structure's steps are a house, then a diner, then a works, then the road, and a
+diner opening on the house's clapboard and storey height is a house with a neon
+sign on it.
+
+Mark the first step of each group `fresh: true`. It opens on its own mode's
+defaults and starts a new pool for the steps after it; within a group nothing
+changes. The rail's tick-and-recycle marks follow the same grouping, so a
+town's diner does not go stale because the house moved.
+
+A structure may also declare `town: {kit: {...}}`, which names which step's
+texture goes on which face of which type. `modes/lib/town.js` reads it to work
+out what sizes it is fitting lots to, `forge-model.js` reads it to know what to
+put triangles on, and the 3D view reads it to know what to draw — one list of
+what the thing is made of rather than three.
+
+## Standing one texture up several hundred times
+
+`ForgeModel.townScene` is the worked example, and two things in it are the
+difference between a town and a slideshow.
+
+**One mesh per material, not one per instance.** Two hundred houses off four
+textures is four meshes, not two hundred; two hundred meshes of twenty vertices
+each is two hundred draw calls, two hundred buffer uploads, and a viewer in
+single figures. It is also what makes the export a handful of objects a person
+can select in Blender. Close a mesh off and start another before it can pass
+65535 vertices, because glTF and WebGL 1 both index with unsigned shorts.
+
+**Tag every triangle with the instance it belongs to.** Once a hundred houses
+share one mesh and one material, "which one did I just click" has no answer
+without it — and picking one instance out of a batch is the whole of any design
+mode. `prepMesh` in `forge-stage.js` carries the tag array through and the
+picker hands it back beside the material name.
+
+Lighting one instance is a separate problem, because the highlight is a uniform
+and a uniform is per draw call: the scene splits the selected instance into its
+own mesh for as long as it is selected, and costs one draw call for it.
+
+## One texture is not one building
+
+Two hundred instances of one elevation is two hundred identical boxes, and
+forging two hundred elevations is not the answer. Three kinds of variation cost
+no texture at all and between them do most of the work:
+
+**Massing.** Mirror the elevation. Turn the ridge. Jitter the height a few per
+cent, and the setback. Stick something on it — a wing, a garage, a porch, a
+stack — and let that sub-mass wear a **window of the parent's own elevation**:
+the bottom four metres of the same image at the same texel scale is a real wall
+at a real size, where the whole elevation squashed onto it is a doll's house.
+
+**Paint.** A multiplier on the base colour, which is what repainting a building
+is. One image, one material per colour — `baseColorFactor` in glTF, `Kd` in a
+`.mtl` — so it travels into Blender rather than being a viewer-only trick. Keep
+it gentle and let secondary surfaces (roofs) move separately and less.
+
+**And work it out in the LAYOUT, not the renderer.** A garage that widens a
+building after its ground has been checked is a garage in next door's kitchen.
+Fit the whole composition, then let the collision tests see the envelope that
+actually gets drawn — and where the ground will not take what a building
+wanted, drop the wing rather than the building.
+
+Give it an off switch and make the switch a claim you can test: at zero every
+instance should be the thing exactly as forged. That is the only way to know
+the variation is the control's doing and not the seed's.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

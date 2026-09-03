@@ -287,6 +287,15 @@ body[data-wizard=on] #modebar-tabs,body[data-wizard=on] #browse{opacity:.35;poin
    bar sat under every view rather than only under the one channel it belongs
    to — its dozen controls do nothing to a base colour or to a building */
 .palbar[hidden]{display:none}
+.townbar .pallab{color:var(--accent)}
+.townbar{row-gap:4px}
+.townbar label{display:flex;align-items:center;gap:4px;font-family:var(--mono);
+  font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:#8b929a}
+.townbar label input[type=range]{width:56px}
+.townbar label input[type=number]{width:52px;font-family:var(--mono);font-size:10px;
+  background:#15171a;color:#d7dbe0;border:1px solid #2e3237;border-radius:3px;padding:2px 4px}
+.townbar .selnote{font-family:var(--mono);font-size:10px;color:var(--accent);
+  margin-left:auto;white-space:nowrap}
 .palbar.drop{background:#1b1f22;box-shadow:inset 0 0 0 1px var(--accent)}
 .pallab{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
   letter-spacing:.11em;color:#9aa0a7}
@@ -530,6 +539,12 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
            a dozen places to forget to update. Shown only on the Unlit tab. -->
       <div class="palbar bakebar" id="bakebar" hidden></div>
 
+      <!-- THE TOWN'S OWN BAR. A street grid is not a texture, so its numbers do
+           not belong in a mode's panel; they belong with the picture of the
+           town, next to the thing they move. Built in script, because the row
+           it needs is the same eight controls whatever is loaded. -->
+      <div class="palbar townbar" id="townbar" hidden></div>
+
       <div class="stage" id="stage">
         <canvas id="gl" class="on" width="900" height="900"></canvas>
         <canvas id="flat" width="900" height="900"></canvas>
@@ -603,6 +618,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <script src="modes/grocery.js"></script>
 <script src="modes/vent.js"></script>
 <script src="modes/panel.js"></script>
+<script src="modes/lib/town.js"></script>
 <script src="modes/lib/loom.js"></script>
 <script src="modes/conduit.js"></script>
 <script src="modes/raceway.js"></script>
