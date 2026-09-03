@@ -2014,13 +2014,20 @@ if (want("town")) {
         if (ox > 0.05 && oz > 0.05) { overlaps++; if (ox*oz > worstOverlap) worstOverlap = ox*oz; }
       }
     }
-    /* shops on the through road: the fraction of diners whose lot fronts a
-       main street, against the fraction of all lots that do */
-    let mainLots = 0, mainDiners = 0, diners = 0;
-    for (const l of L.lots) {
-      if (l.main) mainLots++;
-      if (l.type === "diner") { diners++; if (l.main) mainDiners++; }
-    }
+    /* the diner is a landmark rather than a lot type: one of it, on a through
+       road, over frontage it took from several house lots, and bigger than
+       anything else standing on a lot */
+    let mainLots = 0;
+    for (const l of L.lots) if (l.main) mainLots++;
+    /* SNAPSHOT IT NOW. The design-mode check further down retypes a lot in
+       place, and a live reference to it would report the house it became. */
+    const dnSnap = L.lots.filter(l => l.type === "diner")
+      .map(d => ({w:d.w, d:d.d, scale:d.scale, main:d.main,
+                  frontage:d.frontage, landmark:!!d.landmark}));
+    const houses = L.lots.filter(l => l.type === "house");
+    const widestHouse = houses.reduce((a,l) => Math.max(a,l.w), 0);
+    const three = T.layout(Object.assign({}, P, {diners:3}), sizes);
+    const none = T.layout(Object.assign({}, P, {diners:0}), sizes);
     /* a works stands in its own ground rather than in a row */
     const worksWhole = L.lots.filter(l => l.type==="factory").every(l => l.side==="whole");
 
@@ -2035,8 +2042,11 @@ if (want("town")) {
     const houseLot = L.lots.find(l => l.type === "house" && l.side !== "whole");
     const refused = houseLot ? !T.retype(houseLot, "factory", sizes) : false;
 
-    return { c, overlaps, worstOverlap, outside, inRoad, diners, mainDiners,
-             mainShare: mainLots/L.lots.length, worksWhole,
+    return { c, overlaps, worstOverlap, outside, inRoad,
+             dn: dnSnap,
+             widestHouse, mainShare: mainLots/L.lots.length, worksWhole,
+             three: three.lots.filter(l => l.type === "diner").length,
+             none: none.lots.filter(l => l.type === "diner").length,
              roadM: L.roadM, wideRoadM: wide.roadM, wideW: wide.bounds.w, W: L.bounds.w,
              was, now: lot ? {w:lot.w,d:lot.d,type:lot.type} : null, swapped, refused };
   });
@@ -2050,12 +2060,23 @@ if (want("town")) {
        `${lib.overlaps} pairs overlap, worst ${lib.worstOverlap.toFixed(1)} m²`);
     ok("and none of them stands in the road", lib.outside === 0 && lib.inRoad === 0,
        `${lib.outside} outside their own block, ${lib.inRoad} in a corridor`);
-    /* the whole point of zoning: a diner is far likelier to front the through
-       road than a lot picked at random is */
-    ok("the shops are on Main Street",
-       lib.diners > 8 && lib.mainDiners / lib.diners > lib.mainShare * 2,
-       `${lib.mainDiners} of ${lib.diners} diners front a main street, ` +
-       `against ${(lib.mainShare*100).toFixed(0)}% of all lots`);
+    /* ONE DINER, AND A BIG ONE. Weighted per lot it came out thirty times a
+       town, every one shrunk to a house's frontage — thirty small diners is
+       not a town, it is a food court. */
+    ok("a town gets one diner", lib.dn.length === 1,
+       `${lib.dn.length} diners in a town of ${lib.c.lots} buildings`);
+    ok("and it is a landmark rather than a lot",
+       lib.dn.length === 1 && lib.dn[0].landmark && lib.dn[0].main &&
+       lib.dn[0].scale >= 1 && lib.dn[0].w > lib.widestHouse * 1.3,
+       lib.dn.length
+         ? `${lib.dn[0].w.toFixed(1)} × ${lib.dn[0].d.toFixed(1)} m at ` +
+           `${lib.dn[0].scale.toFixed(2)}× on ${lib.dn[0].frontage.toFixed(1)} m of ` +
+           `main-street frontage, against the widest house at ${lib.widestHouse.toFixed(1)} m`
+         : "none placed");
+    /* and the count is a number, not a coincidence */
+    ok("ask for three and get three, ask for none and get none",
+       lib.three === 3 && lib.none === 0,
+       `${lib.three} and ${lib.none}`);
     ok("and the works stands in its own ground", lib.worksWhole,
        "every factory has a block to itself");
     /* the road texture spans a whole cross-section, so the grid has to be

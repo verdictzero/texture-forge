@@ -92,6 +92,14 @@ function quad(mesh,a,b,c,d,n,uv){
 }
 function mesh(name,mat){return {name:name,mat:mat,pos:[],nrm:[],uv:[],idx:[]};}
 
+/* "6 factorys" is the sort of thing that makes a person distrust the number
+   next to it. One rule, because these are all type names in this app's own
+   vocabulary rather than English at large. */
+function plural(word,n){
+  if(n===1)return word;
+  return /[^aeiou]y$/.test(word)?word.slice(0,-1)+"ies":word+"s";
+}
+
 /* ---------------------------------------------------------------------------
    ONE FACE, ONE PLANE
 
@@ -414,7 +422,7 @@ function townScene(name,L,kit,opts){
 
   const by={};
   for(const lot of L.lots)by[lot.type]=(by[lot.type]|0)+1;
-  const kinds=Object.keys(by).map(k=>by[k]+" "+k+(by[k]===1?"":"s")).join(", ");
+  const kinds=Object.keys(by).map(k=>by[k]+" "+plural(k,by[k])).join(", ");
   S.notes.push("Town: "+built+" buildings — "+(kinds||"none")+" — on "+L.blocks.length+
                " blocks, over "+(B.w/1).toFixed(0)+" x "+(B.d).toFixed(0)+" m.");
   S.notes.push("Streets: "+L.streets.length+" runs and "+L.nodes.length+
@@ -642,6 +650,7 @@ window.ForgeModel={
   FT:FT,
   planOf:planOf,
   quadScene:quadScene,
+  plural:plural,
   buildingScene:buildingScene,
   gltf:gltf,obj:obj,mtl:mtl,readme:readme,
 

@@ -1021,22 +1021,35 @@ stretching the kerbs to reach it.
 
 WHAT THE LAYOUT DOES. A grid of blocks with the block sizes jittered, two
 through roads crossing near the middle, and lots round the perimeter of every
-block facing the street they front. Shops go on the through roads and houses go
-on the streets behind — which is a better model of a town than a bullseye is,
-and it holds at any size; a four-by-three grid has no middle to put a
-commercial ring in. A works does not get a lot, it gets a BLOCK: twenty-six
-metres across and thirty-four deep does not stand in a row of houses, and one
-squeezed to where it does is a shed. The corner of a block belongs to the rows
-fronting the wider street and the side rows start clear of them, which is what
-a real block does.
+block facing the street they front. The lots are houses; the two things that
+are not houses do not get lots at all.
+
+A WORKS GETS A BLOCK. Twenty-six metres across and thirty-four deep does not
+stand in a row of houses, and one squeezed to where it does is a shed. The edge
+blocks are zoned industrial outright and take one building each, in their own
+ground.
+
+AND A TOWN GETS ONE DINER. Weighted per lot it came out thirty times over,
+every one of them shrunk to a house's frontage — thirty small diners is not a
+town, it is a food court. So it is placed as a LANDMARK: a run of neighbouring
+lots on a through road is lifted out and the diner stands on the ground they
+were sharing, centred on it, never below its own natural size and up to the
+same ceiling everything else is held to. That comes out around eighteen metres
+across on twenty-five of frontage, against a widest house of eleven — it reads
+as the middle of town rather than as a building that happens to be larger. The
+run chosen is the one nearest the middle, and short enough not to eat a whole
+block. The bar has a count if you want none, or three.
+
+The corner of a block belongs to the rows fronting the wider street and the
+side rows start clear of them, which is what a real block does.
 
 Nothing is resized to fit that is not resized UNIFORMLY, because the front of a
 building is an elevation and squashing one axis of it makes a building nobody
 built. A type that will not fit a lot at a sane scale is not put there at all.
 
 THE TOWN BAR, under the 3D view, is where the grid lives: seed, blocks across
-and deep, block size, how ragged, how built up, how much industry — and a
-re-roll. Everything on it moves the town while you drag, with nothing forged,
+and deep, block size, how ragged, how built up, how much industry, how many
+diners — and a re-roll. Everything on it moves the town while you drag, with nothing forged,
 exactly as one building's box follows a slider.
 
 DESIGN MODE. The generator's answer is a starting point, not a verdict. Click a
@@ -1626,9 +1639,11 @@ It also covers the thirteen things that are easy to break silently:
             in, has no room to bend its own tail and no straight leg to walk
             back to
   town      the town is a town and not a diagram. THE LAYOUT: no building
-            stands in another, none of them stands in the road, the shops front
-            the through road rather than being scattered, the works stands in
-            its own ground, and the grid follows the ROAD TEXTURE's width
+            stands in another, none of them stands in the road, there is ONE
+            diner and it is a landmark — on a through road, over frontage
+            taken from several house lots, half again as wide as the widest
+            house — the works stands in its own ground, and the grid follows
+            the ROAD TEXTURE's width
             rather than a number of its own — 14 m of road makes a 502 m town
             and 24 m makes 572. THE GEOMETRY: one mesh per texture rather than
             one per building (two hundred meshes of twenty vertices is two

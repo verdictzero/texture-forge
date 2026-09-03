@@ -1439,7 +1439,7 @@ function stagePlans(){
    building's box does.
    --------------------------------------------------------------------------- */
 const TOWN={seed:1963,cols:5,rows:4,blockW:70,blockD:55,jitter:0.35,
-            setback:5,gap:2.5,density:0.85,industry:0.6,
+            setback:5,gap:2.5,density:0.85,industry:0.6,diners:1,
             mix:{house:1,diner:1,factory:1}};
 let townL=null;                        // the layout the stage is showing
 
@@ -1606,7 +1606,11 @@ const TOWN_ROWS=[
   {id:"blockD", label:"Depth",  min:24,max:160,step:2,unit:"m",grid:true},
   {id:"jitter", label:"Ragged", min:0,max:1,step:0.05,grid:true},
   {id:"density",label:"Built",  min:0,max:1,step:0.05,grid:true},
-  {id:"industry",label:"Works", min:0,max:1,step:0.05,grid:true}
+  {id:"industry",label:"Works", min:0,max:1,step:0.05,grid:true},
+  /* ONE BY DEFAULT, because that is what a town has. A diner weighted per lot
+     came out thirty times over, every one of them shrunk to a house's
+     frontage; one taking the frontage it needs is the landmark it should be. */
+  {id:"diners", label:"Diners",min:0,max:4,step:1,grid:true}
 ];
 let townBarBuilt=false;
 
@@ -1756,7 +1760,7 @@ function stageLabel(){
              (n<steps.length?" · the rest is massing":"");
   if(wiz.s.town&&townL){
     const c=ForgeTown.census(townL);
-    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+k+(c.by[k]===1?"":"s")).join(" · ");
+    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+ForgeModel.plural(k,c.by[k])).join(" · ");
     return wiz.s.label+" · "+c.lots+" buildings on "+c.blocks+" blocks"+
            (kinds?" · "+kinds:"")+" · "+made;
   }
@@ -2083,7 +2087,7 @@ function wizReadme(){
   for(const st of steps)out.push("  "+st.id+"/   "+st.label+"  ("+st.mode+" mode)");
   if(wiz.s.town&&townL&&window.ForgeTown){
     const c=ForgeTown.census(townL);
-    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+k+(c.by[k]===1?"":"s")).join(", ");
+    const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+ForgeModel.plural(k,c.by[k])).join(", ");
     const edits=Object.keys(townEdits).length;
     out.push("",
       "THIS IS A TOWN, so these thirteen are a KIT rather than one building's",

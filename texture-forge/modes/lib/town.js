@@ -105,7 +105,8 @@ function frontages(len,natural,gap,minW){
    Distance is measured from the middle of town in BLOCKS rather than
    metres, so the shape of the town holds when the blocks are resized.
 
-   THE WORKS DO NOT GET A LOT, THEY GET A BLOCK. A factory is twenty-six
+   NEITHER OF THE TWO THINGS THAT ARE NOT HOUSES GETS A LOT. A factory is
+   twenty-six
    metres across and thirty-four deep; a residential block is fifty-five
    deep, so two rows of them back to back do not fit and one squeezed to
    where it does is a shed. It is also not what a works looks like from
@@ -114,20 +115,107 @@ function frontages(len,natural,gap,minW){
    and the perimeter-lot machinery below never sees the type at all. */
 function zoneWeights(t,onMain,mix){
   const d=clamp(t,0,1);
-  /* MAIN STREET IS WHERE THE SHOPS ARE, and that is a better model of a town
-     than a bullseye is. A ring of commercial in the middle needs a town big
-     enough to have a middle; a four-by-three grid has none, and every diner
-     came out as a house. A frontage either faces the main crossing or it does
-     not, which holds at any size and is also how the place actually works —
-     shops on the through road, houses on the streets behind, and the works
-     out where the road leaves town. */
-  const w=onMain
-    ?{diner:2.4-0.9*d, house:0.55+0.5*d}
-    :{diner:Math.max(0.05,(1-d)*(1-d))*0.45, house:1.5+0.4*d};
+  /* THE DINER IS NOT A LOT TYPE, and it stopped being one the moment it was
+     looked at. Weighted per lot it came out thirty times a town, every one of
+     them shrunk to a house-sized frontage — thirty small diners, which is not
+     a town, it is a food court. A town has ONE, it is big, and it is on Main
+     Street. So it is placed as a LANDMARK below, over as much frontage as it
+     needs, and what is left for the weighted pick is the thing a town is
+     actually made of.
+
+     The shape of the bias is kept because it is still doing something: a lot
+     on the through road is a wider lot, so a house there is a bigger house. */
+  const w={house:onMain?(1.6+0.4*d):(1.5+0.4*d)};
   const m=mix||{};
   for(const k in w)w[k]=Math.max(0,w[k]*(m[k]===undefined?1:m[k]));
   return w;
 }
+
+/* ============================ landmarks ============================
+
+   ONE BIG DINER, on Main Street, at the size its own texture was drawn at.
+
+   It cannot go on a lot, because a lot is a house's frontage — twelve metres
+   of it — and a diner is fourteen wide before it is anything. Shrinking it to
+   fit is what produced thirty small ones. So it takes the frontage it needs:
+   a run of neighbouring lots on the same edge is lifted out and the diner
+   stands on the ground they were sharing, centred on it, at a scale the merged
+   frontage and the block's own depth allow — never below its natural size, or
+   it would not be worth doing.
+
+   WHICH RUN. The one nearest the middle of town, on a through road, long
+   enough to hold the thing. That is what makes it read as the middle of town
+   rather than as a building that happens to be larger. */
+function landmarks(L,type,want,sizes,P,rng){
+  const S=sizes&&sizes[type];
+  const n=Math.max(0,want|0);
+  if(!S||!n)return;
+  const sMax=Math.max(1,+P.scaleMax||1.3);
+  const gap=P.gap===undefined?2.5:+P.gap;
+  const setback=Math.max(0,+P.setback===undefined?5:+P.setback);
+
+  /* the lots of one block edge, in the order they sit along it */
+  const runs={};
+  for(const lot of L.lots){
+    if(!lot.main||lot.side==="whole")continue;
+    const k=lot.block+"/"+lot.side;
+    (runs[k]||(runs[k]=[])).push(lot);
+  }
+  const cand=[];
+  for(const k in runs){
+    const row=runs[k];
+    if(!row.length)continue;
+    const alongX=(row[0].ax==="x");
+    row.sort((a,b)=>(alongX?a.x-b.x:a.z-b.z));
+    const blk=L.blocks[row[0].block];
+    /* every window of neighbours wide enough to stand it at full size */
+    for(let i=0;i<row.length;i++){
+      let span=0;
+      for(let j=i;j<row.length;j++){
+        span+=row[j].frontage;
+        if(span-gap<S.w)continue;              // still narrower than the building
+        cand.push({row:row.slice(i,j+1),span:span,
+                   /* nearest the middle of town wins, and a shorter run beats
+                      a longer one so it does not eat a whole block */
+                   cost:Math.hypot(blk.cx,blk.cz)+ (span-S.w-gap)*1.5});
+        break;
+      }
+    }
+  }
+  cand.sort((a,b)=>a.cost-b.cost);
+
+  const used={},out=[];
+  for(const c of cand){
+    if(out.length>=n)break;
+    let clash=false;
+    for(const lot of c.row)if(used[lot.i]){clash=true;break;}
+    if(clash)continue;
+    const first=c.row[0],alongX=(first.ax==="x");
+    let a0=Infinity,a1=-Infinity;
+    for(const lot of c.row){
+      const at=alongX?lot.x:lot.z;
+      if(at-lot.frontage/2<a0)a0=at-lot.frontage/2;
+      if(at+lot.frontage/2>a1)a1=at+lot.frontage/2;
+      used[lot.i]=1;
+    }
+    const frontage=a1-a0,at=(a0+a1)/2;
+    const sc=clamp(Math.min((frontage-gap)/S.w,first.budget/S.d),1,sMax);
+    const w=S.w*sc,d=S.d*sc,off=setback+d/2;
+    out.push({i:first.i,block:first.block,side:first.side,out:first.out,main:true,
+              landmark:true,type:type,scale:sc,
+              budget:first.budget,gap:gap,sMin:first.sMin,sMax:sMax,
+              ax:first.ax,base:first.base,nrm:first.nrm,setback:setback,
+              x:alongX?at:(first.base-first.nrm*off),
+              z:alongX?(first.base-first.nrm*off):at,
+              rot:first.rot,w:w,d:d,frontage:frontage,
+              slide:Math.max(0,(frontage-w-gap)/2),along:0,
+              variant:(rng()*1e9)|0});
+  }
+  if(!out.length)return;
+  L.lots=L.lots.filter(x=>!used[x.i]).concat(out);
+  L.lots.sort((a,b)=>a.i-b.i);
+}
+
 function pickType(w,rng){
   let tot=0;
   for(const k in w)tot+=w[k];
@@ -148,6 +236,7 @@ function pickType(w,rng){
      setback         metres from the block boundary to the front wall
      gap             metres between neighbours on the same frontage
      density         0..1, what fraction of the lots are built on
+     diners          how many landmark diners, default one
      industry        0..1, what fraction of the outer blocks are works
      mix             {house,diner,factory} multipliers, 0 drops a type
      scaleMin/Max    how far a building may be resized to fit its ground
@@ -173,7 +262,8 @@ function layout(P,sizes){
   const Z=corridors(rows,Math.max(12,+P.blockD||55),roadM,jitter,rng);
 
   const half=roadM/2;
-  const streets=[],nodes=[],blocks=[],lots=[];
+  const streets=[],nodes=[],blocks=[];
+  let lots=[];
   /* the two through roads, as near the middle as the grid allows */
   const mainI=X.mid.length>>1,mainJ=Z.mid.length>>1;
 
@@ -290,6 +380,10 @@ function layout(P,sizes){
           /* kept so design mode can swap the type on this lot and work out the
              new size exactly the way the layout would have */
           budget:e.budget,gap:gap,sMin:sMin,sMax:sMax,
+          /* the edge this lot sits on, so a landmark that swallows several of
+             them can work out where the merged frontage puts its front wall
+             with the same arithmetic that put theirs */
+          ax:e.ax,base:e.base,nrm:e.n,setback:setback,
           x:(e.ax==="x")?c:(e.base-e.n*off),
           z:(e.ax==="x")?(e.base-e.n*off):c,
           rot:e.rot,w:w,d:d,
@@ -305,6 +399,14 @@ function layout(P,sizes){
       }
     }
   }
+
+  const L0={streets:streets,nodes:nodes,blocks:blocks,lots:lots};
+  /* ONE BY DEFAULT. Ask for none and the town has no diner in it; ask for
+     three and it has three, each on its own stretch of a through road. */
+  landmarks(L0,"diner",
+            (mix.diner===0)?0:(P.diners===undefined?1:Math.max(0,P.diners|0)),
+            sizes,P,rng);
+  lots=L0.lots;
 
   return {
     streets:streets,nodes:nodes,blocks:blocks,lots:lots,
@@ -435,6 +537,7 @@ Forge.registerStructure({
 
 window.ForgeTown={
   layout:layout,
+  landmarks:landmarks,
   retype:retype,
   placeOf:placeOf,
   settle:settle,
