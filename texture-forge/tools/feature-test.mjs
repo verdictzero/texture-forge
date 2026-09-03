@@ -2034,6 +2034,31 @@ if (want("town")) {
     /* and the grid follows the road texture rather than a number of its own */
     const wide = T.layout(Object.assign({}, P, {roadM: 24}), sizes);
 
+    /* ONE TEXTURE IS NOT ONE BUILDING. Every house comes off the same four
+       faces, so what has to differ is everything else: how it is massed, which
+       way its ridge runs, how tall it is, how far back it sits and what colour
+       somebody painted it. Counted as distinct SIGNATURES, because "they look
+       different" is not a measurement. */
+    /* THE STYLE ALONE, kept apart from the size. A house is a different size
+       on a different block whatever the variety is doing — the blocks jitter —
+       so folding the size in would let the layout answer a question about the
+       buildings. */
+    const styleSig=l=>[l.style.wing,l.style.mirror?1:0,l.style.ridge,l.style.flat?1:0,
+                       l.style.stack?1:0,Math.round(l.style.hMul*40),
+                       Math.round(l.style.setbackK*20),l.style.tint%10].join(",");
+    const sig=l=>styleSig(l)+"|"+Math.round(l.w*4)+","+Math.round(l.d*4);
+    const hSig=new Set(houses.map(sig));
+    const wings={},tints=new Set(),ridges=new Set();
+    for(const l of houses){
+      wings[l.style.wing]=(wings[l.style.wing]|0)+1;
+      tints.add(l.style.tint%10);ridges.add(l.style.ridge);
+    }
+    /* and the off switch is a real one: at variety 0 every house is the
+       elevation exactly as forged, which is the town this used to make */
+    const plainT=T.settle(T.layout(Object.assign({}, P, {variety:0}), sizes));
+    const plainH=plainT.lots.filter(l=>l.type==="house");
+    const plainSig=new Set(plainH.map(styleSig));
+
     /* design mode: put a house on a diner's lot and the size follows */
     const lot = L.lots.find(l => l.type === "diner");
     const was = lot ? {w:lot.w,d:lot.d,type:lot.type} : null;
@@ -2045,6 +2070,9 @@ if (want("town")) {
     return { c, overlaps, worstOverlap, outside, inRoad,
              dn: dnSnap,
              widestHouse, mainShare: mainLots/L.lots.length, worksWhole,
+             houses: houses.length, hSig: hSig.size, wings, nTints: tints.size,
+             stacks: houses.filter(l => l.style.stack).length,
+             nRidges: ridges.size, plainH: plainH.length, plainSig: plainSig.size,
              three: three.lots.filter(l => l.type === "diner").length,
              none: none.lots.filter(l => l.type === "diner").length,
              roadM: L.roadM, wideRoadM: wide.roadM, wideW: wide.bounds.w, W: L.bounds.w,
@@ -2079,6 +2107,20 @@ if (want("town")) {
        `${lib.three} and ${lib.none}`);
     ok("and the works stands in its own ground", lib.worksWhole,
        "every factory has a block to itself");
+    /* TWO HUNDRED HOUSES OFF ONE ELEVATION, and not two hundred of the same
+       box. The number that matters is how many of them are distinguishable
+       from each other, not how many knobs were turned. */
+    ok("no two houses in a row are the same building",
+       lib.hSig > lib.houses * 0.75 && lib.nTints >= 6 && lib.nRidges === 2,
+       `${lib.hSig} distinguishable of ${lib.houses} houses · ` +
+       Object.keys(lib.wings).sort().map(k => lib.wings[k] + " " + k).join(", ") +
+       ` · ${lib.nTints} colours · ${lib.stacks} with a stack · ridges both ways`);
+    /* and it is a control, not a coincidence: turned off, the town is the one
+       this made before any of it — every house the elevation as forged */
+    ok("and turning variety off puts every house back",
+       lib.plainSig === 1 && lib.plainH > 100,
+       `${lib.plainSig} style among ${lib.plainH} houses at variety 0 — ` +
+       "the elevation exactly as forged, which is the town this used to make");
     /* the road texture spans a whole cross-section, so the grid has to be
        built around ITS width or the kerbs land in the wrong place */
     ok("the street's own tile sets the corridor width",
@@ -2135,7 +2177,10 @@ if (want("town")) {
     const S2 = M.townScene("town", L, kit, {select: L.lots[7].i});
     const sel = S2.meshes.filter(m => m.sel);
     const selTags = [...new Set(sel.flatMap(m => m.tag || []))];
-    return { meshes: S.meshes.length, mats: S.materials.length, verts, tris, biggest,
+    const faces = new Set(S.materials.map(m => m.face || m.name));
+    const painted = S.materials.filter(m => m.tint).length;
+    return { meshes: S.meshes.length, mats: S.materials.length, faces: faces.size,
+             painted, verts, tris, biggest,
              backwards, untagged, lots: L.lots.length,
              selMeshes: sel.length, selTris: sel.reduce((a,m)=>a+m.idx.length/3,0),
              selTags, want: L.lots[7].i };
@@ -2156,6 +2201,14 @@ if (want("town")) {
        houses share one. */
     ok("every triangle knows which building it belongs to", geo.untagged === 0,
        `${geo.untagged} meshes without a tag per triangle`);
+    /* THE PAINT TRAVELS. One image worn in several colours is several
+       materials sharing one texture, which is what glTF's baseColorFactor and
+       OBJ's Kd are for — so the town arrives painted rather than arriving grey
+       with a note about it. */
+    ok("the paint is materials, not extra textures",
+       geo.painted >= 6 && geo.faces <= 12,
+       `${geo.mats} materials over ${geo.faces} forged textures, ` +
+       `${geo.painted} of them carrying a colour`);
     ok("and the selected one comes out on its own",
        geo.selMeshes > 0 && geo.selTags.length === 1 && geo.selTags[0] === geo.want,
        `${geo.selTris} triangles in ${geo.selMeshes} meshes, all tagged ${geo.selTags.join(",")}`);

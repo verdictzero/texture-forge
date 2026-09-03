@@ -131,6 +131,121 @@ function zoneWeights(t,onMain,mix){
   return w;
 }
 
+/* ============================ what a building is made of ============================
+
+   ONE TEXTURE IS NOT ONE BUILDING. A town of two hundred houses off one
+   elevation was two hundred identical grey boxes in rows, which is the one
+   thing a town never looks like — and forging two hundred textures is not the
+   answer either. Everything below is variation that costs NO texture at all:
+
+     it is mirrored or it is not          the front elevation flipped
+     the roof runs the other way          ridge across or front-to-back, and
+                                          a flat one now and then
+     it is taller or shorter              a height multiplier, which the
+                                          elevation carries without stretching
+                                          because the wall is what repeats
+     it is deeper or shallower            within the block's own depth budget
+     it sits further back                 the setback jittered per lot
+     and MOST OF THEM HAVE SOMETHING      a garage beside it, a wing off the
+     STUCK ON THE SIDE                    back, a porch across the front
+
+   THE ATTACHED MASSES ARE THE BIG ONE. A garage is not a small house — it is a
+   wall four metres high with a door in it — so it wears a WINDOW of the
+   parent's own elevation rather than the whole thing squashed: the bottom four
+   metres of it, at the same texel scale, which is a real wall at a real size.
+
+   COMPOSED INSIDE THE LOT'S OWN FRONTAGE, which is why this is here and not in
+   the renderer. A garage that widened the building after the layout had
+   checked its ground would be a garage standing in next door's kitchen; the
+   fit is worked out from the composition, so the footprint the overlap test
+   sees is the footprint that gets drawn.
+
+   The frame is the building's own: +x across its front as somebody standing
+   outside sees it, +z toward the street, origin at the middle of the ENVELOPE
+   rather than of the main mass — so the lot can go on treating it as one box.
+*/
+/* THE GARAGE GOES BEHIND, and it went there after being measured. A lot is
+   the house's own width plus a gap — nine metres of buildable frontage for a
+   nine-metre house — so a garage BESIDE one never once fitted and every one of
+   them was quietly dropped. Behind it there is depth to spare, which is also
+   where the garage on a gridded town's alley actually is. */
+const STYLE_FIT={none:[1,1],garage:[1,1.42],ell:[1,1.44],porch:[1,1.26]};
+
+function compose(S,sc,st){
+  const W=S.w*sc,D=S.d*sc;
+  const parts=[{kind:"main",x:0,z:0,w:W,d:D,h:1}];
+  const side=st.side>=0?1:-1;
+  if(st.wing==="garage"){
+    const gw=W*0.50,gd=D*0.40;
+    parts.push({kind:"garage",x:side*(W/2-gw/2),z:-D/2-gd/2+D*0.02,
+                w:gw,d:gd,h:0.50,flat:true});
+  }else if(st.wing==="ell"){
+    const ew=W*0.54,ed=D*0.44;
+    parts.push({kind:"ell",x:side*(W/2-ew/2),z:-D/2-ed/2+D*0.04,
+                w:ew,d:ed,h:0.86});
+  }else if(st.wing==="porch"){
+    const pw=W*0.68,pd=Math.min(2.8,D*0.26);
+    parts.push({kind:"porch",x:side*W*0.06,z:D/2+pd/2,w:pw,d:pd,h:0.42,flat:true});
+  }
+  /* A STACK IS SILHOUETTE FOR NOTHING. It stands against the side wall, half
+     inside the mass it belongs to, so it adds a few centimetres to the
+     envelope and a chimney to the skyline. */
+  if(st.stack){
+    const cw=Math.max(0.7,W*0.11);
+    parts.push({kind:"stack",x:-side*(W/2-cw*0.25),z:-D*0.10,
+                w:cw,d:cw*1.2,h:1.22,flat:true,thin:true});
+  }
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const p of parts){
+    if(p.x-p.w/2<x0)x0=p.x-p.w/2;
+    if(p.x+p.w/2>x1)x1=p.x+p.w/2;
+    if(p.z-p.d/2<z0)z0=p.z-p.d/2;
+    if(p.z+p.d/2>z1)z1=p.z+p.d/2;
+  }
+  const cx=(x0+x1)/2,cz=(z0+z1)/2;
+  for(const p of parts){p.x-=cx;p.z-=cz;}
+  return {parts:parts,W:x1-x0,D:z1-z0,mainW:W,mainD:D};
+}
+
+/* THE STYLE OF ONE BUILDING, off its own draw of the dice — so design mode can
+   re-roll one of them without moving anything else — and scaled by `variety`,
+   which is a real off switch: at zero every house is the elevation exactly as
+   forged, standing square, unpainted, on the same setback as its neighbours,
+   which is the town this used to make. */
+function styleOf(seed,type,allow,variety){
+  const r=mulberry32((seed|0)*2246822519+7);
+  const v=clamp(variety===undefined?1:+variety,0,1);
+  const roll=r();
+  /* a works has nothing stuck on it and a diner is a landmark: both are drawn
+     as the one thing their elevation says they are */
+  const wing=(!allow||v<=0)?"none"
+    :(roll<0.34*v?"garage":roll<0.56*v?"ell":roll<0.70*v?"porch":"none");
+  const rr=r(),mir=r(),sd=r(),rg=r(),pt=r(),hm=r(),sb=r(),tn=r();
+  return {
+    mirror:mir<0.5*v,
+    side:sd<0.5?1:-1,
+    wing:wing,
+    /* WHICH WAY THE RIDGE RUNS is most of what an aerial view of a town is,
+       and it is free: the roof is a tiling material either way. A few flat
+       ones because a few of them are. */
+    ridge:(rg<0.45*v)?"z":"x",
+    flat:rr>1-0.10*v,
+    pitch:6+(pt-0.5)*5*v,
+    /* the elevation is a wall with a roofline on it, so a few per cent of
+       height is a skyline rather than a stretch anybody can see */
+    hMul:1+(hm-0.5)*0.24*v,
+    setbackK:1+(sb-0.5)*0.9*v,
+    /* WHICH PAINT. A street where every house is the same colour is the one
+       thing left saying "this is one texture" after the massing has stopped
+       saying it, and it costs nothing but a multiplier on the base colour —
+       which is also what repainting a house is. The renderer owns the palette;
+       this is only which one, and zero is the first entry, which is no paint
+       at all. */
+    tint:(v<=0)?0:Math.floor(tn*97),
+    stack:r()<0.38*v
+  };
+}
+
 /* ============================ landmarks ============================
 
    ONE BIG DINER, on Main Street, at the size its own texture was drawn at.
@@ -200,8 +315,16 @@ function landmarks(L,type,want,sizes,P,rng){
     }
     const frontage=a1-a0,at=(a0+a1)/2;
     const sc=clamp(Math.min((frontage-gap)/S.w,first.budget/S.d),1,sMax);
-    const w=S.w*sc,d=S.d*sc,off=setback+d/2;
-    out.push({i:first.i,block:first.block,side:first.side,out:first.out,main:true,
+    /* a landmark is drawn as the one thing its elevation says it is: no
+       garage, no back wing, and no mirroring — you know what the diner looks
+       like and it is the same diner from either end of the street */
+    const vseed=(rng()*1e9)|0;
+    const style=styleOf(vseed,type,false,0);
+    style.mirror=false;style.flat=true;
+    const env=compose(S,sc,style);
+    const w=env.W,d=env.D,off=setback+d/2;
+    out.push({style:style,env:env,vseed:vseed,
+              i:first.i,block:first.block,side:first.side,out:first.out,main:true,
               landmark:true,type:type,scale:sc,
               budget:first.budget,gap:gap,sMin:first.sMin,sMax:sMax,
               ax:first.ax,base:first.base,nrm:first.nrm,setback:setback,
@@ -209,7 +332,7 @@ function landmarks(L,type,want,sizes,P,rng){
               z:alongX?(first.base-first.nrm*off):at,
               rot:first.rot,w:w,d:d,frontage:frontage,
               slide:Math.max(0,(frontage-w-gap)/2),along:0,
-              variant:(rng()*1e9)|0});
+              variant:vseed});
   }
   if(!out.length)return;
   L.lots=L.lots.filter(x=>!used[x.i]).concat(out);
@@ -237,6 +360,8 @@ function pickType(w,rng){
      gap             metres between neighbours on the same frontage
      density         0..1, what fraction of the lots are built on
      diners          how many landmark diners, default one
+     variety         0..1, how far the buildings depart from the elevation
+                     as forged — massing, roof, height, setback and paint
      industry        0..1, what fraction of the outer blocks are works
      mix             {house,diner,factory} multipliers, 0 drops a type
      scaleMin/Max    how far a building may be resized to fit its ground
@@ -256,6 +381,7 @@ function layout(P,sizes){
   const density=clamp(P.density===undefined?0.85:+P.density,0,1);
   const industry=clamp(P.industry===undefined?0.5:+P.industry,0,1);
   const sMin=Math.max(0.4,+P.scaleMin||0.82),sMax=Math.max(sMin,+P.scaleMax||1.3);
+  const variety=clamp(P.variety===undefined?1:+P.variety,0,1);
   const mix=P.mix||{};
 
   const X=corridors(cols,Math.max(12,+P.blockW||70),roadM,jitter,rng);
@@ -367,15 +493,38 @@ function layout(P,sizes){
         const type=pickType(zoneWeights(t,e.main,mix),rng);
         const S=type&&sizes[type];
         if(!S)continue;
-        /* uniform, because the front is an elevation and squashing one axis
-           of it makes a building nobody built. Both the frontage and the
-           block's own depth get a say, and the smaller one wins. */
-        const sc=clamp(Math.min((FR.each-gap)/Math.max(0.01,S.w),
-                                e.budget/Math.max(0.01,S.d)),0,sMax);
+
+        /* THE FIT IS OF THE WHOLE COMPOSITION, not of the main mass. A garage
+           worked out after the ground was checked is a garage standing in next
+           door's kitchen, so the style is chosen first and the scale is what
+           the style will fit in. Uniform, because the front is an elevation
+           and squashing one axis of it makes a building nobody built. */
+        const vseed=(rng()*1e9)|0;
+        let style=styleOf(vseed,type,true,variety);
+        const fitAt=st=>{
+          const K=STYLE_FIT[st.wing]||STYLE_FIT.none;
+          return clamp(Math.min((FR.each-gap)/Math.max(0.01,S.w*K[0]),
+                                e.budget/Math.max(0.01,S.d*K[1])),0,sMax);
+        };
+        let sc=fitAt(style);
+        if(sc<sMin&&style.wing!=="none"){
+          /* the ground will not take what it wanted, so it loses the wing
+             rather than the building — a house at eight tenths is a small
+             house, a house that never got laid is a gap */
+          style=Object.assign({},style,{wing:"none"});
+          sc=fitAt(style);
+        }
         if(sc<sMin)continue;                   // it does not belong on this ground
-        const w=S.w*sc,d=S.d*sc;
-        const off=setback+d/2;                 // INTO the block, away from the road
+        const env=compose(S,sc,style);
+        const w=env.W,d=env.D;
+        /* the setback is jittered per lot, kept clear of the kerb and of the
+           row behind: a street where every front wall is on one line is a
+           terrace, and these are not terraces */
+        const room=Math.max(0,e.budget-d);
+        const back=Math.max(1.8,Math.min(setback*style.setbackK,room));
+        const off=back+d/2;                    // INTO the block, away from the road
         lots.push({
+          style:style,env:env,vseed:vseed,variety:variety,
           i:lots.length,block:bi,side:e.side,out:t,main:!!e.main,type:type,scale:sc,
           /* kept so design mode can swap the type on this lot and work out the
              new size exactly the way the layout would have */
@@ -394,7 +543,7 @@ function layout(P,sizes){
           along:0,
           /* its own draw of the dice, so design mode can re-roll one building
              without moving the rest of the town */
-          variant:(rng()*1e9)|0
+          variant:vseed
         });
       }
     }
@@ -424,14 +573,33 @@ function layout(P,sizes){
    is an elevation and squashing one axis of it makes a building nobody built.
    Returns false and changes nothing where the type will not fit — a works does
    not go on a house lot, and pretending it does is a shed. */
-function retype(lot,type,sizes){
+function retype(lot,type,sizes,seed){
   const S=sizes&&sizes[type];
   if(!S)return false;
   const sMin=lot.sMin||0.82,sMax=lot.sMax||1.3,gap=lot.gap===undefined?2.5:lot.gap;
-  const sc=clamp(Math.min((lot.frontage-gap)/Math.max(0.01,S.w),
-                          (lot.budget||1e9)/Math.max(0.01,S.d)),0,sMax);
+  const vseed=(seed===undefined?lot.vseed:seed)|0;
+  /* THE WHOLE COMPOSITION AGAIN, exactly as the layout worked it out — a
+     design-mode swap that ignored the garage would put one through the wall
+     next door. A landmark keeps its plain shape. */
+  let style=styleOf(vseed,type,!lot.landmark,lot.variety===undefined?1:lot.variety);
+  const fitAt=st=>{
+    const K=STYLE_FIT[st.wing]||STYLE_FIT.none;
+    return clamp(Math.min((lot.frontage-gap)/Math.max(0.01,S.w*K[0]),
+                          (lot.budget||1e9)/Math.max(0.01,S.d*K[1])),0,sMax);
+  };
+  let sc=fitAt(style);
+  if(sc<sMin&&style.wing!=="none"){style=Object.assign({},style,{wing:"none"});sc=fitAt(style);}
   if(sc<sMin)return false;
-  lot.type=type;lot.scale=sc;lot.w=S.w*sc;lot.d=S.d*sc;
+  const env=compose(S,sc,style);
+  lot.type=type;lot.scale=sc;lot.style=style;lot.env=env;lot.vseed=vseed;
+  lot.w=env.W;lot.d=env.D;
+  /* the front wall stays where it was: the lot's ground did not move */
+  if(lot.base!==undefined&&lot.nrm!==undefined&&lot.ax){
+    const room=Math.max(0,(lot.budget||1e9)-lot.d);
+    const back=Math.max(1.8,Math.min((lot.setback===undefined?5:lot.setback)*style.setbackK,room));
+    const at=lot.base-lot.nrm*(back+lot.d/2);
+    if(lot.ax==="x")lot.z=at;else lot.x=at;
+  }
   lot.slide=Math.max(0,(lot.frontage-lot.w-gap)/2);
   if(lot.along>lot.slide)lot.along=lot.slide;
   if(lot.along<-lot.slide)lot.along=-lot.slide;
@@ -538,6 +706,7 @@ Forge.registerStructure({
 window.ForgeTown={
   layout:layout,
   landmarks:landmarks,
+  styleOf:styleOf,compose:compose,STYLE_FIT:STYLE_FIT,
   retype:retype,
   placeOf:placeOf,
   settle:settle,

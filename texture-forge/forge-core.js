@@ -1439,7 +1439,7 @@ function stagePlans(){
    building's box does.
    --------------------------------------------------------------------------- */
 const TOWN={seed:1963,cols:5,rows:4,blockW:70,blockD:55,jitter:0.35,
-            setback:5,gap:2.5,density:0.85,industry:0.6,diners:1,
+            setback:5,gap:2.5,density:0.85,industry:0.6,diners:1,variety:1,
             mix:{house:1,diner:1,factory:1}};
 let townL=null;                        // the layout the stage is showing
 
@@ -1610,7 +1610,12 @@ const TOWN_ROWS=[
   /* ONE BY DEFAULT, because that is what a town has. A diner weighted per lot
      came out thirty times over, every one of them shrunk to a house's
      frontage; one taking the frontage it needs is the landmark it should be. */
-  {id:"diners", label:"Diners",min:0,max:4,step:1,grid:true}
+  {id:"diners", label:"Diners",min:0,max:4,step:1,grid:true},
+  /* ONE TEXTURE IS NOT ONE BUILDING. At zero every house is the elevation
+     exactly as forged, standing square on the same setback as its neighbours —
+     which is a town of two hundred identical boxes in rows, and the one thing
+     a town never looks like. */
+  {id:"variety",label:"Variety",min:0,max:1,step:0.05,grid:true}
 ];
 let townBarBuilt=false;
 

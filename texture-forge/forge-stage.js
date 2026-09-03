@@ -88,7 +88,7 @@ const FS=[
 "precision highp float;",
 "varying vec3 vP;varying vec3 vN;varying vec2 vUv;varying vec4 vTan;",
 "uniform sampler2D uB,uN,uO,uE;",
-"uniform vec3 uSun,uSunCol,uSkyLo,uSkyHi,uAccent;",
+"uniform vec3 uSun,uSunCol,uSkyLo,uSkyHi,uAccent,uTint;",
 "uniform vec3 uEye;",
 "uniform vec2 uFoot;",
 "uniform vec4 uUv;",   // this mesh's UV rectangle: min.xy, span.xy                       // building half-extents, for the contact shade
@@ -106,7 +106,7 @@ const FS=[
 "    vec4 bs=texture2D(uB,vUv);",
 "    alpha=bs.a;",
 "    if(uCut>0.5&&alpha<0.5)discard;",
-"    base=pow(bs.rgb,vec3(2.2));",
+"    base=pow(bs.rgb,vec3(2.2))*uTint;",
 "    vec3 orm=texture2D(uO,vUv).rgb;",
 "    ao=orm.r;rough=clamp(orm.g,0.05,1.0);metal=orm.b;",
 "    emis=texture2D(uE,vUv).rgb;",
@@ -258,7 +258,7 @@ function attach(canvas){
   for(const k of ["aP","aN","aT","aTan"])A[k]=gl.getAttribLocation(prog,k);
   for(const k of ["uMVP","uB","uN","uO","uE","uSun","uSunCol","uSkyLo","uSkyHi",
                   "uAccent","uEye","uFoot","uUv","uCut","uMark","uHover","uGain","uAmb",
-                  "uFade","uMode"])
+                  "uFade","uMode","uTint"])
     U[k]=gl.getUniformLocation(prog,k);
   for(const k of ["uLo","uHi","uHz"])SU[k]=gl.getUniformLocation(sky,k);
 
@@ -347,13 +347,18 @@ function prepMesh(m,mats){
   return {
     uv0:[u0,v0],uvSpan:[Math.max(1e-6,u1-u0),Math.max(1e-6,v1-v0)],
     name:m.name,
-    face:mat.name,                             // the step id: the material IS the face
+    /* the step id, which is what the forged textures are filed under. It is
+       usually the material's own name and is NOT when one image is worn in
+       several colours — a town paints its houses by splitting the material and
+       leaving the image alone. */
+    face:mat.face||mat.name,
     /* WHICH INSTANCE, per triangle. A town is a hundred houses off one texture
        in one mesh, so the material cannot answer "which one did I click"; the
        scene that built the mesh tags every triangle with the thing it belongs
        to and the picker hands that back. */
     tag:m.tag||null,
     sel:!!m.sel,
+    tint:mat.tint||null,
     pos:m.pos,uv:m.uv,idx:m.idx,               // kept for the hit test
     bP:upload(gl.ARRAY_BUFFER,m.pos,Float32Array),
     bN:upload(gl.ARRAY_BUFFER,m.nrm,Float32Array),
@@ -587,6 +592,10 @@ function draw(){
        lights all hundred houses, so a scene that splits out the one you picked
        says so with a flag and the material match is only used where nothing
        is split. */
+    /* the paint, in linear light like everything else the shader works in */
+    if(m.tint)gl.uniform3f(U.uTint,Math.pow(m.tint[0],2.2),Math.pow(m.tint[1],2.2),
+                                   Math.pow(m.tint[2],2.2));
+    else gl.uniform3f(U.uTint,1,1,1);
     gl.uniform1f(U.uHover,m.sel?1:((!m.ground&&hoverId&&hoverTag===null&&m.face===hoverId)?1:0));
     gl.uniform4f(U.uUv,m.uv0?m.uv0[0]:0,m.uv0?m.uv0[1]:0,
                        m.uvSpan?m.uvSpan[0]:1,m.uvSpan?m.uvSpan[1]:1);

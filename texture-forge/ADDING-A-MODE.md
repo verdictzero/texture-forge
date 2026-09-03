@@ -635,6 +635,33 @@ Lighting one instance is a separate problem, because the highlight is a uniform
 and a uniform is per draw call: the scene splits the selected instance into its
 own mesh for as long as it is selected, and costs one draw call for it.
 
+## One texture is not one building
+
+Two hundred instances of one elevation is two hundred identical boxes, and
+forging two hundred elevations is not the answer. Three kinds of variation cost
+no texture at all and between them do most of the work:
+
+**Massing.** Mirror the elevation. Turn the ridge. Jitter the height a few per
+cent, and the setback. Stick something on it — a wing, a garage, a porch, a
+stack — and let that sub-mass wear a **window of the parent's own elevation**:
+the bottom four metres of the same image at the same texel scale is a real wall
+at a real size, where the whole elevation squashed onto it is a doll's house.
+
+**Paint.** A multiplier on the base colour, which is what repainting a building
+is. One image, one material per colour — `baseColorFactor` in glTF, `Kd` in a
+`.mtl` — so it travels into Blender rather than being a viewer-only trick. Keep
+it gentle and let secondary surfaces (roofs) move separately and less.
+
+**And work it out in the LAYOUT, not the renderer.** A garage that widens a
+building after its ground has been checked is a garage in next door's kitchen.
+Fit the whole composition, then let the collision tests see the envelope that
+actually gets drawn — and where the ground will not take what a building
+wanted, drop the wing rather than the building.
+
+Give it an off switch and make the switch a claim you can test: at zero every
+instance should be the thing exactly as forged. That is the only way to know
+the variation is the control's doing and not the seed's.
+
 ## Shared helpers
 
 On the `Forge` object, so a mode does not carry its own copy:

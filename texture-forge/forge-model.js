@@ -52,6 +52,7 @@
 (function(){
 
 const FT=0.3048;                                   // for the modes that think in feet
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
 const DEFAULT_PLAN={w:1,h:1,cutout:false,guessed:true};
 
 function planOf(mode,P){
@@ -91,6 +92,28 @@ function quad(mesh,a,b,c,d,n,uv){
   mesh.idx.push(base,base+1,base+2,base,base+2,base+3);
 }
 function mesh(name,mat){return {name:name,mat:mat,pos:[],nrm:[],uv:[],idx:[]};}
+
+/* ============================ paint ============================
+
+   A MULTIPLIER ON THE BASE COLOUR, which is what repainting a house is, and
+   the last thing left saying "this is all one texture" once the massing has
+   stopped saying it. It is not a decal and it is not a second texture: the
+   same image, one material per colour, which glTF carries as baseColorFactor
+   and OBJ as Kd — so the town arrives in Blender painted rather than arriving
+   grey with a note about it.
+
+   Multiplicative, so the trim, the windows and the weathering all move with
+   the wall the way they would under a coat of paint, and gentle, because a
+   house tinted hard is a house somebody photographed through glass. */
+const TINTS=[
+  [1.00,1.00,1.00],  [1.07,1.00,0.90],  [0.86,0.91,0.99],  [0.93,1.00,0.91],
+  [1.06,0.93,0.85],  [0.84,0.80,0.79],  [1.10,1.08,1.03],  [0.77,0.83,0.89],
+  [1.02,0.90,0.88],  [0.90,0.95,0.90]
+];
+/* the roof moves less and separately: a street of different houses under one
+   colour of shingle is a street, a street of different shingle is a fairground */
+const ROOF_TINTS=[[1.00,1.00,1.00],[0.92,0.90,0.90],[1.05,1.01,0.96],[0.86,0.88,0.93]];
+function tintOf(table,n){return table[((n|0)%table.length+table.length)%table.length];}
 
 /* "6 factorys" is the sort of thing that makes a person distrust the number
    next to it. One rule, because these are all type names in this app's own
@@ -264,13 +287,22 @@ function townScene(name,L,kit,opts){
   const sel=(opts&&opts.select!==undefined&&opts.select!==null)?opts.select:-1;
   const S=scene(name);
   const matIdx={},meshBy={};
-  /* the material a face's texture belongs to, made once and shared by every
-     instance of it */
-  const use=f=>{
+  /* THE MATERIAL A FACE'S TEXTURE BELONGS TO, once per colour it is painted.
+     One image, several materials: the name carries the paint so the batching
+     splits on it, and `face` carries the step id so the 3D view still knows
+     which forged texture to bind. A tint of one is the texture as forged and
+     keeps the plain name, so a town with the paint turned off is exactly the
+     town it was before there was any. */
+  const use=(f,tint)=>{
     if(!f||!f.material)return -1;
-    const n=f.material.name;
+    const t=tint||[1,1,1];
+    const flat=(t[0]===1&&t[1]===1&&t[2]===1);
+    const n=f.material.name+(flat?"":"#"+t.join("_"));
     if(matIdx[n]!==undefined)return matIdx[n];
-    S.materials.push(f.material);
+    const m={name:n,face:f.material.face||f.material.name,
+             maps:f.material.maps,cutout:f.material.cutout};
+    if(!flat)m.tint=t;
+    S.materials.push(m);
     return (matIdx[n]=S.materials.length-1);
   };
   /* THE MESH CURRENTLY TAKING THAT MATERIAL'S TRIANGLES, rolled over before it
@@ -311,7 +343,7 @@ function townScene(name,L,kit,opts){
   const road=kit.street&&kit.street.run,junc=kit.street&&kit.street.inter;
   const Y=0.02;
   if(road){
-    const mi=use(road),tile=Math.max(0.5,road.plan.tile||road.plan.w||L.roadM);
+    const mi=use(road,null),tile=Math.max(0.5,road.plan.tile||road.plan.w||L.roadM);
     for(const st of L.streets){
       const m=into(mi,"street");
       const h=st.w/2;
@@ -336,7 +368,7 @@ function townScene(name,L,kit,opts){
     }
   }
   if(junc){
-    const mi=use(junc);
+    const mi=use(junc,null);
     for(const nd of L.nodes){
       const m=into(mi,"junction"),h=nd.w/2;
       tagQuads(m,-1);
@@ -346,16 +378,34 @@ function townScene(name,L,kit,opts){
     }
   }
 
-  /* --- the buildings ---------------------------------------------------- */
+  /* --- the buildings ----------------------------------------------------
+
+     ONE TEXTURE IS NOT ONE BUILDING, and a town of two hundred off the same
+     four faces was two hundred identical boxes in rows. Everything the layout
+     decided per instance — mirrored or not, which way the ridge runs, how tall,
+     how deep, how far back, and what is stuck on the side of it — is read here
+     and costs no texture at all.
+
+     A WING WEARS A WINDOW OF THE PARENT'S OWN ELEVATION. A garage is not a
+     small house: it is a wall four metres high with a door in it. Squashing a
+     whole two-storey elevation onto it makes a doll's house, so it samples the
+     BOTTOM four metres of the same image at the SAME texel scale — real wall
+     at a real size — and the alpha up in the sky never comes into it. */
   let built=0;
   for(const lot of L.lots){
     const K=kit[lot.type];
     if(!K||!K.front)continue;
     const front=K.front,side=K.side||K.front,back=K.back||K.front,roof=K.roof;
     const sc=lot.scale||1;
-    const W=front.plan.w*sc,D=(side?side.plan.w:front.plan.w*0.6)*sc;
-    const eaves=front.plan.eaves*sc;
-    const fh=front.plan.h*sc,bh=back.plan.h*sc,sh=(side?side.plan.h:fh)*sc;
+    const st=lot.style||{};
+    const hMul=st.hMul>0?st.hMul:1;
+    /* the whole face, in metres, as the parent building wears it — every UV
+       window below is a fraction of these */
+    const FW=front.plan.w*sc,FH=front.plan.h*sc*hMul;
+    const SW=(side?side.plan.w:front.plan.w*0.6)*sc,SH=side?side.plan.h*sc*hMul:FH;
+    const BH=back.plan.h*sc*hMul;
+    const eaves=front.plan.eaves*sc*hMul;
+    const parts=(lot.env&&lot.env.parts)||[{kind:"main",x:0,z:0,w:FW,d:SW,h:1}];
     /* px/pz is where design mode slid it along its own frontage; the formula
        for that lives in the layout library with the leash it is clamped to, so
        the picture and the export cannot end up with two ideas of it */
@@ -363,58 +413,102 @@ function townScene(name,L,kit,opts){
     const ox=(lot.px===undefined?lot.x:lot.px),oz=(lot.pz===undefined?lot.z:lot.pz);
     const at=(x,y,z)=>{const p=R(x,y,z);return [p[0]+ox,p[1],p[2]+oz];};
     const nAt=(x,y,z)=>R(x,y,z);
-
     const own=(lot.i===sel);
-    const mF=into(use(front),"front",0,own);
-    quad(mF,at(-W/2,0,D/2),at(W/2,0,D/2),at(W/2,fh,D/2),at(-W/2,fh,D/2),
-         nAt(0,0,1),[[0,1],[1,1],[1,0],[0,0]]);
-    tagQuads(mF,lot.i);
-    const mB=into(use(back),"back",0,own);
-    quad(mB,at(W/2,0,-D/2),at(-W/2,0,-D/2),at(-W/2,bh,-D/2),at(W/2,bh,-D/2),
-         nAt(0,0,-1),[[0,1],[1,1],[1,0],[0,0]]);
-    tagQuads(mB,lot.i);
-    if(side){
-      const mi=use(side);
-      const mR=into(mi,"side",0,own);
-      quad(mR,at(W/2,0,D/2),at(W/2,0,-D/2),at(W/2,sh,-D/2),at(W/2,sh,D/2),
-           nAt(1,0,0),[[0,1],[1,1],[1,0],[0,0]]);
-      tagQuads(mR,lot.i);
-      const mL=into(mi,"side",0,own);
-      quad(mL,at(-W/2,0,-D/2),at(-W/2,0,D/2),at(-W/2,sh,D/2),at(-W/2,sh,-D/2),
-           nAt(-1,0,0),[[0,1],[1,1],[1,0],[0,0]]);
-      tagQuads(mL,lot.i);
-    }
-    if(roof){
-      const tile=(roof.plan.tile||roof.plan.w||2);
-      const kind=(front.plan.roof&&front.plan.roof.kind)||"flat";
-      const m=into(use(roof),"roof",0,own);
-      if(kind==="gable"){
-        const ridgeX=(front.plan.roof.ridge||"x")==="x";
-        const span=(ridgeX?D:W)/2;
-        const pitch=Math.max(0.5,(front.plan.roof.pitch||6))/12;
-        /* the ridge comes off the gable face's own silhouette, exactly as one
-           building does, or the plane lands short of the triangle it closes */
-        const gf=ridgeX?side:front;
-        const gh=(gf?gf.plan.h*sc:0);
-        const top=Math.max(eaves+0.01,gh>eaves?gh:eaves+span*pitch);
-        const rise=top-eaves,slope=Math.sqrt(span*span+rise*rise);
-        const nz=span/slope,ny=rise/slope;
-        if(ridgeX){
-          quad(m,at(-W/2,eaves,D/2),at(W/2,eaves,D/2),at(W/2,top,0),at(-W/2,top,0),
-               nAt(0,nz,ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
-          quad(m,at(W/2,eaves,-D/2),at(-W/2,eaves,-D/2),at(-W/2,top,0),at(W/2,top,0),
-               nAt(0,nz,-ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
+    const flip=!!st.mirror;
+    /* a landmark is the building everybody knows, so it wears the colour it
+       was forged in */
+    const paint=lot.landmark?[1,1,1]:tintOf(TINTS,st.tint);
+    const rpaint=lot.landmark?[1,1,1]:tintOf(ROOF_TINTS,(st.tint*7)>>2);
+    const mFront=use(front,paint),mBack=use(back,paint),
+          mSide=side?use(side,paint):-1,mRoof=roof?use(roof,rpaint):-1;
+    /* u across a face, mirrored or not: the same elevation seen the other way
+       round, which is half the houses on any street */
+    const U=(a,b)=>flip?[b,a]:[a,b];
+
+    for(const p of parts){
+      const main=(p.kind==="main");
+      const W=p.w,D=p.d,px=p.x,pz=p.z;
+      const H=main?FH:eaves*(p.h||0.5);
+      const top=main?eaves:H;             // where this part's roof sits
+      /* the window this part takes out of each face */
+      const uw=main?1:Math.min(1,W/Math.max(0.01,FW));
+      const u0=main?0:clamp(0.5+px/Math.max(0.01,FW)-uw/2,0,1-uw);
+      const vw=main?0:1-Math.min(1,H/Math.max(0.01,FH));
+      const sw=main?1:Math.min(1,D/Math.max(0.01,SW));
+      const s0=main?0:clamp(0.5-pz/Math.max(0.01,SW)-sw/2,0,1-sw);
+      const svw=main?0:1-Math.min(1,H/Math.max(0.01,SH));
+      const wallH=main?FH:H,backH=main?BH:H,sideH=main?SH:H;
+
+      const mF=into(mFront,"front",0,own);
+      const fu=U(u0,u0+uw);
+      quad(mF,at(px-W/2,0,pz+D/2),at(px+W/2,0,pz+D/2),
+              at(px+W/2,wallH,pz+D/2),at(px-W/2,wallH,pz+D/2),
+           nAt(0,0,1),[[fu[0],1],[fu[1],1],[fu[1],vw],[fu[0],vw]]);
+      tagQuads(mF,lot.i);
+
+      const mB=into(mBack,"back",0,own);
+      const bu=U(u0,u0+uw);
+      quad(mB,at(px+W/2,0,pz-D/2),at(px-W/2,0,pz-D/2),
+              at(px-W/2,backH,pz-D/2),at(px+W/2,backH,pz-D/2),
+           nAt(0,0,-1),[[bu[0],1],[bu[1],1],[bu[1],vw],[bu[0],vw]]);
+      tagQuads(mB,lot.i);
+
+      if(side){
+        const mi=mSide;
+        const mR=into(mi,"side",0,own);
+        quad(mR,at(px+W/2,0,pz+D/2),at(px+W/2,0,pz-D/2),
+                at(px+W/2,sideH,pz-D/2),at(px+W/2,sideH,pz+D/2),
+             nAt(1,0,0),[[s0,1],[s0+sw,1],[s0+sw,svw],[s0,svw]]);
+        tagQuads(mR,lot.i);
+        const mL=into(mi,"side",0,own);
+        quad(mL,at(px-W/2,0,pz-D/2),at(px-W/2,0,pz+D/2),
+                at(px-W/2,sideH,pz+D/2),at(px-W/2,sideH,pz-D/2),
+             nAt(-1,0,0),[[s0,1],[s0+sw,1],[s0+sw,svw],[s0,svw]]);
+        tagQuads(mL,lot.i);
+      }
+
+      if(roof){
+        const tile=(roof.plan.tile||roof.plan.w||2);
+        const m=into(mRoof,"roof",0,own);
+        /* WHICH WAY THE RIDGE RUNS is most of what an aerial view of a town is,
+           and it is free — the roof is a tiling material either way. The flat
+           ones are flat because the layout said so, not because the texture
+           could not do better. */
+        const wantGable=main
+          ?(((front.plan.roof&&front.plan.roof.kind)||"flat")==="gable"&&!st.flat)
+          :(p.kind==="ell"&&!p.flat);
+        if(wantGable){
+          const ridgeX=main?((st.ridge||(front.plan.roof&&front.plan.roof.ridge)||"x")==="x")
+                           :(W>=D);
+          const span=(ridgeX?D:W)/2;
+          const pitch=Math.max(0.5,(main?(st.pitch||(front.plan.roof&&front.plan.roof.pitch)||6):6))/12;
+          /* the ridge comes off the gable face's own silhouette where there is
+             one, or the pitch where there is not, exactly as one building does
+             — a plane that lands short of the triangle it closes is a slot of
+             daylight */
+          const gf=ridgeX?side:front;
+          const gh=(main&&gf)?gf.plan.h*sc*hMul:0;
+          const tp=Math.max(top+0.01,gh>top?gh:top+span*pitch);
+          const rise=tp-top,slope=Math.sqrt(span*span+rise*rise);
+          const nz=span/slope,ny=rise/slope;
+          if(ridgeX){
+            quad(m,at(px-W/2,top,pz+D/2),at(px+W/2,top,pz+D/2),at(px+W/2,tp,pz),at(px-W/2,tp,pz),
+                 nAt(0,nz,ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
+            quad(m,at(px+W/2,top,pz-D/2),at(px-W/2,top,pz-D/2),at(px-W/2,tp,pz),at(px+W/2,tp,pz),
+                 nAt(0,nz,-ny),[[0,slope/tile],[W/tile,slope/tile],[W/tile,0],[0,0]]);
+          }else{
+            quad(m,at(px+W/2,top,pz+D/2),at(px+W/2,top,pz-D/2),at(px,tp,pz-D/2),at(px,tp,pz+D/2),
+                 nAt(ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
+            quad(m,at(px-W/2,top,pz-D/2),at(px-W/2,top,pz+D/2),at(px,tp,pz+D/2),at(px,tp,pz-D/2),
+                 nAt(-ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
+          }
+          tagQuads(m,lot.i,2);
         }else{
-          quad(m,at(W/2,eaves,D/2),at(W/2,eaves,-D/2),at(0,top,-D/2),at(0,top,D/2),
-               nAt(ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
-          quad(m,at(-W/2,eaves,-D/2),at(-W/2,eaves,D/2),at(0,top,D/2),at(0,top,-D/2),
-               nAt(-ny,nz,0),[[0,slope/tile],[D/tile,slope/tile],[D/tile,0],[0,0]]);
+          quad(m,at(px-W/2,top,pz+D/2),at(px+W/2,top,pz+D/2),
+                 at(px+W/2,top,pz-D/2),at(px-W/2,top,pz-D/2),
+               [0,1,0],[[0,D/tile],[W/tile,D/tile],[W/tile,0],[0,0]]);
+          tagQuads(m,lot.i);
         }
-        tagQuads(m,lot.i,2);
-      }else{
-        quad(m,at(-W/2,eaves,D/2),at(W/2,eaves,D/2),at(W/2,eaves,-D/2),at(-W/2,eaves,-D/2),
-             [0,1,0],[[0,D/tile],[W/tile,D/tile],[W/tile,0],[0,0]]);
-        tagQuads(m,lot.i);
       }
     }
     built++;
@@ -516,6 +610,11 @@ function gltf(S){
     }
     out.pbrMetallicRoughness.metallicFactor=1;
     out.pbrMetallicRoughness.roughnessFactor=1;
+    /* THE PAINT TRAVELS. One image worn in several colours is several
+       materials with one texture between them, and baseColorFactor is exactly
+       the multiplier that means — so the town arrives in Blender painted
+       rather than arriving grey with a note about it. */
+    if(mt.tint)out.pbrMetallicRoughness.baseColorFactor=[mt.tint[0],mt.tint[1],mt.tint[2],1];
     const nm=tex(maps.normal);
     if(nm!==undefined)out.normalTexture={index:nm};
     const em=tex(maps.emissive);
@@ -582,12 +681,14 @@ function mtl(S){
   const L=["# Texture Forge — "+S.name,
            "# OBJ cannot address one channel of an image, so roughness and metallic",
            "# point at their own maps here rather than at the packed orm.png the",
-           "# .gltf uses. Same data, addressed the only way this format can.",""];
+           "# .gltf uses. Same data, addressed the only way this format can.",
+           "# Where one image is worn in several colours, Kd carries the paint and",
+           "# map_Kd is the same file on every one of them.",""];
   for(const m of S.materials){
     const maps=m.maps||{};
     L.push("newmtl "+m.name);
     L.push("Ka 1.000 1.000 1.000");
-    L.push("Kd 1.000 1.000 1.000");
+    L.push("Kd "+(m.tint?m.tint.map(v=>v.toFixed(3)).join(" "):"1.000 1.000 1.000"));
     L.push("Ks 0.000 0.000 0.000");
     L.push("d 1.0");
     L.push("illum 2");

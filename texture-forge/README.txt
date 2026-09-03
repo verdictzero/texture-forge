@@ -1047,9 +1047,65 @@ Nothing is resized to fit that is not resized UNIFORMLY, because the front of a
 building is an elevation and squashing one axis of it makes a building nobody
 built. A type that will not fit a lot at a sane scale is not put there at all.
 
+ONE TEXTURE IS NOT ONE BUILDING
+-------------------------------
+Two hundred houses off one elevation was two hundred identical boxes in rows,
+which is the one thing a town never looks like — and forging two hundred
+textures is not the answer either. Everything below is variation that costs NO
+texture at all, and every one of them is per instance:
+
+  it is mirrored or it is not     the front elevation flipped, which is half
+                                  the houses on any street
+  the ridge runs the other way    across or front-to-back, and flat now and
+                                  then. From the air this is most of what a
+                                  town IS, and the roof is a tiling material
+                                  either way, so it is free
+  it is taller or shorter         a few per cent of height is a skyline rather
+                                  than a stretch anybody can see
+  it sits further back            the setback jittered per lot, because a
+                                  street where every front wall is on one line
+                                  is a terrace
+  and most of them have           a garage off the back, a wing off the back
+  SOMETHING STUCK ON THEM         corner, a porch across the front, a chimney
+                                  up the side
+
+THE ATTACHED MASSES ARE THE BIG ONE, and they wear a WINDOW of the parent's own
+elevation. A garage is not a small house: it is a wall four metres high with a
+door in it, and a whole two-storey elevation squashed onto it is a doll's
+house. So it samples the bottom four metres of the same image at the SAME texel
+scale — real wall at a real size — and the cut-out sky up above the eaves never
+comes into it.
+
+THE GARAGE WENT BEHIND AFTER BEING MEASURED. A lot is the house's own width
+plus a gap — nine metres of buildable frontage for a nine-metre house — so a
+garage BESIDE one never once fitted and every one of them was quietly dropped
+by the fit test. Behind it there is depth to spare, which is also where the
+garage on a gridded town's alley actually is.
+
+AND THEY ARE PAINTED. A street where every house is the same colour is the last
+thing saying "this is one texture" once the massing has stopped saying it, and
+it costs nothing but a multiplier on the base colour — which is also what
+repainting a house is. One image, one material per colour: glTF carries that as
+baseColorFactor and OBJ as Kd, so the town arrives in Blender painted rather
+than arriving grey with a note about it. Roofs move separately and less, because
+a street of different houses under one colour of shingle is a street and a
+street of different shingle is a fairground.
+
+The composition is worked out in the LAYOUT rather than in the renderer, which
+is the only place it can be: a garage that widened the building after its ground
+had been checked would be a garage standing in next door's kitchen. The fit is
+of the whole composition, so the footprint the overlap test sees is the
+footprint that gets drawn — and where the ground will not take what a building
+wanted, it loses the wing rather than the building.
+
+"Variety" on the town bar is a real off switch. At zero every house is the
+elevation exactly as forged, standing square, unpainted, on the same setback as
+its neighbours: 241 houses and one style between them, which is the town this
+made before any of this existed.
+
 THE TOWN BAR, under the 3D view, is where the grid lives: seed, blocks across
 and deep, block size, how ragged, how built up, how much industry, how many
-diners — and a re-roll. Everything on it moves the town while you drag, with nothing forged,
+diners, how much variety — and a re-roll. Everything on it moves the town while you drag, with nothing forged,
 exactly as one building's box follows a slider.
 
 DESIGN MODE. The generator's answer is a starting point, not a verdict. Click a
@@ -1643,9 +1699,14 @@ It also covers the thirteen things that are easy to break silently:
             diner and it is a landmark — on a through road, over frontage
             taken from several house lots, half again as wide as the widest
             house — the works stands in its own ground, and the grid follows
-            the ROAD TEXTURE's width
-            rather than a number of its own — 14 m of road makes a 502 m town
-            and 24 m makes 572. THE GEOMETRY: one mesh per texture rather than
+            the ROAD TEXTURE's width rather than a number of its own: 14 m of
+            road makes a 502 m town and 24 m makes 572. THE BUILDINGS: no two
+            houses in a row are the same building, 241 of 241 distinguishable
+            over four kinds of attached mass, ten colours and ridges both ways
+            — and turning variety off puts every one of them back to a single
+            style, so it is the control doing the work and not the seed. The
+            paint is MATERIALS rather than extra textures, forty of them over
+            ten forged images. THE GEOMETRY: one mesh per material rather than
             one per building (two hundred meshes of twenty vertices is two
             hundred draw calls), nothing over the 16-bit index ceiling, every
             triangle wound to its own normal, and every triangle tagged with
