@@ -368,6 +368,32 @@ Hull — starship aztec plating
   the readout says the size that will actually be cut and says when it had to
   cut it down.
 
+  THE SURROUND IS A FORGING, NOT A SCRIBE LINE. It was a scribe line: a hair
+  over the width of a plate seam and half a plate's relief deep, which is the
+  one weight on a hull that reads as engraved rather than fitted. A window in
+  a pressure hull is a machined penetration with a frame welded into it, and
+  that frame is THICK and it stands PROUD — on the six-foot Enterprise-D the
+  window strips are a moulded part sitting on top of the plating, not a line
+  drawn in it. So the collar is sized as a fraction of the PANE'S OWN RADIUS,
+  which keeps a big port's frame heavy and a small one's fine off a single
+  control, and it is held back to whatever room is left in the cell, since a
+  collar that overruns its cell welds itself to its neighbour's. Surround
+  relief is how far it stands out, in millimetres, and at zero it lies flush.
+
+  AND THE PLATING STOPS AT IT. This was the other half of the same mistake:
+  the pane was carved out of the FINISHED quilt, so the plate scribe lines,
+  the structural bay lines and the hatch rings all carried straight on across
+  the glass and came out of the normal map as mullions dividing every port
+  into panels. That is not what a window looks like from outside — the plating
+  is cut away for the penetration, so the whole assembly now sits on a flat
+  machined pad and nothing the quilt carves reaches it. The seams END at the
+  collar, hard, the way a cut plate ends; the plate's own STEP in the surface
+  fairs back out over the width of the collar instead, because a level that
+  stopped as abruptly as a scribe line does would leave a second raised ring
+  a couple of texels wide all the way round. The pad takes the plain hull
+  colour with it, so a window straddling a plate seam no longer has a
+  different shade down each half of its frame with nothing left to explain it.
+
   AN UNLIT PANE IS NOT A BLACK HOLE, and it is not the emissive map switched
   off either. The TNG model shops built this distinction in PLASTIC: the kits
   supply clear, white and dark-TINTED sheet for the window strips, and on the
@@ -1730,7 +1756,20 @@ It also covers the thirteen things that are easy to break silently:
             off has to collapse that difference to nothing, which catches a
             grime term that is really just an edge. Rooms are counted as
             SPLIT rooms — a run of panes with some lit and some not — and the
-            count has to be zero, which a per-pane draw cannot manage by luck
+            count has to be zero, which a per-pane draw cannot manage by luck.
+            Then the SURROUND and the PAD, which both live in the height field
+            rather than in the metallic mask the shape tests use. A machined
+            pad is FLAT, so the height range inside the glass has to be a
+            rounding error against the depth of a scribe line — it was a whole
+            scribe line and more, 15 mm of relief inside a pane cut by a 5 mm
+            line, on 18 panes of 18. The collar is walked outward from the last
+            texel of glass and counted in texels against the scribe line's own
+            width, and its height taken against the plating datum, which is the
+            median of the whole field — windows are a few per cent of a hull,
+            so the median is the plating whatever the quilt did. Both of its
+            dimensions have to RESPOND, or the collar is a constant with a
+            control wired to nothing, which is very nearly what the old reveal
+            was: 0 px of collar at every setting
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and
