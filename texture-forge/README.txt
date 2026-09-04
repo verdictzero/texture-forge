@@ -341,6 +341,33 @@ Hull — starship aztec plating
   rather than black holes, and lit ones drive the emissive map in the window
   colour you pick.
 
+  A WINDOW IS A CAPSULE, and it was a rectangle. Nothing that holds pressure
+  has square corners — a corner is where the hoop stress goes to find something
+  to tear — so every port cut in a real hull, a ship's light or an airliner's
+  window or a submarine's viewport, is a slot with radiused ends or a plain
+  circle. A rectangle painted on the plating reads as a decal rather than a
+  hole cut through it, and it read as one here.
+
+  ONE SHAPE, TWO WAYS ROUND. The pane is a stadium: a straight section with a
+  semicircle on each end. The shape control only decides which axis the
+  straight section runs along, up the hull or across it, so the two
+  orientations are the same drawing rather than two drawings that have to be
+  kept in step. ACROSS is its width either way and ALONG is its length; a pane
+  shorter than it is wide is a circle, and it is clamped up rather than turned
+  inside out.
+
+  AND A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION. That is the whole
+  reason the round ones can be scattered through a row of slots and still
+  belong to it: same radius, same reveal, same glass — not a second shape that
+  happens to be near them. "Round ones" is what fraction of the panes get their
+  length taken out, and which ones is a hash on the pane's own cell, so it
+  wraps with the tile.
+
+  BOTH AXES ARE CLAMPED TO THE WINDOW PITCH. A pane longer than the cell it is
+  laid in runs into its neighbour and a row of windows becomes one lit stripe;
+  the readout says the size that will actually be cut and says when it had to
+  cut it down.
+
   Dimensioned in metres. The readout will tell you when the plates or the
   scribe lines have got smaller than the resolution can hold.
 
@@ -1639,6 +1666,16 @@ It also covers the thirteen things that are easy to break silently:
             the layer floor. Separate runs leave six or seven; fused, and
             measured on the code before this change, they leave exactly one.
             The claims grid and the stack are also exercised directly
+  hull      a window is a CAPSULE and not a rectangle, which is one measurement:
+            a rectangle fills the corner of its own bounding box and a capsule
+            cannot, so walking out to that corner answers the shape question by
+            itself — 18 of 18 filled it before, none does now. Then the extents
+            answer the rest: upright when asked, lying down when asked, all of
+            them as wide as they are tall at a round fraction of one, a mix in
+            between, and the round ones at exactly the radius of the slots
+            beside them. And a pane asked for at three metres on a two-metre
+            pitch is cut down to fit rather than running into its neighbour,
+            which it used to do at three times the cell width
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and

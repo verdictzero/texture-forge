@@ -2215,6 +2215,106 @@ if (want("town")) {
   }
 }
 
+/* ============================ the hull's windows ============================
+   Nothing that holds pressure has square corners — a corner is where the hoop
+   stress goes to find something to tear — so every port cut in a real hull is
+   a slot with radiused ends or a plain circle. These were rectangles, which
+   read as a decal painted on the plating rather than a hole cut through it.
+
+   MEASURED OFF THE METALLIC MAP. A pane is the deliberate glass cheat, 0.85
+   against a hull of 0.15, which is a cleaner mask than the height field and
+   does not depend on how deep the recess happens to be scaled.
+
+   THE SHAPE CLAIM IS THE CORNER. A rectangle fills the corner of its own
+   bounding box and a capsule does not, so walking out to the corner answers
+   "capsule or rectangle" on its own — and the extents answer which way round
+   it is laid and which of them came out round.
+   ========================================================================== */
+if (want("hull")) {
+  console.log("\n— the hull's windows —");
+  await page.click('#modebar-tabs [data-mode="hull"]');
+  await settle();
+
+  const panes = async set => {
+    /* THE GRID THE TEST WALKS IS THE GRID THE MODE DREW, taken from the same
+       numbers rather than typed twice — a scan on five bands over a texture of
+       three lands its samples between the panes and reports nonsense with
+       total confidence, which is exactly what it did. */
+    const P = Object.assign({ size: 512, tileM: 12, winRows: 3, winPitch: 2.0, winLit: 1,
+                              winW: 0.8, winH: 1.8, hatch: 0 }, set);
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); }, P);
+    await page.click("#hull--forge");
+    await settle();
+    return await page.evaluate(([nBands, pitch, tile]) => {
+      const B = window.Forge.active().B, S = B.W, MET = B.MET;
+      const nCols = Math.max(1, Math.round(tile / pitch));
+      const on = (x, y) => MET[((y % S + S) % S) * S + ((x % S + S) % S)] > 128;
+      const out = [];
+      for (let j = 0; j < nBands; j++) for (let i = 0; i < nCols; i++) {
+        const cx = Math.round((i + 0.5) / nCols * S), cy = Math.round((j + 0.5) / nBands * S);
+        if (!on(cx, cy)) { out.push(null); continue; }
+        /* how far the pane reaches from its own centre, each way */
+        let du = 0, dv = 0;
+        while (du < S / 2 && on(cx + du + 1, cy)) du++;
+        while (dv < S / 2 && on(cx, cy + dv + 1)) dv++;
+        /* and whether the corner of that bounding box is inside it, which is
+           the whole difference between a capsule and a rectangle */
+        const corner = on(cx + Math.round(du * 0.86), cy + Math.round(dv * 0.86));
+        out.push({ du, dv, corner });
+      }
+      return { nCols, panes: out };
+    }, [P.winRows, P.winPitch, P.tileM]);
+  };
+
+  const V = await panes({ winShape: "vcap", winRound: 0 });
+  const found = V.panes.filter(Boolean);
+  ok("the hull cuts windows", found.length >= 10,
+     `${found.length} panes of ${V.panes.length} cells`);
+  ok("a pane is a capsule, not a rectangle",
+     found.length > 0 && found.every(p => !p.corner),
+     `${found.filter(p => p.corner).length} of ${found.length} fill the corner of ` +
+     "their own bounding box — a rectangle fills it, a capsule cannot");
+  ok("and it stands upright when asked to",
+     found.every(p => p.dv > p.du * 1.4),
+     `reach ${found[0].du} across, ${found[0].dv} along`);
+
+  const H = await panes({ winShape: "hcap", winRound: 0 });
+  const hFound = H.panes.filter(Boolean);
+  ok("the same shape lies down when asked to",
+     hFound.length > 0 && hFound.every(p => p.du > p.dv * 1.4) && hFound.every(p => !p.corner),
+     `reach ${hFound[0].du} across, ${hFound[0].dv} along — and still no corner`);
+
+  /* A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION, which is what lets
+     the round ones sit in a row of slots and belong to it: same radius, same
+     reveal, same glass. So at one, every pane is as wide as it is tall. */
+  const R = await panes({ winShape: "vcap", winRound: 1 });
+  const rFound = R.panes.filter(Boolean);
+  const round = p => Math.abs(p.dv - p.du) <= Math.max(1, p.du * 0.25);
+  ok("all round when the fraction is one",
+     rFound.length > 0 && rFound.every(round),
+     `${rFound.filter(round).length} of ${rFound.length} are as wide as they are tall`);
+  ok("and the round ones are the same width as the slots",
+     rFound.length > 0 && found.length > 0 && Math.abs(rFound[0].du - found[0].du) <= 1,
+     `circle reaches ${rFound[0].du}, capsule reaches ${found[0].du} — the same radius`);
+
+  const M = await panes({ winShape: "vcap", winRound: 0.5 });
+  const mFound = M.panes.filter(Boolean);
+  const nRound = mFound.filter(round).length;
+  ok("and scattered through the rows in between",
+     nRound > 0 && nRound < mFound.length,
+     `${nRound} round among ${mFound.length - nRound} slots`);
+
+  /* A PANE LONGER THAN ITS OWN CELL runs into its neighbour and a row of
+     windows becomes one lit stripe, so both axes are clamped to the pitch. */
+  const B2 = await panes({ winShape: "vcap", winRound: 0, winH: 4, winW: 3 });
+  const bFound = B2.panes.filter(Boolean);
+  const cellPx = 512 / B2.nCols;
+  ok("a pane too big for its pitch is cut down to fit",
+     bFound.length > 0 && bFound.every(p => p.du * 2 < cellPx),
+     `asked for 3 m across on a ${(12 / B2.nCols).toFixed(1)} m pitch; ` +
+     `reaches ${bFound[0].du} px of a ${cellPx.toFixed(0)} px cell`);
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();

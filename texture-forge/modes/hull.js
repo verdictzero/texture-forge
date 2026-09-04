@@ -74,10 +74,40 @@ function build(params,io){
                         split:0.45,depth:1,minW:16*px,minH:16*px,seed:seed+4242});
   const rec=Quilt.record(),brec=Quilt.record();
 
-  /* windows: a whole number across and a whole number of bands, so they wrap */
+  /* ============================ windows ============================
+
+     A CAPSULE, NOT A RECTANGLE. Nothing that holds pressure has square
+     corners: a corner is where the hoop stress goes to find something to
+     tear, so every port cut in a real hull — a ship's light, an airliner's
+     window, a submarine's viewport — is a slot with radiused ends or a plain
+     circle. A rectangle painted on the plating reads as a decal, and it read
+     as one here.
+
+     ONE SHAPE, TWO WAYS ROUND. The pane is a stadium: a straight section with
+     a semicircle on each end. `winShape` only decides which axis the straight
+     section runs along — up the hull or across it — so the two orientations
+     are the same drawing and not two drawings that have to be kept in step.
+
+     AND A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION. That is why
+     the round ones can be scattered through a row of slots and still belong
+     to it: they are the same radius, the same reveal, the same glass. Not a
+     second shape — the same shape with its length taken out.
+
+     IT HAS TO FIT ITS OWN CELL. A pane longer than the pitch it is laid on
+     runs into its neighbour and a row of windows becomes one lit stripe, so
+     both axes are clamped to the cell and the readout says when they were. */
   const winBands=P.winRows|0;
-  const winAcross=Math.max(1,Math.round(K.T/Math.max(0.2,+P.winPitch)));
-  const winHalfU=P.winW*K.m*0.5,winHalfV=P.winH*K.m*0.5;
+  const winCols=Math.max(1,Math.round(K.T/Math.max(0.2,+P.winPitch)));
+  const winVert=(P.winShape||"vcap")!=="hcap";
+  /* the cell one pane lives in: across it, and along it */
+  const cellU=1/winCols,cellV=1/Math.max(1,winBands);
+  const cellA=winVert?cellU:cellV,cellB=winVert?cellV:cellU;
+  const askR=P.winW*K.m*0.5,askL=P.winH*K.m*0.5;
+  const winR=Math.min(askR,cellA*0.42);              // the pane's radius
+  /* never shorter than it is wide: below that a capsule IS a circle, and
+     letting the length go under the radius turns the ends inside out */
+  const winL=Math.min(Math.max(askL,winR),cellB*0.45);
+  const winStraight=Math.max(0,winL-winR);
   const winD=Math.max(P.scribeD*K.mm*2.5,P.plateH*K.mm*3);
   const frameW=Math.max(P.scribeW*K.mm*1.6,aa*1.5);
 
@@ -126,10 +156,18 @@ function build(params,io){
         let win=0,frame=0,lit=0;
         if(winBands>0){
           const vb=v*winBands,bi=Math.floor(vb);
-          const uc=u*winAcross,ui=Math.floor(uc);
-          const dU=Math.abs((uc-ui)-0.5)/winAcross;      // uv distance from the pane centre
+          const uc=u*winCols,ui=Math.floor(uc);
+          const dU=Math.abs((uc-ui)-0.5)/winCols;        // uv distance from the pane centre
           const dV=Math.abs((vb-bi)-0.5)/winBands;
-          const d=Math.max(dU-winHalfU,dV-winHalfV);
+          /* across the pane and along it, which way round the shape is laid */
+          const dA=winVert?dU:dV,dB=winVert?dV:dU;
+          /* THE ROUND ONES ARE THE SAME CAPSULE with its straight section
+             taken out, so a circle among the slots is the same radius, the
+             same reveal and the same glass rather than a second shape that
+             happens to be near them */
+          const straight=(hashi(ui,bi,seed+3313)<P.winRound)?0:winStraight;
+          const dEnd=Math.max(dB-straight,0);
+          const d=Math.sqrt(dA*dA+dEnd*dEnd)-winR;
           win=1-smoothstep(0,aa*1.6,d);
           /* the reveal around the pane: without it a window is a rectangle
              painted on the hull rather than something set into it */
@@ -266,28 +304,32 @@ Forge.register({
       tileM:10,rows:22,colsMin:5,colsMax:11,subdiv:.62,subdepth:2,bays:4,
       aztec:.62,albedoVar:.16,tintVar:.42,hotspot:.22,accent:.10,
       plateH:1.2,scribeW:18,scribeD:4,hatch:.14,
-      winRows:2,winPitch:2.2,winW:.85,winH:.5,winLit:.55,winGlow:.8,
+      winRows:2,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.22,
+      winLit:.55,winGlow:.8,
       scuff:.08,rough:.38,metalness:.18,
       cHull:"#c4c8c8",cTint:"#b3c2cc",cAccent:"#8d979d",cWin:"#ffd9a0"}},
     {id:"tvera",label:"TV era — broad and warm",set:{
       tileM:16,rows:12,colsMin:3,colsMax:7,subdiv:.48,subdepth:2,bays:3,
       aztec:.42,albedoVar:.22,tintVar:.28,hotspot:.14,accent:.14,
       plateH:2.5,scribeW:38,scribeD:7,hatch:.2,
-      winRows:3,winPitch:2.6,winW:1,winH:.6,winLit:.7,winGlow:.9,
+      winRows:3,winPitch:2.6,winShape:"hcap",winW:.85,winH:2,winRound:.30,
+      winLit:.7,winGlow:.9,
       scuff:.05,rough:.46,metalness:.12,
       cHull:"#cdc9bd",cTint:"#c6bfae",cAccent:"#9a958a",cWin:"#ffcf8a"}},
     {id:"nacelle",label:"Nacelle skin — no windows",set:{
       tileM:6,rows:30,colsMin:6,colsMax:14,subdiv:.7,subdepth:3,bays:5,
       aztec:.8,albedoVar:.12,tintVar:.55,hotspot:.35,accent:.06,
       plateH:.8,scribeW:10,scribeD:2.5,hatch:.08,
-      winRows:0,winPitch:2.2,winW:.85,winH:.5,winLit:.5,winGlow:.8,
+      winRows:0,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.25,
+      winLit:.5,winGlow:.8,
       scuff:.04,rough:.3,metalness:.3,
       cHull:"#c9ced2",cTint:"#aebfd0",cAccent:"#8794a0",cWin:"#ffd9a0"}},
     {id:"scored",label:"Battle-scored",set:{
       tileM:14,rows:16,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
       aztec:.5,albedoVar:.3,tintVar:.3,hotspot:.08,accent:.16,
       plateH:3.5,scribeW:32,scribeD:9,hatch:.28,
-      winRows:2,winPitch:2.4,winW:.9,winH:.55,winLit:.25,winGlow:.6,
+      winRows:2,winPitch:2.4,winShape:"vcap",winW:.8,winH:1.5,winRound:.38,
+      winLit:.25,winGlow:.6,
       scuff:.75,rough:.62,metalness:.2,
       cHull:"#a9aaa4",cTint:"#9aa0a3",cAccent:"#71736f",cWin:"#ffc27a"}}
   ],
@@ -324,10 +366,21 @@ Forge.register({
       {id:"hatch",label:"Access hatches",min:0,max:1,step:0.01,value:0.15},
       {id:"winRows",label:"Window bands",min:0,max:8,step:1,value:2},
       {id:"winPitch",label:"Window pitch",unit:"m",min:0.5,max:8,step:0.1,value:2.2},
-      {id:"winW",label:"Pane width",unit:"m",min:0.2,max:3,step:0.05,value:0.9},
-      {id:"winH",label:"Pane height",unit:"m",min:0.2,max:3,step:0.05,value:0.55},
+      {id:"winShape",type:"select",label:"Pane",value:"vcap",options:[
+        ["vcap","Vertical capsules"],["hcap","Horizontal capsules"]]},
+      {id:"winW",label:"Pane across",unit:"m",min:0.2,max:3,step:0.05,value:0.75},
+      {id:"winH",label:"Pane along",unit:"m",min:0.2,max:4,step:0.05,value:1.7},
+      {id:"winRound",label:"Round ones",min:0,max:1,step:0.01,value:0.28},
       {id:"winLit",label:"Lit fraction",min:0,max:1,step:0.01,value:0.6},
-      {id:"winGlow",label:"Glow strength",min:0,max:1,step:0.01,value:0.8}
+      {id:"winGlow",label:"Glow strength",min:0,max:1,step:0.01,value:0.8},
+      {type:"note",html:"A pane is a <b>capsule</b> — a straight section with a semicircle "+
+        "on each end — and the shape only decides which way the straight section runs. "+
+        "<b>Across</b> is the width of it either way, and <b>along</b> is its length; a pane "+
+        "shorter than it is wide is a circle. <b>Round ones</b> scatters plain circles through "+
+        "the rows: the same capsule with the straight section taken out, so they are the same "+
+        "radius and the same glass as the slots beside them. Both axes are clamped to the "+
+        "window pitch — a pane longer than its own cell runs into its neighbour and a row "+
+        "becomes one lit stripe."}
     ]},
     {title:"Colour & finish",rows:[
       {type:"colors",label:"Hull · pearl · trim · window",items:[
@@ -364,8 +417,22 @@ Forge.register({
     const linePx=P.scribeW/1000*pxPerM;
     if(P.scribeW>0&&linePx<1)m+="<br>scribe line "+linePx.toFixed(2)+" px — held at one texel";
     if(P.winRows>0){
-      const wPx=P.winW*pxPerM;
-      if(wPx<4)m+="<br>window panes "+wPx.toFixed(1)+" px wide — too small to read";
+      /* THE PANE THAT WILL ACTUALLY BE CUT, not the one that was asked for. Both
+         axes are clamped to the cell the pane lives in, and a readout that
+         reported the request would be describing a window nobody can see. */
+      const T=+P.tileM||12;
+      const nU=Math.max(1,Math.round(T/Math.max(0.2,+P.winPitch)));
+      const vert=(P.winShape||"vcap")!=="hcap";
+      const cellA=(vert?T/nU:T/P.winRows),cellB=(vert?T/P.winRows:T/nU);
+      const across=Math.min(+P.winW,cellA*0.84);
+      const along=Math.min(Math.max(+P.winH,across),cellB*0.90);
+      const cut=(across<+P.winW-1e-6)||(along<+P.winH-1e-6);
+      m+="<br>panes <b>"+across.toFixed(2)+" × "+along.toFixed(2)+" m</b> "+
+         (vert?"upright":"lying")+" capsules, "+Math.round(P.winRound*100)+"% of them round";
+      if(cut)m+="<br><b>cut down to fit the window pitch</b> — widen the pitch or "+
+                "drop a band to get the pane you asked for";
+      const wPx=across*pxPerM;
+      if(wPx<4)m+="<br>window panes "+wPx.toFixed(1)+" px across — too small to read";
     }
     return m;
   },
@@ -419,8 +486,15 @@ Forge.register({
       "               the bay steps take most of the range, so at 8 bits the plate",
       "               quilt itself is left with only a few dozen levels.",
       "orm.png        R = AO, G = roughness, B = metallic.",
-      "",
-      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."].join("\n");
+      ""].concat(P.winRows>0?[
+      "The panes are CAPSULES — a straight section with a semicircle on each end —",
+      "laid "+(((P.winShape||"vcap")!=="hcap")?"upright":"on their side")+", with "+
+        Math.round(P.winRound*100)+"% of them round. A circle here is the same capsule",
+      "with its straight section taken out, so the round ones share the radius, the",
+      "reveal and the glass of the slots beside them rather than being a second shape.",
+      "Nothing that holds pressure has square corners, which is the whole reason.",
+      ""]:[]).concat([
+      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."]).join("\n");
   }
 });
 
