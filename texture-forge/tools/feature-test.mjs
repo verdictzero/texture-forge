@@ -2383,6 +2383,107 @@ if (want("hull")) {
      `${R3.runs} rooms of three, ${R3.breaks} of them split · ` +
      `${R3.lit} of ${R3.all} panes lit`);
 
+  /* ============== the plating stops, and the surround is a forging ==========
+     Two defects that both live in the HEIGHT field, so both are measured
+     there rather than off the metallic mask the shape tests use.
+
+     THE PLATING RAN STRAIGHT ACROSS THE GLASS. The pane used to be carved out
+     of the finished quilt, so the plate scribe lines, the bay lines and the
+     hatch rings all continued over it and came out of the normal map as
+     mullions dividing every port into panels — which is what the screenshot
+     that started this shows. The claim is that the assembly sits on a flat
+     machined pad, and a pad is FLAT: the height range inside the glass has to
+     be a rounding error against the depth of a scribe line. It was a whole
+     scribe line deep.
+
+     AND THE SURROUND WAS A SCRIBE LINE. It was a hair over the plate seam in
+     width and half a plate's relief in depth, which is the one weight on a
+     hull that reads as engraved. A frame welded into a penetration is thick
+     and it stands PROUD, so the collar is walked outward from the glass in
+     texels and its height taken against the plating datum. */
+  const collars = async set => {
+    const P = Object.assign({ size: 512, tileM: 12, winRows: 3, winPitch: 2.0,
+                              winW: 0.8, winH: 1.8, winShape: "vcap", winRound: 0,
+                              winLit: 0, winGlow: 0, winGrime: 0, winRoom: 1,
+                              hatch: 0.5, scribeW: 25, scribeD: 5, plateH: 1.5,
+                              winFrame: 0.35, winLipH: 14 }, set);
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); }, P);
+    await page.click("#hull--forge");
+    await settle();
+    return await page.evaluate(([nBands, pitch, tile, lipMM, plateMM, scribeMM]) => {
+      const B = window.Forge.active().B, S = B.W, MET = B.MET, HGT = B.HGT;
+      const nCols = Math.max(1, Math.round(tile / pitch));
+      const at = (a, x, y) => a[((y % S + S) % S) * S + ((x % S + S) % S)];
+      const on = (x, y) => at(MET, x, y) > 128;
+      const mm = h => h * tile * 1000;               // tile-width units to mm
+      /* the plating datum. The median of the whole field is the plating by a
+         wide margin — windows are a few per cent of a hull — and it does not
+         care where the quilt happens to have put its seams. */
+      const sorted = Float32Array.from(HGT).sort();
+      const datum = sorted[sorted.length >> 1];
+      /* a collar texel stands clear of BOTH the asked-for lip and the plate's
+         own relief, so "no collar at all" cannot be faked by plate jitter */
+      const thr = Math.max(lipMM * 0.4, plateMM * 1.5) / 1000 / tile;
+      const out = [];
+      for (let j = 0; j < nBands; j++) for (let i = 0; i < nCols; i++) {
+        const cx = Math.round((i + 0.5) / nCols * S), cy = Math.round((j + 0.5) / nBands * S);
+        if (!on(cx, cy)) { out.push(null); continue; }
+        let du = 0, dv = 0;
+        while (du < S / 2 && on(cx + du + 1, cy)) du++;
+        while (dv < S / 2 && on(cx, cy + dv + 1)) dv++;
+        /* IS THE GLASS FLAT? A box safely inside the pane, so the reveal wall
+           and the antialiasing on the silhouette are both well outside it. */
+        const ru = Math.max(1, Math.round(du * 0.6)), rv = Math.max(1, Math.round(dv * 0.6));
+        let lo = Infinity, hi = -Infinity;
+        for (let y = -rv; y <= rv; y++) for (let x = -ru; x <= ru; x++) {
+          const h = at(HGT, cx + x, cy + y);
+          if (h < lo) lo = h; if (h > hi) hi = h;
+        }
+        /* THE COLLAR, walked outward from the last texel of glass */
+        let lipPx = 0, lipTop = -Infinity;
+        for (let k = 1; k < S / 4; k++) {
+          const h = at(HGT, cx + du + k, cy);
+          if (h - datum <= thr) break;
+          lipPx++; if (h > lipTop) lipTop = h;
+        }
+        out.push({ du, dv, flatMM: mm(hi - lo), lipPx,
+                   lipMM: lipPx ? mm(lipTop - datum) : 0 });
+      }
+      return { nCols, panes: out.filter(Boolean),
+               scribePx: scribeMM / 1000 / tile * S };
+    }, [P.winRows, P.winPitch, P.tileM, P.winLipH, P.plateH, P.scribeW]);
+  };
+
+  const C = await collars({});
+  ok("the plating stops at the window",
+     C.panes.length > 6 && C.panes.every(p => p.flatMM < 5 * 0.25),
+     `${C.panes.filter(p => p.flatMM >= 1.25).length} of ${C.panes.length} panes carry a ` +
+     `quilt seam across the glass · worst ` +
+     `${Math.max(...C.panes.map(p => p.flatMM)).toFixed(2)} mm of relief inside the ` +
+     `pane against a 5 mm scribe line`);
+  ok("and the surround is a collar, not a scribe line",
+     C.panes.every(p => p.lipPx >= 3 && p.lipPx >= C.scribePx * 2.5),
+     `${Math.min(...C.panes.map(p => p.lipPx))}–${Math.max(...C.panes.map(p => p.lipPx))} px ` +
+     `of collar against a ${C.scribePx.toFixed(1)} px scribe line`);
+  ok("and it stands proud of the plating",
+     C.panes.every(p => p.lipMM > 14 * 0.5),
+     `collar tops out ${(C.panes.reduce((a, p) => a + p.lipMM, 0) / C.panes.length).toFixed(1)} mm ` +
+     `above the plating, asked for 14`);
+
+  /* AND BOTH OF ITS DIMENSIONS ARE DRIVEN, or the collar is a constant with a
+     control wired to nothing — which is what the old reveal very nearly was. */
+  const thin = await collars({ winFrame: 0.12 }), thick = await collars({ winFrame: 0.75 });
+  const mean = c => c.panes.reduce((a, p) => a + p.lipPx, 0) / c.panes.length;
+  ok("the width control drives the collar",
+     mean(thick) > mean(thin) * 2.5,
+     `${mean(thin).toFixed(1)} px at 0.12 of the pane radius, ` +
+     `${mean(thick).toFixed(1)} px at 0.75`);
+  const flush = await collars({ winLipH: 0 });
+  ok("and taking the relief out lays it flat",
+     flush.panes.every(p => p.lipPx === 0),
+     `${flush.panes.filter(p => p.lipPx > 0).length} of ${flush.panes.length} panes still ` +
+     `stand proud at 0 mm of relief`);
+
   /* A PANE LONGER THAN ITS OWN CELL runs into its neighbour and a row of
      windows becomes one lit stripe, so both axes are clamped to the pitch. */
   const B2 = await panes({ winShape: "vcap", winRound: 0, winH: 4, winW: 3 });

@@ -110,7 +110,22 @@ function build(params,io){
   const winL=Math.min(Math.max(askL,winR),cellB*0.45);
   const winStraight=Math.max(0,winL-winR);
   const winD=Math.max(P.scribeD*K.mm*2.5,P.plateH*K.mm*3);
-  const frameW=Math.max(P.scribeW*K.mm*1.6,aa*1.5)*Math.max(0.2,+P.winFrame||1);
+
+  /* THE SURROUND IS A FORGING, NOT A SCRIBE LINE. A window in a pressure hull
+     is a machined penetration with a frame welded into it, and that frame is
+     THICK — on the six-foot Enterprise-D the window strips are a moulded part
+     standing proud of the plating, not a line drawn on it. It was a line here:
+     a hair over the scribe width, which is the one weight on the hull that says
+     "engraved" rather than "fitted".
+
+     So it is sized off the PANE — a fraction of the pane's own radius, which
+     keeps a big port's frame heavy and a small one's fine without a second
+     control — and then held to the room left in the cell, since a collar that
+     overruns its cell welds itself to its neighbour's. */
+  const lipRoom=Math.min(cellA*0.48-winR,cellB*0.48-winL);
+  const lipW=Math.max(aa*1.5,Math.min(winR*clamp(+P.winFrame,0.05,1),
+                                      Math.max(aa*1.5,lipRoom)));
+  const lipH=Math.max(0,+P.winLipH)*K.mm;              // how proud it stands
 
   /* A ROOM IS SEVERAL WINDOWS. On the six-foot Enterprise-D the panes of one
      compartment were meant to be all lit or all dark together, and the two
@@ -150,27 +165,21 @@ function build(params,io){
         const rKind=Quilt.rand(PQ,rec,211);
         const rHot=Quilt.rand(PQ,rec,409);
 
-        /* ---------------- height: almost nothing, on purpose ---------------- */
-        let h=(rSheen-0.5)*2*plateH+(brec.rnd-0.5)*2*bayH;
-        const gs=1-smoothstep(0,scribeW,rec.dEdge);       // plate scribe line
-        const gb=1-smoothstep(0,bayW,brec.dEdge);         // structural bay line
-        h-=gs*scribeD+gb*bayD;
+        /* ---------------- windows, BEFORE the plating ----------------
 
-        /* ---------------- access hatch ---------------- */
-        let ring=0,fast=0;
-        const isHatch=rKind<P.hatch*0.4;
-        if(isHatch){
-          const inset=Math.max(Math.min(rec.w,rec.h)*0.16,fastR*1.8);
-          ring=1-smoothstep(0,scribeW,Math.abs(rec.dEdge-inset));
-          h-=ring*scribeD*0.8;
-          const ddu=rec.du-inset,ddv=rec.dv-inset;       // hits all four corners at once
-          const dd=Math.sqrt(ddu*ddu+ddv*ddv);
-          fast=1-smoothstep(fastR*0.7,fastR,dd);
-          h+=fast*fastH;
-        }
+           THE PLATING STOPS AT A WINDOW. It did not: the pane was carved out
+           of the finished quilt, so the plate scribe lines, the bay lines and
+           the hatch rings all carried on straight across the glass and came
+           out in the normal map as mullions dividing every port into panels.
+           That is not what a window looks like from outside — the plating is
+           cut away for the penetration and the frame is welded into the hole,
+           so the whole assembly sits on a flat machined pad and no seam of the
+           quilt reaches it.
 
-        /* ---------------- windows ---------------- */
-        let win=0,frame=0,lit=0,grime=0,paneBright=1;
+           Which is why this runs first: it produces `pad`, the footprint of
+           the assembly out to the far edge of its collar, and everything the
+           quilt would have carved is multiplied by 1-pad. */
+        let win=0,lip=0,pad=0,padSoft=0,lit=0,grime=0,paneBright=1;
         if(winBands>0){
           const vb=v*winBands,bi=Math.floor(vb);
           const uc=u*winCols,ui=Math.floor(uc);
@@ -186,10 +195,17 @@ function build(params,io){
           const dEnd=Math.max(dB-straight,0);
           const d=Math.sqrt(dA*dA+dEnd*dEnd)-winR;
           win=1-smoothstep(0,aa*1.6,d);
-          /* the reveal around the pane: without it a window is a rectangle
-             painted on the hull rather than something set into it */
-          frame=clamp((1-smoothstep(0,aa*1.6,d-frameW))-win,0,1);
-          if(win>0.004||frame>0.004){
+          /* the assembly's whole footprint, and the collar as the ring of it
+             that is not glass */
+          pad=1-smoothstep(0,aa*1.6,d-lipW);
+          lip=clamp(pad-win,0,1);
+          /* the pad's own LEVEL reaches further out than its carving does. A
+             scribe line is cut and stops dead at the frame; the plate step it
+             sits on cannot, or the machined face is a second raised ring a
+             couple of texels wide all round the collar. So the seams end at
+             the collar and the level fairs back into the plating outside it. */
+          padSoft=1-smoothstep(0,Math.max(aa*1.6,lipW*0.9),d-lipW);
+          if(pad>0.004){
             lit=hashi(Math.floor(ui/roomN),bi,seed+7717)<P.winLit?1:0;
             /* GRIME AT THE SEAL, which is where it always is: the middle of a
                pane gets wiped and the last centimetre against the frame does
@@ -202,9 +218,36 @@ function build(params,io){
                         (1+(hashi(ui,bi,seed+911)-0.5)*2*P.winVary),0,1);
             /* and no two rooms have the same lamp in them */
             paneBright=1+(hashi(ui,bi,seed+1213)-0.5)*P.winVary*0.8;
-            h-=win*winD-frame*(P.plateH*K.mm*0.5);
           }
         }
+
+        /* ---------------- height: almost nothing, on purpose ---------------- */
+        /* the pad is machined flat, so the plate's own step in the surface goes
+           with the scribe lines — a window straddling a seam would otherwise sit
+           half on each plate with nothing but a colour change to explain it */
+        const keep=1-pad,keepJ=1-padSoft;
+        let h=((rSheen-0.5)*2*plateH+(brec.rnd-0.5)*2*bayH)*keepJ;
+        const gs=(1-smoothstep(0,scribeW,rec.dEdge))*keep;   // plate scribe line
+        const gb=(1-smoothstep(0,bayW,brec.dEdge))*keep;     // structural bay line
+        h-=gs*scribeD+gb*bayD;
+
+        /* ---------------- access hatch ---------------- */
+        let ring=0,fast=0;
+        const isHatch=rKind<P.hatch*0.4;
+        if(isHatch){
+          const inset=Math.max(Math.min(rec.w,rec.h)*0.16,fastR*1.8);
+          ring=(1-smoothstep(0,scribeW,Math.abs(rec.dEdge-inset)))*keep;
+          h-=ring*scribeD*0.8;
+          const ddu=rec.du-inset,ddv=rec.dv-inset;       // hits all four corners at once
+          const dd=Math.sqrt(ddu*ddu+ddv*ddv);
+          fast=(1-smoothstep(fastR*0.7,fastR,dd))*keep;
+          h+=fast*fastH;
+        }
+
+        /* the collar stands PROUD of the plating and the glass is set deep
+           inside it, so the reveal is a real wall of relief and the normal map
+           has something to shade rather than a scratch */
+        if(pad>0.004)h+=lip*lipH-win*winD;
 
         HGT[i]=h;
 
@@ -220,6 +263,14 @@ function build(params,io){
         /* a very low-frequency wash so a big hull is not perfectly uniform */
         const wash=1+(fbm(u,v,3,3,seed+83)-0.5)*0.055;
         r*=wash;g*=wash;b*=wash;
+
+        /* and the pad is one machined face: without this a window straddling
+           a plate seam has a different shade down each half of its frame, with
+           the scribe line that used to explain it now gone */
+        if(pad>0.004){
+          const pr=hull[0]*wash,pg=hull[1]*wash,pb=hull[2]*wash;
+          r=lerp(r,pr,pad);g=lerp(g,pg,pad);b=lerp(b,pb,pad);
+        }
 
         /* scribe lines and hatch rings are shadow, not paint */
         const line=clamp(gs*0.22+gb*0.34+ring*0.20,0,0.7);
@@ -237,9 +288,9 @@ function build(params,io){
         rough+=line*0.16+sc*0.34;
         let met=P.metalness;
 
-        if(frame>0.004){                                 // brushed reveal around the pane
-          r=lerp(r,r*1.10+13,frame);g=lerp(g,g*1.10+13,frame);b=lerp(b,b*1.10+13,frame);
-          rough=lerp(rough,0.30,frame*0.8);
+        if(lip>0.004){                                   // the brushed collar
+          r=lerp(r,r*1.10+13,lip);g=lerp(g,g*1.10+13,lip);b=lerp(b,b*1.10+13,lip);
+          rough=lerp(rough,0.30,lip*0.8);
         }
         if(win>0.004){
           /* AN UNLIT PANE IS DARK TINTED GLASS, NOT A HOLE — and it has to be
@@ -356,7 +407,7 @@ Forge.register({
       tileM:10,rows:22,colsMin:5,colsMax:11,subdiv:.62,subdepth:2,bays:4,
       aztec:.62,albedoVar:.16,tintVar:.42,hotspot:.22,accent:.10,
       plateH:1.2,scribeW:18,scribeD:4,hatch:.14,
-      winRows:2,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.22,winFrame:1,
+      winRows:2,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.22,winFrame:.32,winLipH:11,
       winLit:.5,winRoom:2,winGlow:.75,winDark:.5,winRough:.05,winMetal:.9,
       winGrime:.34,winGrimeW:.34,winVary:.34,
       scuff:.08,rough:.38,metalness:.18,
@@ -365,7 +416,7 @@ Forge.register({
       tileM:16,rows:12,colsMin:3,colsMax:7,subdiv:.48,subdepth:2,bays:3,
       aztec:.42,albedoVar:.22,tintVar:.28,hotspot:.14,accent:.14,
       plateH:2.5,scribeW:38,scribeD:7,hatch:.2,
-      winRows:3,winPitch:2.6,winShape:"hcap",winW:.85,winH:2,winRound:.30,winFrame:1.3,
+      winRows:3,winPitch:2.6,winShape:"hcap",winW:.85,winH:2,winRound:.30,winFrame:.42,winLipH:20,
       winLit:.62,winRoom:3,winGlow:.9,winDark:.34,winRough:.09,winMetal:.8,
       winGrime:.5,winGrimeW:.45,winVary:.45,
       scuff:.05,rough:.46,metalness:.12,
@@ -374,7 +425,7 @@ Forge.register({
       tileM:6,rows:30,colsMin:6,colsMax:14,subdiv:.7,subdepth:3,bays:5,
       aztec:.8,albedoVar:.12,tintVar:.55,hotspot:.35,accent:.06,
       plateH:.8,scribeW:10,scribeD:2.5,hatch:.08,
-      winRows:0,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.25,winFrame:1,
+      winRows:0,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.25,winFrame:.35,winLipH:14,
       winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
       winGrime:.45,winGrimeW:.4,winVary:.4,
       scuff:.04,rough:.3,metalness:.3,
@@ -383,7 +434,7 @@ Forge.register({
       tileM:14,rows:16,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
       aztec:.5,albedoVar:.3,tintVar:.3,hotspot:.08,accent:.16,
       plateH:3.5,scribeW:32,scribeD:9,hatch:.28,
-      winRows:2,winPitch:2.4,winShape:"vcap",winW:.8,winH:1.5,winRound:.38,winFrame:1.1,
+      winRows:2,winPitch:2.4,winShape:"vcap",winW:.8,winH:1.5,winRound:.38,winFrame:.5,winLipH:26,
       winLit:.22,winRoom:2,winGlow:.55,winDark:.62,winRough:.16,winMetal:.62,
       winGrime:.85,winGrimeW:.6,winVary:.7,
       scuff:.75,rough:.62,metalness:.2,
@@ -427,7 +478,8 @@ Forge.register({
       {id:"winW",label:"Pane across",unit:"m",min:0.2,max:3,step:0.05,value:0.75},
       {id:"winH",label:"Pane along",unit:"m",min:0.2,max:4,step:0.05,value:1.7},
       {id:"winRound",label:"Round ones",min:0,max:1,step:0.01,value:0.28},
-      {id:"winFrame",label:"Reveal width",min:0.2,max:4,step:0.05,value:1},
+      {id:"winFrame",label:"Surround width",min:0.05,max:1,step:0.01,value:0.35},
+      {id:"winLipH",label:"Surround relief",unit:"mm",min:0,max:60,step:1,value:14},
       {type:"note",html:"A pane is a <b>capsule</b> — a straight section with a semicircle "+
         "on each end — and the shape only decides which way the straight section runs. "+
         "<b>Across</b> is the width of it either way, and <b>along</b> is its length; a pane "+
@@ -435,7 +487,15 @@ Forge.register({
         "the rows: the same capsule with the straight section taken out, so they are the same "+
         "radius and the same glass as the slots beside them. Both axes are clamped to the "+
         "window pitch — a pane longer than its own cell runs into its neighbour and a row "+
-        "becomes one lit stripe."}
+        "becomes one lit stripe.<br>"+
+        "<b>The surround is a forging, not a scribe line.</b> A window in a pressure hull is "+
+        "a machined penetration with a frame welded into it, so it is thick and it stands "+
+        "<b>proud</b> of the plating. Width is a fraction of the pane's own radius — a big "+
+        "port keeps a heavy frame and a small one a fine one — held to whatever room is left "+
+        "in the cell. And the plating <b>stops</b> at it: the quilt's scribe lines, bay lines "+
+        "and hatch rings are all cut away under the assembly, which sits on one flat machined "+
+        "pad. They used to run straight across the glass and come out of the normal map as "+
+        "mullions dividing every port into panels."}
     ]},
     {title:"Glass",open:true,need:"win",rows:[
       {id:"winLit",label:"Lit fraction",min:0,max:1,step:0.01,value:0.55},
@@ -508,6 +568,18 @@ Forge.register({
       const cut=(across<+P.winW-1e-6)||(along<+P.winH-1e-6);
       m+="<br>panes <b>"+across.toFixed(2)+" × "+along.toFixed(2)+" m</b> "+
          (vert?"upright":"lying")+" capsules, "+Math.round(P.winRound*100)+"% of them round";
+      /* THE SURROUND THAT WILL ACTUALLY BE CAST. It is a fraction of the pane
+         radius but it has to fit the room left in the cell, so a wide frame on
+         a tight pitch is held back and the readout says by how much. */
+      const askLip=across*0.5*Math.max(0.05,Math.min(1,+P.winFrame));
+      const room=Math.min(cellA*0.48-across*0.5,cellB*0.48-along*0.5);
+      const lipM=Math.min(askLip,Math.max(0,room));
+      m+="<br>surround <b>"+(lipM*100).toFixed(1)+" cm</b> wide standing <b>"+
+         (+P.winLipH).toFixed(0)+" mm</b> proud";
+      if(lipM<askLip-1e-6)m+=" — held back from "+(askLip*100).toFixed(1)+
+                             " cm by the room left in the cell";
+      const lipPx=lipM*pxPerM;
+      if(lipPx<2)m+="<br>surround "+lipPx.toFixed(1)+" px — too fine to read as a frame";
       /* THE ROOM LENGTH ACTUALLY USED. A room has to divide the count across
          the tile or the one straddling the seam comes out half lit, so an
          asked-for run is walked down to the nearest divisor — and a readout
@@ -559,6 +631,12 @@ Forge.register({
     const wCols=Math.max(1,Math.round(T/Math.max(0.2,+P.winPitch)));
     let wRoom=1;
     for(let k=Math.min(Math.max(1,P.winRoom|0),wCols);k>=1;k--)if(wCols%k===0){wRoom=k;break;}
+    /* and the surround that was actually cast, held to the room in the cell */
+    const vert=(P.winShape||"vcap")!=="hcap";
+    const cA=(vert?T/wCols:T/Math.max(1,P.winRows|0)),cB=(vert?T/Math.max(1,P.winRows|0):T/wCols);
+    const acr=Math.min(+P.winW,cA*0.84),alg=Math.min(Math.max(+P.winH,acr),cB*0.90);
+    const lipM=Math.min(acr*0.5*Math.max(0.05,Math.min(1,+P.winFrame)),
+                        Math.max(0,Math.min(cA*0.48-acr*0.5,cB*0.48-alg*0.5)));
     return ["Texture Forge · hull — starship aztec plating",
       "",
       "Seed "+(P.seed|0)+"   Resolution "+info.W+"x"+info.H+"   Seamless in both axes",
@@ -591,6 +669,13 @@ Forge.register({
       "with its straight section taken out, so the round ones share the radius, the",
       "reveal and the glass of the slots beside them rather than being a second shape.",
       "Nothing that holds pressure has square corners, which is the whole reason.",
+      "",
+      "The SURROUND is a forging and not a scribe line: "+(lipM*100).toFixed(1)+" cm of collar",
+      "standing "+(+P.winLipH).toFixed(0)+" mm proud of the plating, with the glass set deep inside it.",
+      "The plating STOPS at it — the plate seams, the bay lines and the hatch rings are",
+      "all cut away under the assembly, which sits on one flat machined pad. So the",
+      "normal map has no quilt seam crossing any pane, and height16.png is worth using:",
+      "the collar and the reveal take most of the range between them.",
       "",
       "AN UNLIT PANE IS DESCRIBED ENTIRELY BY THE PBR CHANNELS, not by the emissive.",
       "It is dark tinted glass rather than a black hole: base colour "+Math.round((1-Math.min(1,Math.max(0,+P.winDark)))*100)+"% of the",
