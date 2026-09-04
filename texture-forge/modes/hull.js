@@ -55,6 +55,7 @@ function build(params,io){
 
   const hull=hex2rgb(P.cHull),tint=hex2rgb(P.cTint),accent=hex2rgb(P.cAccent);
   const winLit=hex2rgb(P.cWin);
+  const glass=hex2rgb(P.cGlass||"#39424e");   // the unlit pane's own colour
 
   const px=1/S,aa=px*0.7;                          // one texel, and an edge softener
   const plateH=P.plateH*K.mm;
@@ -74,12 +75,58 @@ function build(params,io){
                         split:0.45,depth:1,minW:16*px,minH:16*px,seed:seed+4242});
   const rec=Quilt.record(),brec=Quilt.record();
 
-  /* windows: a whole number across and a whole number of bands, so they wrap */
+  /* ============================ windows ============================
+
+     A CAPSULE, NOT A RECTANGLE. Nothing that holds pressure has square
+     corners: a corner is where the hoop stress goes to find something to
+     tear, so every port cut in a real hull — a ship's light, an airliner's
+     window, a submarine's viewport — is a slot with radiused ends or a plain
+     circle. A rectangle painted on the plating reads as a decal, and it read
+     as one here.
+
+     ONE SHAPE, TWO WAYS ROUND. The pane is a stadium: a straight section with
+     a semicircle on each end. `winShape` only decides which axis the straight
+     section runs along — up the hull or across it — so the two orientations
+     are the same drawing and not two drawings that have to be kept in step.
+
+     AND A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION. That is why
+     the round ones can be scattered through a row of slots and still belong
+     to it: they are the same radius, the same reveal, the same glass. Not a
+     second shape — the same shape with its length taken out.
+
+     IT HAS TO FIT ITS OWN CELL. A pane longer than the pitch it is laid on
+     runs into its neighbour and a row of windows becomes one lit stripe, so
+     both axes are clamped to the cell and the readout says when they were. */
   const winBands=P.winRows|0;
-  const winAcross=Math.max(1,Math.round(K.T/Math.max(0.2,+P.winPitch)));
-  const winHalfU=P.winW*K.m*0.5,winHalfV=P.winH*K.m*0.5;
+  const winCols=Math.max(1,Math.round(K.T/Math.max(0.2,+P.winPitch)));
+  const winVert=(P.winShape||"vcap")!=="hcap";
+  /* the cell one pane lives in: across it, and along it */
+  const cellU=1/winCols,cellV=1/Math.max(1,winBands);
+  const cellA=winVert?cellU:cellV,cellB=winVert?cellV:cellU;
+  const askR=P.winW*K.m*0.5,askL=P.winH*K.m*0.5;
+  const winR=Math.min(askR,cellA*0.42);              // the pane's radius
+  /* never shorter than it is wide: below that a capsule IS a circle, and
+     letting the length go under the radius turns the ends inside out */
+  const winL=Math.min(Math.max(askL,winR),cellB*0.45);
+  const winStraight=Math.max(0,winL-winR);
   const winD=Math.max(P.scribeD*K.mm*2.5,P.plateH*K.mm*3);
-  const frameW=Math.max(P.scribeW*K.mm*1.6,aa*1.5);
+  const frameW=Math.max(P.scribeW*K.mm*1.6,aa*1.5)*Math.max(0.2,+P.winFrame||1);
+
+  /* A ROOM IS SEVERAL WINDOWS. On the six-foot Enterprise-D the panes of one
+     compartment were meant to be all lit or all dark together, and the two
+     rows on deck nine famously are not — which is exactly what a per-pane coin
+     flip looks like. So the draw is on the ROOM a pane belongs to.
+
+     The run length has to DIVIDE the count across the tile or the room
+     straddling the seam is half lit, so the asked-for length is walked down to
+     the nearest divisor rather than used as given. */
+  let roomN=1;
+  const askRoom=clamp(P.winRoom|0,1,winCols);
+  for(let k=askRoom;k>=1;k--)if(winCols%k===0){roomN=k;break;}
+
+  /* how far in from the seal the grime reaches. A pane is cleaned from the
+     middle outward and never at the edge, on a starship as on a bus. */
+  const grimeW=Math.max(aa*1.2,winR*clamp(+P.winGrimeW,0,1));
 
   const band=Math.max(4,Math.round(65536/S));
   let y=0;
@@ -123,19 +170,38 @@ function build(params,io){
         }
 
         /* ---------------- windows ---------------- */
-        let win=0,frame=0,lit=0;
+        let win=0,frame=0,lit=0,grime=0,paneBright=1;
         if(winBands>0){
           const vb=v*winBands,bi=Math.floor(vb);
-          const uc=u*winAcross,ui=Math.floor(uc);
-          const dU=Math.abs((uc-ui)-0.5)/winAcross;      // uv distance from the pane centre
+          const uc=u*winCols,ui=Math.floor(uc);
+          const dU=Math.abs((uc-ui)-0.5)/winCols;        // uv distance from the pane centre
           const dV=Math.abs((vb-bi)-0.5)/winBands;
-          const d=Math.max(dU-winHalfU,dV-winHalfV);
+          /* across the pane and along it, which way round the shape is laid */
+          const dA=winVert?dU:dV,dB=winVert?dV:dU;
+          /* THE ROUND ONES ARE THE SAME CAPSULE with its straight section
+             taken out, so a circle among the slots is the same radius, the
+             same reveal and the same glass rather than a second shape that
+             happens to be near them */
+          const straight=(hashi(ui,bi,seed+3313)<P.winRound)?0:winStraight;
+          const dEnd=Math.max(dB-straight,0);
+          const d=Math.sqrt(dA*dA+dEnd*dEnd)-winR;
           win=1-smoothstep(0,aa*1.6,d);
           /* the reveal around the pane: without it a window is a rectangle
              painted on the hull rather than something set into it */
           frame=clamp((1-smoothstep(0,aa*1.6,d-frameW))-win,0,1);
           if(win>0.004||frame>0.004){
-            lit=hashi(ui,bi,seed+7717)<P.winLit?1:0;
+            lit=hashi(Math.floor(ui/roomN),bi,seed+7717)<P.winLit?1:0;
+            /* GRIME AT THE SEAL, which is where it always is: the middle of a
+               pane gets wiped and the last centimetre against the frame does
+               not. It is what stops an unlit window reading as a decal of a
+               dark rectangle — the roughness climbs into the corner and the
+               specular dies there, so the glass has an edge in every channel
+               and not only in the one nobody turned on. */
+            const inward=-d;
+            grime=clamp((1-smoothstep(0,grimeW,inward))*P.winGrime*
+                        (1+(hashi(ui,bi,seed+911)-0.5)*2*P.winVary),0,1);
+            /* and no two rooms have the same lamp in them */
+            paneBright=1+(hashi(ui,bi,seed+1213)-0.5)*P.winVary*0.8;
             h-=win*winD-frame*(P.plateH*K.mm*0.5);
           }
         }
@@ -176,14 +242,38 @@ function build(params,io){
           rough=lerp(rough,0.30,frame*0.8);
         }
         if(win>0.004){
-          /* an unlit pane is glass in shadow, not a hole: keep it dark but off
-             black, and let the metallic cheat pick up the environment */
-          r=lerp(r,lit?winLit[0]*0.42:38,win);
-          g=lerp(g,lit?winLit[1]*0.42:43,win);
-          b=lerp(b,lit?winLit[2]*0.42:51,win);
-          rough=lerp(rough,0.07,win);
-          met=lerp(met,0.85,win);                        // the same deliberate glass cheat
-          EMI[i]=lit?clamp(win*P.winGlow,0,1)*255:0;
+          /* AN UNLIT PANE IS DARK TINTED GLASS, NOT A HOLE — and it has to be
+             a whole material rather than one dark colour, because half the
+             windows on a hull are unlit at any moment and a black rectangle is
+             what a decal looks like. The model kits for the six-foot
+             Enterprise-D supply clear, white and DARK-TINTED plastic for
+             exactly this reason: the dark ones are glass you can see the sky
+             in, not holes cut in the saucer.
+
+             So the pane is described entirely in the channels that work
+             whether anything is switched on behind it: a low roughness, a high
+             metallic — the deliberate specular cheat the house mode uses too —
+             and a glass colour of its own. Turn the emissive off completely
+             and the windows are still windows. */
+          const litC=lit?paneBright:0;
+          const dk=1-clamp(+P.winDark,0,1);
+          const gr=lit?winLit[0]*0.42*litC:glass[0]*dk;
+          const gg=lit?winLit[1]*0.42*litC:glass[1]*dk;
+          const gb=lit?winLit[2]*0.42*litC:glass[2]*dk;
+          r=lerp(r,gr,win);g=lerp(g,gg,win);b=lerp(b,gb,win);
+          let wRough=clamp(+P.winRough,0.02,1),wMet=clamp(+P.winMetal,0,1);
+          /* the grime is ON the glass, so it takes the glass's own answer and
+             spoils it: rougher, far less specular, and dirtier in colour */
+          if(grime>0.002){
+            wRough=clamp(wRough+grime*0.62,0.02,1);
+            wMet*=1-grime*0.86;
+            const k=grime*0.85;
+            r=lerp(r,r*0.52+15,k);g=lerp(g,g*0.52+14,k);b=lerp(b,b*0.54+13,k);
+          }
+          rough=lerp(rough,wRough,win);
+          met=lerp(met,wMet,win);
+          /* a lit room does not reach its own window frame either */
+          EMI[i]=lit?clamp(win*P.winGlow*paneBright*(1-grime*0.8),0,1)*255:0;
         }else EMI[i]=0;
 
         A[i*3]=r;A[i*3+1]=g;A[i*3+2]=b;
@@ -266,30 +356,38 @@ Forge.register({
       tileM:10,rows:22,colsMin:5,colsMax:11,subdiv:.62,subdepth:2,bays:4,
       aztec:.62,albedoVar:.16,tintVar:.42,hotspot:.22,accent:.10,
       plateH:1.2,scribeW:18,scribeD:4,hatch:.14,
-      winRows:2,winPitch:2.2,winW:.85,winH:.5,winLit:.55,winGlow:.8,
+      winRows:2,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.22,winFrame:1,
+      winLit:.5,winRoom:2,winGlow:.75,winDark:.5,winRough:.05,winMetal:.9,
+      winGrime:.34,winGrimeW:.34,winVary:.34,
       scuff:.08,rough:.38,metalness:.18,
-      cHull:"#c4c8c8",cTint:"#b3c2cc",cAccent:"#8d979d",cWin:"#ffd9a0"}},
+      cHull:"#c4c8c8",cTint:"#b3c2cc",cAccent:"#8d979d",cWin:"#ffd9a0",cGlass:"#333c47"}},
     {id:"tvera",label:"TV era — broad and warm",set:{
       tileM:16,rows:12,colsMin:3,colsMax:7,subdiv:.48,subdepth:2,bays:3,
       aztec:.42,albedoVar:.22,tintVar:.28,hotspot:.14,accent:.14,
       plateH:2.5,scribeW:38,scribeD:7,hatch:.2,
-      winRows:3,winPitch:2.6,winW:1,winH:.6,winLit:.7,winGlow:.9,
+      winRows:3,winPitch:2.6,winShape:"hcap",winW:.85,winH:2,winRound:.30,winFrame:1.3,
+      winLit:.62,winRoom:3,winGlow:.9,winDark:.34,winRough:.09,winMetal:.8,
+      winGrime:.5,winGrimeW:.45,winVary:.45,
       scuff:.05,rough:.46,metalness:.12,
-      cHull:"#cdc9bd",cTint:"#c6bfae",cAccent:"#9a958a",cWin:"#ffcf8a"}},
+      cHull:"#cdc9bd",cTint:"#c6bfae",cAccent:"#9a958a",cWin:"#ffcf8a",cGlass:"#43443f"}},
     {id:"nacelle",label:"Nacelle skin — no windows",set:{
       tileM:6,rows:30,colsMin:6,colsMax:14,subdiv:.7,subdepth:3,bays:5,
       aztec:.8,albedoVar:.12,tintVar:.55,hotspot:.35,accent:.06,
       plateH:.8,scribeW:10,scribeD:2.5,hatch:.08,
-      winRows:0,winPitch:2.2,winW:.85,winH:.5,winLit:.5,winGlow:.8,
+      winRows:0,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.25,winFrame:1,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
+      winGrime:.45,winGrimeW:.4,winVary:.4,
       scuff:.04,rough:.3,metalness:.3,
-      cHull:"#c9ced2",cTint:"#aebfd0",cAccent:"#8794a0",cWin:"#ffd9a0"}},
+      cHull:"#c9ced2",cTint:"#aebfd0",cAccent:"#8794a0",cWin:"#ffd9a0",cGlass:"#39424e"}},
     {id:"scored",label:"Battle-scored",set:{
       tileM:14,rows:16,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
       aztec:.5,albedoVar:.3,tintVar:.3,hotspot:.08,accent:.16,
       plateH:3.5,scribeW:32,scribeD:9,hatch:.28,
-      winRows:2,winPitch:2.4,winW:.9,winH:.55,winLit:.25,winGlow:.6,
+      winRows:2,winPitch:2.4,winShape:"vcap",winW:.8,winH:1.5,winRound:.38,winFrame:1.1,
+      winLit:.22,winRoom:2,winGlow:.55,winDark:.62,winRough:.16,winMetal:.62,
+      winGrime:.85,winGrimeW:.6,winVary:.7,
       scuff:.75,rough:.62,metalness:.2,
-      cHull:"#a9aaa4",cTint:"#9aa0a3",cAccent:"#71736f",cWin:"#ffc27a"}}
+      cHull:"#a9aaa4",cTint:"#9aa0a3",cAccent:"#71736f",cWin:"#ffc27a",cGlass:"#2e3138"}}
   ],
 
   controls:[
@@ -324,15 +422,49 @@ Forge.register({
       {id:"hatch",label:"Access hatches",min:0,max:1,step:0.01,value:0.15},
       {id:"winRows",label:"Window bands",min:0,max:8,step:1,value:2},
       {id:"winPitch",label:"Window pitch",unit:"m",min:0.5,max:8,step:0.1,value:2.2},
-      {id:"winW",label:"Pane width",unit:"m",min:0.2,max:3,step:0.05,value:0.9},
-      {id:"winH",label:"Pane height",unit:"m",min:0.2,max:3,step:0.05,value:0.55},
-      {id:"winLit",label:"Lit fraction",min:0,max:1,step:0.01,value:0.6},
-      {id:"winGlow",label:"Glow strength",min:0,max:1,step:0.01,value:0.8}
+      {id:"winShape",type:"select",label:"Pane",value:"vcap",options:[
+        ["vcap","Vertical capsules"],["hcap","Horizontal capsules"]]},
+      {id:"winW",label:"Pane across",unit:"m",min:0.2,max:3,step:0.05,value:0.75},
+      {id:"winH",label:"Pane along",unit:"m",min:0.2,max:4,step:0.05,value:1.7},
+      {id:"winRound",label:"Round ones",min:0,max:1,step:0.01,value:0.28},
+      {id:"winFrame",label:"Reveal width",min:0.2,max:4,step:0.05,value:1},
+      {type:"note",html:"A pane is a <b>capsule</b> — a straight section with a semicircle "+
+        "on each end — and the shape only decides which way the straight section runs. "+
+        "<b>Across</b> is the width of it either way, and <b>along</b> is its length; a pane "+
+        "shorter than it is wide is a circle. <b>Round ones</b> scatters plain circles through "+
+        "the rows: the same capsule with the straight section taken out, so they are the same "+
+        "radius and the same glass as the slots beside them. Both axes are clamped to the "+
+        "window pitch — a pane longer than its own cell runs into its neighbour and a row "+
+        "becomes one lit stripe."}
+    ]},
+    {title:"Glass",open:true,need:"win",rows:[
+      {id:"winLit",label:"Lit fraction",min:0,max:1,step:0.01,value:0.55},
+      {id:"winRoom",label:"Panes per room",min:1,max:8,step:1,value:2},
+      {id:"winGlow",label:"Glow strength",min:0,max:1,step:0.01,value:0.8},
+      {id:"winDark",label:"Unlit depth",min:0,max:1,step:0.01,value:0.42},
+      {id:"winRough",label:"Glass roughness",min:0.02,max:0.7,step:0.01,value:0.07},
+      {id:"winMetal",label:"Glass specular",min:0,max:1,step:0.01,value:0.85},
+      {id:"winGrime",label:"Edge grime",min:0,max:1,step:0.01,value:0.45},
+      {id:"winGrimeW",label:"Grime reach",min:0,max:1,step:0.01,value:0.40},
+      {id:"winVary",label:"Pane to pane",min:0,max:1,step:0.01,value:0.40},
+      {type:"note",html:"<b>An unlit pane is dark tinted glass, not a hole.</b> Half the "+
+        "windows on a hull are dark at any moment, and a black rectangle is what a decal "+
+        "looks like — so the pane is described in the channels that work with nothing "+
+        "switched on behind it: <b>glass roughness</b>, <b>glass specular</b> and its own "+
+        "colour. Turn the glow to zero and the windows are still windows.<br>"+
+        "<b>Edge grime</b> is where dirt actually is: the middle of a pane gets wiped and "+
+        "the last centimetre against the frame does not. It roughens the glass, kills the "+
+        "specular and dirties the colour, so the pane has an edge in every channel.<br>"+
+        "<b>Panes per room</b> lights them in runs rather than one at a time. On the "+
+        "six-foot Enterprise-D the windows of one compartment were meant to be all lit or "+
+        "all dark together; the two rows on deck nine famously are not, and that is exactly "+
+        "what a per-pane coin flip looks like."}
     ]},
     {title:"Colour & finish",rows:[
-      {type:"colors",label:"Hull · pearl · trim · window",items:[
+      {type:"colors",label:"Hull · pearl · trim · lit · glass",items:[
         {id:"cHull",value:"#c6c9c6"},{id:"cTint",value:"#b6c3cc"},
-        {id:"cAccent",value:"#8e969b"},{id:"cWin",value:"#ffd9a0"}]},
+        {id:"cAccent",value:"#8e969b"},{id:"cWin",value:"#ffd9a0"},
+        {id:"cGlass",value:"#39424e"}]},
       {id:"scuff",label:"Carbon scoring",min:0,max:1,step:0.01,value:0.1},
       {id:"rough",label:"Base roughness",min:0.05,max:1,step:0.01,value:0.42},
       {id:"metalness",label:"Metalness",min:0,max:1,step:0.01,value:0.15}
@@ -364,8 +496,32 @@ Forge.register({
     const linePx=P.scribeW/1000*pxPerM;
     if(P.scribeW>0&&linePx<1)m+="<br>scribe line "+linePx.toFixed(2)+" px — held at one texel";
     if(P.winRows>0){
-      const wPx=P.winW*pxPerM;
-      if(wPx<4)m+="<br>window panes "+wPx.toFixed(1)+" px wide — too small to read";
+      /* THE PANE THAT WILL ACTUALLY BE CUT, not the one that was asked for. Both
+         axes are clamped to the cell the pane lives in, and a readout that
+         reported the request would be describing a window nobody can see. */
+      const T=+P.tileM||12;
+      const nU=Math.max(1,Math.round(T/Math.max(0.2,+P.winPitch)));
+      const vert=(P.winShape||"vcap")!=="hcap";
+      const cellA=(vert?T/nU:T/P.winRows),cellB=(vert?T/P.winRows:T/nU);
+      const across=Math.min(+P.winW,cellA*0.84);
+      const along=Math.min(Math.max(+P.winH,across),cellB*0.90);
+      const cut=(across<+P.winW-1e-6)||(along<+P.winH-1e-6);
+      m+="<br>panes <b>"+across.toFixed(2)+" × "+along.toFixed(2)+" m</b> "+
+         (vert?"upright":"lying")+" capsules, "+Math.round(P.winRound*100)+"% of them round";
+      /* THE ROOM LENGTH ACTUALLY USED. A room has to divide the count across
+         the tile or the one straddling the seam comes out half lit, so an
+         asked-for run is walked down to the nearest divisor — and a readout
+         that reported the request would be describing a building nobody
+         lives in. */
+      let rn=1;
+      for(let k=Math.max(1,Math.min(P.winRoom|0,nU));k>=1;k--)if(nU%k===0){rn=k;break;}
+      m+="<br>"+nU+" across the tile, lit in rooms of <b>"+rn+"</b>";
+      if(rn!==(P.winRoom|0))m+=" — "+(P.winRoom|0)+" does not divide "+nU+
+                               ", and a room across the seam would be half lit";
+      if(cut)m+="<br><b>cut down to fit the window pitch</b> — widen the pitch or "+
+                "drop a band to get the pane you asked for";
+      const wPx=across*pxPerM;
+      if(wPx<4)m+="<br>window panes "+wPx.toFixed(1)+" px across — too small to read";
     }
     return m;
   },
@@ -383,6 +539,10 @@ Forge.register({
     }};
   },
 
+  /* the glass only exists where there are windows, and eleven controls for a
+     nacelle skin with none is eleven controls in the way */
+  needs:function(P){return (P.winRows|0)>0?["win"]:[];},
+
   /* a tiling material: one tile of it, at the size the mode says it covers */
   plan:function(P){const t=Math.max(0.05,+P.tileM||12);return {w:t,h:t,tile:t,cutout:false};},
 
@@ -394,6 +554,11 @@ Forge.register({
   readme:function(P,info){
     const T=Math.max(0.5,+P.tileM||12);
     const mm=(info.hMax-info.hMin)*T*1000;
+    /* the same walk-down the generator does, so the readme quotes the room
+       length that was actually used and not the one that was asked for */
+    const wCols=Math.max(1,Math.round(T/Math.max(0.2,+P.winPitch)));
+    let wRoom=1;
+    for(let k=Math.min(Math.max(1,P.winRoom|0),wCols);k>=1;k--)if(wCols%k===0){wRoom=k;break;}
     return ["Texture Forge · hull — starship aztec plating",
       "",
       "Seed "+(P.seed|0)+"   Resolution "+info.W+"x"+info.H+"   Seamless in both axes",
@@ -406,11 +571,11 @@ Forge.register({
       "basecolor.png  sRGB albedo. Import as sRGB / colour data.",
       "normal.png     Tangent space, "+info.normalNote+". Non-colour.",
       "roughness.png  Linear grey. This is where the aztec pattern lives.",
-      "metallic.png   Linear grey. The hull sits at "+(+P.metalness).toFixed(2)+"; window panes are",
-      "               set to 0.85 on purpose, the same cheat the house mode uses — on an",
-      "               opaque hull a metallic pane picks up the environment and reads as",
-      "               glass. Doing real transparent glass? Set the panes from emissive",
-      "               and pull metallic back to the hull value.",
+      "metallic.png   Linear grey. The hull sits at "+(+P.metalness).toFixed(2)+" and the panes at "+(+P.winMetal).toFixed(2)+",",
+      "               the same cheat the house mode uses — on an opaque hull a metallic",
+      "               pane picks up the environment and reads as glass. Doing real",
+      "               transparent glass? Set the panes from emissive and pull metallic",
+      "               back to the hull value.",
       "ao.png         Linear grey ambient occlusion, from the scribe lines and bay steps.",
       "emissive.png   Lit window panes in the window colour; black elsewhere.",
       "height.png     Linear grey spanning "+mm.toFixed(2)+" mm of real relief",
@@ -419,8 +584,28 @@ Forge.register({
       "               the bay steps take most of the range, so at 8 bits the plate",
       "               quilt itself is left with only a few dozen levels.",
       "orm.png        R = AO, G = roughness, B = metallic.",
+      ""].concat(P.winRows>0?[
+      "The panes are CAPSULES — a straight section with a semicircle on each end —",
+      "laid "+(((P.winShape||"vcap")!=="hcap")?"upright":"on their side")+", with "+
+        Math.round(P.winRound*100)+"% of them round. A circle here is the same capsule",
+      "with its straight section taken out, so the round ones share the radius, the",
+      "reveal and the glass of the slots beside them rather than being a second shape.",
+      "Nothing that holds pressure has square corners, which is the whole reason.",
       "",
-      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."].join("\n");
+      "AN UNLIT PANE IS DESCRIBED ENTIRELY BY THE PBR CHANNELS, not by the emissive.",
+      "It is dark tinted glass rather than a black hole: base colour "+Math.round((1-Math.min(1,Math.max(0,+P.winDark)))*100)+"% of the",
+      "glass colour, roughness "+(+P.winRough).toFixed(2)+" against a hull at "+(+P.rough).toFixed(2)+", metallic "+(+P.winMetal).toFixed(2)+". So an",
+      "unlit window still catches a highlight and still reads as a window with the",
+      "emissive map switched off entirely.",
+      "",
+      "The GLASS IS DIRTIEST AT ITS SEAL. Grime rides the last "+Math.round((+P.winGrimeW)*100)+"% of the pane in from",
+      "the frame, roughening it and killing the specular where the gasket sits, which",
+      "is where a real port is dirty and where a flat pane gives itself away.",
+      "",
+      "Windows light by ROOM, not by pane: "+wRoom+" panes to a room, so a lit compartment",
+      "is a run of windows rather than a coin flip per pane.",
+      ""]:[]).concat([
+      "Normal strength was baked at "+(+P.normalStr).toFixed(2)+"x."]).join("\n");
   }
 });
 

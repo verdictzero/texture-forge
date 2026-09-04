@@ -2215,6 +2215,185 @@ if (want("town")) {
   }
 }
 
+/* ============================ the hull's windows ============================
+   Nothing that holds pressure has square corners — a corner is where the hoop
+   stress goes to find something to tear — so every port cut in a real hull is
+   a slot with radiused ends or a plain circle. These were rectangles, which
+   read as a decal painted on the plating rather than a hole cut through it.
+
+   MEASURED OFF THE METALLIC MAP. A pane is the deliberate glass cheat, 0.85
+   against a hull of 0.15, which is a cleaner mask than the height field and
+   does not depend on how deep the recess happens to be scaled.
+
+   THE SHAPE CLAIM IS THE CORNER. A rectangle fills the corner of its own
+   bounding box and a capsule does not, so walking out to the corner answers
+   "capsule or rectangle" on its own — and the extents answer which way round
+   it is laid and which of them came out round.
+   ========================================================================== */
+if (want("hull")) {
+  console.log("\n— the hull's windows —");
+  await page.click('#modebar-tabs [data-mode="hull"]');
+  await settle();
+
+  const panes = async set => {
+    /* THE GRID THE TEST WALKS IS THE GRID THE MODE DREW, taken from the same
+       numbers rather than typed twice — a scan on five bands over a texture of
+       three lands its samples between the panes and reports nonsense with
+       total confidence, which is exactly what it did. */
+    const P = Object.assign({ size: 512, tileM: 12, winRows: 3, winPitch: 2.0, winLit: 1,
+                              winW: 0.8, winH: 1.8, hatch: 0, winGrime: 0, winRoom: 1,
+                              winGlow: 0.8, winRough: 0.07, winMetal: 0.85 }, set);
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); }, P);
+    await page.click("#hull--forge");
+    await settle();
+    return await page.evaluate(([nBands, pitch, tile]) => {
+      const B = window.Forge.active().B, S = B.W, MET = B.MET;
+      const nCols = Math.max(1, Math.round(tile / pitch));
+      const on = (x, y) => MET[((y % S + S) % S) * S + ((x % S + S) % S)] > 128;
+      const at = (a, x, y) => a[((y % S + S) % S) * S + ((x % S + S) % S)];
+      const out = [];
+      let emiMax = 0, hullR = 0, hullM = 0, hullN = 0, paneR = 0, paneM = 0, paneN = 0;
+      for (let k = 0; k < S * S; k++) {
+        if (B.EMI && B.EMI[k] > emiMax) emiMax = B.EMI[k];
+        if (MET[k] > 128) { paneR += B.RGH[k]; paneM += MET[k]; paneN++; }
+        else { hullR += B.RGH[k]; hullM += MET[k]; hullN++; }
+      }
+      for (let j = 0; j < nBands; j++) for (let i = 0; i < nCols; i++) {
+        const cx = Math.round((i + 0.5) / nCols * S), cy = Math.round((j + 0.5) / nBands * S);
+        if (!on(cx, cy)) { out.push(null); continue; }
+        /* how far the pane reaches from its own centre, each way */
+        let du = 0, dv = 0;
+        while (du < S / 2 && on(cx + du + 1, cy)) du++;
+        while (dv < S / 2 && on(cx, cy + dv + 1)) dv++;
+        /* and whether the corner of that bounding box is inside it, which is
+           the whole difference between a capsule and a rectangle */
+        const corner = on(cx + Math.round(du * 0.86), cy + Math.round(dv * 0.86));
+        /* the middle of the glass against the LAST TEXEL of it before the
+           seal. Not a fraction of the way out: the grime pulls the metallic
+           mask in, so a fraction of the masked radius lands further inside
+           than intended and on a small pane lands clean. Two texels in from
+           that, though, or the antialiasing ramp on the silhouette itself
+           shows up as a difference when there is no grime at all. */
+        const ex = cx + Math.max(1, du - 2);
+        out.push({ du, dv, corner,
+                   rMid: at(B.RGH, cx, cy), rEdge: at(B.RGH, ex, cy),
+                   mMid: at(MET, cx, cy),   mEdge: at(MET, ex, cy),
+                   emi: B.EMI ? at(B.EMI, cx, cy) : 0 });
+      }
+      return { nCols, panes: out, emiMax,
+               hullR: hullR / Math.max(1, hullN), hullM: hullM / Math.max(1, hullN),
+               paneR: paneR / Math.max(1, paneN), paneM: paneM / Math.max(1, paneN),
+               paneN };
+    }, [P.winRows, P.winPitch, P.tileM]);
+  };
+
+  const V = await panes({ winShape: "vcap", winRound: 0 });
+  const found = V.panes.filter(Boolean);
+  ok("the hull cuts windows", found.length >= 10,
+     `${found.length} panes of ${V.panes.length} cells`);
+  ok("a pane is a capsule, not a rectangle",
+     found.length > 0 && found.every(p => !p.corner),
+     `${found.filter(p => p.corner).length} of ${found.length} fill the corner of ` +
+     "their own bounding box — a rectangle fills it, a capsule cannot");
+  ok("and it stands upright when asked to",
+     found.every(p => p.dv > p.du * 1.4),
+     `reach ${found[0].du} across, ${found[0].dv} along`);
+
+  const H = await panes({ winShape: "hcap", winRound: 0 });
+  const hFound = H.panes.filter(Boolean);
+  ok("the same shape lies down when asked to",
+     hFound.length > 0 && hFound.every(p => p.du > p.dv * 1.4) && hFound.every(p => !p.corner),
+     `reach ${hFound[0].du} across, ${hFound[0].dv} along — and still no corner`);
+
+  /* A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION, which is what lets
+     the round ones sit in a row of slots and belong to it: same radius, same
+     reveal, same glass. So at one, every pane is as wide as it is tall. */
+  const R = await panes({ winShape: "vcap", winRound: 1 });
+  const rFound = R.panes.filter(Boolean);
+  const round = p => Math.abs(p.dv - p.du) <= Math.max(1, p.du * 0.25);
+  ok("all round when the fraction is one",
+     rFound.length > 0 && rFound.every(round),
+     `${rFound.filter(round).length} of ${rFound.length} are as wide as they are tall`);
+  ok("and the round ones are the same width as the slots",
+     rFound.length > 0 && found.length > 0 && Math.abs(rFound[0].du - found[0].du) <= 1,
+     `circle reaches ${rFound[0].du}, capsule reaches ${found[0].du} — the same radius`);
+
+  const M = await panes({ winShape: "vcap", winRound: 0.5 });
+  const mFound = M.panes.filter(Boolean);
+  const nRound = mFound.filter(round).length;
+  ok("and scattered through the rows in between",
+     nRound > 0 && nRound < mFound.length,
+     `${nRound} round among ${mFound.length - nRound} slots`);
+
+  /* =================== the glass, with nothing switched on ===================
+     HALF THE WINDOWS ON A HULL ARE DARK at any moment, and a black rectangle is
+     what a decal looks like. The model kits for the six-foot Enterprise-D
+     supply clear, white and DARK-TINTED plastic for exactly this reason. So an
+     unlit pane has to be a whole material in the channels that do not care
+     whether anything is switched on behind it — which is the claim, and it is
+     checked with the emissive turned off completely. */
+  const D = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+                          winGrime: 0.5, winGrimeW: 0.45 });
+  ok("with every window unlit the emissive is empty", D.emiMax === 0,
+     `brightest emissive texel ${D.emiMax}`);
+  ok("and the glass is still glass in roughness and metallic",
+     D.paneN > 500 && D.paneR < D.hullR * 0.6 && D.paneM > D.hullM * 3,
+     `panes read ${D.paneR.toFixed(0)} rough / ${D.paneM.toFixed(0)} metallic ` +
+     `against a hull at ${D.hullR.toFixed(0)} / ${D.hullM.toFixed(0)}`);
+  /* THE DIRT IS AT THE SEAL, which is where it always is: the middle of a pane
+     gets wiped and the last centimetre against the frame does not. */
+  const dirty = D.panes.filter(Boolean);
+  ok("and the dirt is at the seal, not spread over the pane",
+     dirty.length > 0 && dirty.every(p => p.rEdge > p.rMid + 8 && p.mEdge < p.mMid - 8),
+     `edge ${dirty[0].rEdge} rough / ${dirty[0].mEdge} metallic against ` +
+     `${dirty[0].rMid} / ${dirty[0].mMid} in the middle of the same pane`);
+  const clean = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+                              winGrime: 0 });
+  const flat = clean.panes.filter(Boolean);
+  ok("and turning the grime off takes it away",
+     flat.every(p => Math.abs(p.rEdge - p.rMid) <= 4 && Math.abs(p.mEdge - p.mMid) <= 4),
+     "the pane reads the same at its edge as in its middle");
+
+  /* A ROOM IS SEVERAL WINDOWS. On the six-foot Enterprise-D the panes of one
+     compartment were meant to be all lit or all dark together — the two rows on
+     deck nine famously are not, and that is exactly what a per-pane coin flip
+     looks like. */
+  const rooms = async n => {
+    /* A ROOM HAS TO DIVIDE THE COUNT ACROSS THE TILE or the one straddling the
+       seam is half lit, so the mode walks the asked-for length down to the
+       nearest divisor. Twelve metres at a one-metre pitch is twelve panes,
+       which three divides exactly — ask on a pitch it does not and the mode is
+       right to give you two and the test would be wrong to complain. */
+    const R2 = await panes({ winShape: "vcap", winRound: 0, winLit: 0.5, winGlow: 1,
+                             winGrime: 0, winRoom: n, winPitch: 1.0 });
+    const lit = R2.panes.map(p => p ? (p.emi > 0 ? 1 : 0) : null);
+    let breaks = 0, runs = 0;
+    for (let b = 0; b * R2.nCols < lit.length; b++)
+      for (let i = 0; i < R2.nCols; i += n) {
+        const room = lit.slice(b * R2.nCols + i, b * R2.nCols + i + n).filter(v => v !== null);
+        if (!room.length) continue;
+        runs++;
+        if (room.some(v => v !== room[0])) breaks++;
+      }
+    return { breaks, runs, lit: lit.filter(v => v === 1).length, all: lit.filter(v => v !== null).length };
+  };
+  const R3 = await rooms(3);
+  ok("windows light in rooms, not one at a time",
+     R3.breaks === 0 && R3.lit > 0 && R3.lit < R3.all,
+     `${R3.runs} rooms of three, ${R3.breaks} of them split · ` +
+     `${R3.lit} of ${R3.all} panes lit`);
+
+  /* A PANE LONGER THAN ITS OWN CELL runs into its neighbour and a row of
+     windows becomes one lit stripe, so both axes are clamped to the pitch. */
+  const B2 = await panes({ winShape: "vcap", winRound: 0, winH: 4, winW: 3 });
+  const bFound = B2.panes.filter(Boolean);
+  const cellPx = 512 / B2.nCols;
+  ok("a pane too big for its pitch is cut down to fit",
+     bFound.length > 0 && bFound.every(p => p.du * 2 < cellPx),
+     `asked for 3 m across on a ${(12 / B2.nCols).toFixed(1)} m pitch; ` +
+     `reaches ${bFound[0].du} px of a ${cellPx.toFixed(0)} px cell`);
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();
