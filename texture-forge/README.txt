@@ -368,6 +368,50 @@ Hull — starship aztec plating
   the readout says the size that will actually be cut and says when it had to
   cut it down.
 
+  AN UNLIT PANE IS NOT A BLACK HOLE, and it is not the emissive map switched
+  off either. The TNG model shops built this distinction in PLASTIC: the kits
+  supply clear, white and dark-TINTED sheet for the window strips, and on the
+  studio miniatures the dark windows were blacked out while the lit ones were
+  outlined. A dark window is still glass — it still catches a highlight, still
+  sits smoother than the plating around it, still has its own colour. So an
+  unlit pane here is described entirely by the PBR channels and the emissive
+  contributes nothing to it: turn "Lit fraction" and "Emissive" both to zero
+  and the emissive map goes completely black while the windows are still
+  plainly windows in base colour, roughness and metallic.
+
+  There are three separate levers for that, because they are three separate
+  materials in a renderer. UNLIT DEPTH darkens the glass colour toward black,
+  which is what "dark room behind the port" looks like — Andrew Probert
+  described the unlit observation decks on the Enterprise-D as dark rooms of
+  various sizes, not as holes. GLASS ROUGHNESS is how polished the pane is
+  against the hull's own roughness, and it is what makes a window read as
+  window on a matte hull. GLASS METALLIC is the old cheat, shared with the
+  house mode: on an opaque surface a metallic pane picks up the environment
+  and reads as reflection. Doing real transmissive glass instead? Pull metallic
+  back to the hull value and drive the panes from emissive alone.
+
+  THE GLASS IS DIRTIEST AT ITS SEAL. Nothing is ever cleaned into the corner
+  where it meets its gasket, and a pane that is uniformly clean is the single
+  clearest tell that a window was painted on rather than fitted. Grime here
+  rides in from the frame — GRIME REACH is how far in, as a fraction of the
+  pane's own radius, and it comes off the capsule's own distance field, so it
+  follows a slot and a circle identically without a second piece of code. It
+  roughens the glass and kills the metallic where it lands, and dims the
+  emissive under it, since a dirty pane is a dim pane. PANE VARIATION then
+  gives each window its own brightness and its own amount of dirt, because a
+  row of identically clean identically bright ports is the other tell.
+
+  WINDOWS LIGHT BY ROOM, NOT BY PANE. On the six-foot Enterprise-D the panes
+  of one compartment were meant to be lit or dark together — the two rows on
+  deck nine are a known continuity error precisely because they are not, and
+  the rule the modelmakers state is that for a given room all its windows
+  should consistently be either lit or unlit. A per-pane coin flip is exactly
+  what that mistake looks like. PANES PER ROOM sets the run length; the mode
+  walks the asked-for number down to the nearest DIVISOR of the number of
+  windows across the tile, because a room that does not divide evenly is a
+  room cut in half by the seam with one half lit. The readout says the length
+  it actually used.
+
   Dimensioned in metres. The readout will tell you when the plates or the
   scribe lines have got smaller than the resolution can hold.
 
@@ -1675,7 +1719,18 @@ It also covers the thirteen things that are easy to break silently:
             between, and the round ones at exactly the radius of the slots
             beside them. And a pane asked for at three metres on a two-metre
             pitch is cut down to fit rather than running into its neighbour,
-            which it used to do at three times the cell width
+            which it used to do at three times the cell width. Then the GLASS,
+            which is four more measurements: with every pane unlit the emissive
+            map has no non-zero texel in it at all, and the panes are still
+            35 rough / 197 metallic against a hull at 102 / 40 — that pair is
+            the whole "unlit is not off" claim, and neither half of it can be
+            read off the emissive. The grime is measured as a DIFFERENCE
+            between two texels of the SAME pane, its edge against its middle,
+            so nothing about the hull under it can fake it; and turning grime
+            off has to collapse that difference to nothing, which catches a
+            grime term that is really just an edge. Rooms are counted as
+            SPLIT rooms — a run of panes with some lit and some not — and the
+            count has to be zero, which a per-pane draw cannot manage by luck
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and
