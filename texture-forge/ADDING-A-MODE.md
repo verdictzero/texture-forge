@@ -637,6 +637,13 @@ what the thing is made of rather than three.
 
 ## Standing one texture up several hundred times
 
+A structure may instead declare `road: {kit: {surface, kerb, verge}}`, which
+names the step each kind of surface wears. That structure gets no building at
+all: `modes/lib/road.js` sweeps a drawn cross-section along a path, the runtime
+puts a drawing board and a bar under the 3D view for it, and
+`ForgeModel.roadScene` dresses the result. It is the worked example of a
+structure whose shape is not a box.
+
 `ForgeModel.townScene` is the worked example, and two things in it are the
 difference between a town and a slideshow.
 
