@@ -348,13 +348,23 @@ Hull — starship aztec plating
   circle. A rectangle painted on the plating reads as a decal rather than a
   hole cut through it, and it read as one here.
 
-  ONE SHAPE, TWO WAYS ROUND. The pane is a stadium: a straight section with a
-  semicircle on each end. The shape control only decides which axis the
-  straight section runs along, up the hull or across it, so the two
-  orientations are the same drawing rather than two drawings that have to be
-  kept in step. ACROSS is its width either way and ALONG is its length; a pane
-  shorter than it is wide is a circle, and it is clamped up rather than turned
-  inside out.
+  WIDTH IS ACROSS THE HULL AND HEIGHT IS UP IT, whichever way the pane lies.
+  They used to be "across" and "along" — across the pane's own straight section
+  and along it — which on a lying capsule are the two texture axes SWAPPED, so
+  making a window taller meant reaching for the control labelled width. That is
+  a fine way to describe a shape and a hopeless way to size one.
+
+  So the two numbers are the two texture axes, full stop, and the SHAPE falls
+  out of them: taller than wide is an upright capsule, wider than tall is a
+  lying one, and equal is a circle. Which leaves nothing for an orientation
+  control to decide, so its only job now is to OVERRIDE — force a row upright
+  or force it flat, and the two numbers get swapped to suit. HEIGHT is the
+  control for how tall a window is, always.
+
+  Both axes are held to their own cell. Width is capped by the window pitch and
+  HEIGHT BY THE BAND SPACING, so a tall window wants fewer bands — the readout
+  names which of the two did the cutting and by how much, rather than leaving
+  you to work out why the slider stopped doing anything.
 
   AND A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION. That is the whole
   reason the round ones can be scattered through a row of slots and still
@@ -441,8 +451,27 @@ Hull — starship aztec plating
   Dimensioned in metres. The readout will tell you when the plates or the
   scribe lines have got smaller than the resolution can hold.
 
-  Presets: refit (fine and cold), TV era (broad and warm), nacelle skin (no
-  windows), battle-scored.
+  TWENTY PRESETS, AND THE FIRST THING EACH ONE SETS IS THE TILE — a preset that
+  forgets it is a picture rather than a piece of hull, since a shuttle door and
+  a station module want the same plate size in metres and nothing else the
+  same. They run from 2.5 m to 32 m and cover the three window habits (bands of
+  slots, single tall glass, scattered circles), the three finishes (cold
+  specular, warm matte, scoured) and the plain plating a run needs between
+  them: refit, TV era, nacelle skin, battle-scored, saucer dorsal, promenade,
+  observation deck, deck nine, shuttlepod, runabout flank, station module,
+  sensor band, carrier flank, hangar door, cargo hull, drydock spar, derelict,
+  ablative armour, late hull, workbee tug.
+
+  THE PANEL AND THE BLANK PLATING COME OUT TOGETHER. A hull run needs the
+  plating with windows in it and the plain plating to put between the window
+  bands, off the same seed and the same quilt — and forging one, exporting,
+  dropping the bands to zero, forging again and exporting again is four steps
+  to get two files that differ by one parameter, every time the seed moves. So
+  the archive carries both cuts, each in its own folder with its own maps, its
+  own readme and its own geometry, and the panel on screen is put back exactly
+  as it was. The switch is in the windows group; turn it off and the archive is
+  the single flat one it has always been. Any mode can do this — see `variants`
+  in ADDING-A-MODE.md.
 
 Greeble — machined surface clutter
   The fine mechanical detail that makes a hull, a machine bay or a reactor face
@@ -1544,6 +1573,16 @@ Both are written Y-up, which is glTF's own convention and the default Blender's
 OBJ importer expects, so the two land in the same orientation and a wall
 arrives standing up.
 
+MORE THAN ONE CUT OF THE SAME TEXTURE. A mode can declare `variants` — extra
+versions of what it just drew, one parameter apart — and the archive button
+packs them all from one press. The hull uses it for the plating with windows
+and the plain plating between the bands: same seed, same quilt, one slider
+apart, and getting them separately means forging and exporting twice every time
+the seed moves. Each cut lands in its own folder with its own maps, 16-bit
+height, readme and geometry, and the parameters are put back afterwards. A mode
+with no variants packs exactly the flat archive it always did. See
+ADDING-A-MODE.md.
+
 A single mode exports a single plane. A STRUCTURE — the House, Factory or
 Diner buttons in the top bar — exports the building: four walls off three
 elevations (the two sides are the same elevation seen from opposite ends,
@@ -1769,7 +1808,27 @@ It also covers the thirteen things that are easy to break silently:
             so the median is the plating whatever the quilt did. Both of its
             dimensions have to RESPOND, or the collar is a constant with a
             control wired to nothing, which is very nearly what the old reveal
-            was: 0 px of collar at every setting
+            was: 0 px of collar at every setting.
+            Then the AXES, because the fix is a rename that has to be a real
+            one: raising the height has to make the pane taller and leave its
+            width alone, swapping the two numbers has to lie the same shape
+            down, and the orientation control has to override them rather than
+            define them. And the ARCHIVE, read back out of its own blob rather
+            than trusted because the button did not throw: two folders from one
+            press, the same file count in each, and the packed metallic map of
+            the second cut DECODED and its glass counted — 29 thousand texels
+            of it in the panel, none in the blank plating. Plus that the panel
+            on screen afterwards is the one that was there before, since an
+            export that leaves your parameters somewhere else is worse than no
+            export. And the PRESET LIBRARY, which is a button per entry that
+            can lie: every one is forged and fingerprinted on the pixels it
+            made — a coarse 8×8 grid of roughness means, coarse on purpose so
+            that two presets differing only in seed noise would still collide —
+            and 20 of 20 come out distinct, none of them a flat grey, and each
+            one keeping its own word about whether it has windows. That last
+            check is measured against each preset's OWN hull metalness rather
+            than a fixed threshold, because the derelict's glass is deliberately
+            dull and a fixed threshold called it plating
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and

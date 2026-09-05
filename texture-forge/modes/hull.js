@@ -99,16 +99,30 @@ function build(params,io){
      both axes are clamped to the cell and the readout says when they were. */
   const winBands=P.winRows|0;
   const winCols=Math.max(1,Math.round(K.T/Math.max(0.2,+P.winPitch)));
-  const winVert=(P.winShape||"vcap")!=="hcap";
-  /* the cell one pane lives in: across it, and along it */
-  const cellU=1/winCols,cellV=1/Math.max(1,winBands);
-  const cellA=winVert?cellU:cellV,cellB=winVert?cellV:cellU;
-  const askR=P.winW*K.m*0.5,askL=P.winH*K.m*0.5;
-  const winR=Math.min(askR,cellA*0.42);              // the pane's radius
-  /* never shorter than it is wide: below that a capsule IS a circle, and
-     letting the length go under the radius turns the ends inside out */
-  const winL=Math.min(Math.max(askL,winR),cellB*0.45);
-  const winStraight=Math.max(0,winL-winR);
+  const cellU=1/winCols,cellV=1/Math.max(1,winBands);   // the cell a pane lives in
+
+  /* WIDTH IS ACROSS THE HULL AND HEIGHT IS UP IT, WHICHEVER WAY THE PANE LIES.
+     They used to be "across" and "along" — across the pane's own straight
+     section and along it — so on a lying capsule they were the two texture
+     axes SWAPPED, and making a window taller meant reaching for the control
+     labelled width. Which is a fine way to describe a shape and a hopeless way
+     to size one.
+
+     So the two numbers are the two texture axes, full stop, and the SHAPE
+     falls out of them: taller than it is wide is an upright capsule, wider
+     than tall is a lying one, and equal is a circle. There is nothing left for
+     an orientation control to decide, so its job now is only to OVERRIDE —
+     force upright, or force lying, and the numbers get swapped to suit. */
+  let wU=Math.min(P.winW*K.m,cellU*0.90);            // full width, held to the cell
+  let wV=Math.min(P.winH*K.m,cellV*0.90);            // full height, same
+  const lay=P.winShape||"auto";
+  if((lay==="vcap"&&wV<wU)||(lay==="hcap"&&wU<wV)){const t=wU;wU=wV;wV=t;}
+  wU=Math.min(wU,cellU*0.90);wV=Math.min(wV,cellV*0.90);   // a swap can overrun
+  /* one shape for all three cases: a rounded box whose radius is half its
+     short side, which is a capsule when the sides differ and a circle when
+     they do not — so a round one among the slots is the same drawing */
+  const winR=Math.min(wU,wV)*0.5;
+  const strU=Math.max(0,(wU-wV)*0.5),strV=Math.max(0,(wV-wU)*0.5);
   const winD=Math.max(P.scribeD*K.mm*2.5,P.plateH*K.mm*3);
 
   /* THE SURROUND IS A FORGING, NOT A SCRIBE LINE. A window in a pressure hull
@@ -122,7 +136,7 @@ function build(params,io){
      keeps a big port's frame heavy and a small one's fine without a second
      control — and then held to the room left in the cell, since a collar that
      overruns its cell welds itself to its neighbour's. */
-  const lipRoom=Math.min(cellA*0.48-winR,cellB*0.48-winL);
+  const lipRoom=Math.min(cellU*0.48-wU*0.5,cellV*0.48-wV*0.5);
   const lipW=Math.max(aa*1.5,Math.min(winR*clamp(+P.winFrame,0.05,1),
                                       Math.max(aa*1.5,lipRoom)));
   const lipH=Math.max(0,+P.winLipH)*K.mm;              // how proud it stands
@@ -185,15 +199,13 @@ function build(params,io){
           const uc=u*winCols,ui=Math.floor(uc);
           const dU=Math.abs((uc-ui)-0.5)/winCols;        // uv distance from the pane centre
           const dV=Math.abs((vb-bi)-0.5)/winBands;
-          /* across the pane and along it, which way round the shape is laid */
-          const dA=winVert?dU:dV,dB=winVert?dV:dU;
-          /* THE ROUND ONES ARE THE SAME CAPSULE with its straight section
-             taken out, so a circle among the slots is the same radius, the
-             same reveal and the same glass rather than a second shape that
-             happens to be near them */
-          const straight=(hashi(ui,bi,seed+3313)<P.winRound)?0:winStraight;
-          const dEnd=Math.max(dB-straight,0);
-          const d=Math.sqrt(dA*dA+dEnd*dEnd)-winR;
+          /* THE ROUND ONES ARE THE SAME SHAPE with its straight section taken
+             out, so a circle among the slots is the same radius, the same
+             reveal and the same glass rather than a second shape that happens
+             to be near them */
+          const rnd=hashi(ui,bi,seed+3313)<P.winRound;
+          const eU=Math.max(dU-(rnd?0:strU),0),eV=Math.max(dV-(rnd?0:strV),0);
+          const d=Math.sqrt(eU*eU+eV*eV)-winR;
           win=1-smoothstep(0,aa*1.6,d);
           /* the assembly's whole footprint, and the collar as the ring of it
              that is not glass */
@@ -407,7 +419,7 @@ Forge.register({
       tileM:10,rows:22,colsMin:5,colsMax:11,subdiv:.62,subdepth:2,bays:4,
       aztec:.62,albedoVar:.16,tintVar:.42,hotspot:.22,accent:.10,
       plateH:1.2,scribeW:18,scribeD:4,hatch:.14,
-      winRows:2,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.22,winFrame:.32,winLipH:11,
+      winRows:2,winPitch:2.2,winShape:"auto",winW:.7,winH:1.6,winRound:.22,winFrame:.32,winLipH:11,
       winLit:.5,winRoom:2,winGlow:.75,winDark:.5,winRough:.05,winMetal:.9,
       winGrime:.34,winGrimeW:.34,winVary:.34,
       scuff:.08,rough:.38,metalness:.18,
@@ -416,7 +428,7 @@ Forge.register({
       tileM:16,rows:12,colsMin:3,colsMax:7,subdiv:.48,subdepth:2,bays:3,
       aztec:.42,albedoVar:.22,tintVar:.28,hotspot:.14,accent:.14,
       plateH:2.5,scribeW:38,scribeD:7,hatch:.2,
-      winRows:3,winPitch:2.6,winShape:"hcap",winW:.85,winH:2,winRound:.30,winFrame:.42,winLipH:20,
+      winRows:3,winPitch:2.6,winShape:"auto",winW:2,winH:.85,winRound:.30,winFrame:.42,winLipH:20,
       winLit:.62,winRoom:3,winGlow:.9,winDark:.34,winRough:.09,winMetal:.8,
       winGrime:.5,winGrimeW:.45,winVary:.45,
       scuff:.05,rough:.46,metalness:.12,
@@ -425,16 +437,168 @@ Forge.register({
       tileM:6,rows:30,colsMin:6,colsMax:14,subdiv:.7,subdepth:3,bays:5,
       aztec:.8,albedoVar:.12,tintVar:.55,hotspot:.35,accent:.06,
       plateH:.8,scribeW:10,scribeD:2.5,hatch:.08,
-      winRows:0,winPitch:2.2,winShape:"vcap",winW:.7,winH:1.6,winRound:.25,winFrame:.35,winLipH:14,
+      winRows:0,winPitch:2.2,winShape:"auto",winW:.7,winH:1.6,winRound:.25,winFrame:.35,winLipH:14,
       winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
       winGrime:.45,winGrimeW:.4,winVary:.4,
       scuff:.04,rough:.3,metalness:.3,
       cHull:"#c9ced2",cTint:"#aebfd0",cAccent:"#8794a0",cWin:"#ffd9a0",cGlass:"#39424e"}},
+    /* ===================== the rest of the library =====================
+       Sixteen more, and they are not four sliders apart from each other: the
+       TILE is the first thing each one sets, because a preset that forgets it
+       is a picture rather than a piece of hull — a shuttle door and a station
+       module want the same plate SIZE in metres and nothing else the same.
+       Between them they cover the three window habits (bands of slots, single
+       tall glass, scattered circles), the three finishes (cold specular, warm
+       matte, scoured) and the plain plating a run needs between them. */
+    {id:"saucer",label:"Saucer dorsal — broad and pale",set:{
+      tileM:18,rows:14,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
+      aztec:.55,albedoVar:.14,tintVar:.5,hotspot:.2,accent:.09,
+      plateH:2,scribeW:30,scribeD:6,hatch:.16,
+      winRows:2,winPitch:3,winShape:"auto",winW:.9,winH:2.2,winRound:.2,winFrame:.34,winLipH:16,
+      winLit:.55,winRoom:3,winGlow:.8,winDark:.44,winRough:.06,winMetal:.88,
+      winGrime:.38,winGrimeW:.38,winVary:.38,
+      scuff:.06,rough:.4,metalness:.16,
+      cHull:"#ccd0cf",cTint:"#bcc8d2",cAccent:"#95a0a6",cWin:"#ffd9a0",cGlass:"#353e49"}},
+    {id:"promenade",label:"Promenade — one band of tall glass",set:{
+      tileM:14,rows:10,colsMin:3,colsMax:6,subdiv:.4,subdepth:1,bays:2,
+      aztec:.4,albedoVar:.14,tintVar:.34,hotspot:.16,accent:.12,
+      plateH:2.2,scribeW:34,scribeD:6,hatch:.1,
+      winRows:1,winPitch:2.8,winShape:"auto",winW:1.6,winH:4.5,winRound:.1,winFrame:.3,winLipH:22,
+      winLit:.8,winRoom:2,winGlow:.95,winDark:.3,winRough:.05,winMetal:.9,
+      winGrime:.3,winGrimeW:.3,winVary:.3,
+      scuff:.04,rough:.42,metalness:.14,
+      cHull:"#c8ccc9",cTint:"#bbc6cc",cAccent:"#8f9aa0",cWin:"#ffe0b0",cGlass:"#2f3742"}},
+    {id:"obsdeck",label:"Observation deck — full-height panes",set:{
+      tileM:12,rows:8,colsMin:2,colsMax:5,subdiv:.35,subdepth:1,bays:2,
+      aztec:.36,albedoVar:.12,tintVar:.3,hotspot:.14,accent:.08,
+      plateH:2,scribeW:32,scribeD:6,hatch:.06,
+      winRows:1,winPitch:2.2,winShape:"auto",winW:1.4,winH:6,winRound:0,winFrame:.28,winLipH:24,
+      winLit:.9,winRoom:1,winGlow:1,winDark:.26,winRough:.04,winMetal:.92,
+      winGrime:.26,winGrimeW:.28,winVary:.24,
+      scuff:.03,rough:.38,metalness:.15,
+      cHull:"#cbcec8",cTint:"#bec7c9",cAccent:"#909a9c",cWin:"#ffdfae",cGlass:"#2b333d"}},
+    {id:"deck9",label:"Deck nine — twin bands, rooms of four",set:{
+      tileM:16,rows:16,colsMin:4,colsMax:10,subdiv:.6,subdepth:2,bays:4,
+      aztec:.6,albedoVar:.15,tintVar:.45,hotspot:.24,accent:.1,
+      plateH:1.6,scribeW:24,scribeD:5,hatch:.12,
+      winRows:2,winPitch:2,winShape:"auto",winW:.75,winH:2.6,winRound:.12,winFrame:.36,winLipH:15,
+      winLit:.6,winRoom:4,winGlow:.85,winDark:.4,winRough:.06,winMetal:.88,
+      winGrime:.4,winGrimeW:.4,winVary:.42,
+      scuff:.07,rough:.4,metalness:.17,
+      cHull:"#c7cbc9",cTint:"#b8c4cd",cAccent:"#8e989e",cWin:"#ffd79b",cGlass:"#333c46"}},
+    {id:"shuttle",label:"Shuttlepod — small tile, one port",set:{
+      tileM:3,rows:9,colsMin:2,colsMax:5,subdiv:.35,subdepth:1,bays:2,
+      aztec:.5,albedoVar:.18,tintVar:.3,hotspot:.2,accent:.16,
+      plateH:1,scribeW:12,scribeD:3,hatch:.3,
+      winRows:1,winPitch:1.5,winShape:"auto",winW:.62,winH:.62,winRound:1,winFrame:.42,winLipH:10,
+      winLit:.5,winRoom:1,winGlow:.8,winDark:.46,winRough:.06,winMetal:.86,
+      winGrime:.5,winGrimeW:.45,winVary:.4,
+      scuff:.14,rough:.44,metalness:.2,
+      cHull:"#c2c6c4",cTint:"#b2bec6",cAccent:"#8b9499",cWin:"#ffd9a0",cGlass:"#333b45"}},
+    {id:"runabout",label:"Runabout flank — fine and short",set:{
+      tileM:5,rows:16,colsMin:4,colsMax:9,subdiv:.6,subdepth:2,bays:3,
+      aztec:.66,albedoVar:.14,tintVar:.4,hotspot:.26,accent:.12,
+      plateH:.9,scribeW:11,scribeD:3,hatch:.2,
+      winRows:1,winPitch:1.2,winShape:"auto",winW:.42,winH:.9,winRound:.3,winFrame:.38,winLipH:9,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.44,winRough:.06,winMetal:.88,
+      winGrime:.42,winGrimeW:.4,winVary:.4,
+      scuff:.1,rough:.36,metalness:.2,
+      cHull:"#c5c9c8",cTint:"#b4c1cb",cAccent:"#8c969c",cWin:"#ffd9a0",cGlass:"#343d47"}},
+    {id:"station",label:"Station module — huge tile, round ports",set:{
+      tileM:32,rows:10,colsMin:2,colsMax:6,subdiv:.45,subdepth:2,bays:2,
+      aztec:.34,albedoVar:.2,tintVar:.26,hotspot:.1,accent:.18,
+      plateH:5,scribeW:70,scribeD:14,hatch:.24,
+      winRows:3,winPitch:4.5,winShape:"auto",winW:1.6,winH:1.6,winRound:1,winFrame:.4,winLipH:34,
+      winLit:.45,winRoom:2,winGlow:.75,winDark:.5,winRough:.08,winMetal:.82,
+      winGrime:.55,winGrimeW:.5,winVary:.5,
+      scuff:.2,rough:.52,metalness:.14,
+      cHull:"#bfbdb4",cTint:"#b6b6ab",cAccent:"#8d8c84",cWin:"#ffcf8a",cGlass:"#383a3a"}},
+    {id:"sensorband",label:"Sensor band — dense unlit circles",set:{
+      tileM:8,rows:20,colsMin:5,colsMax:12,subdiv:.68,subdepth:2,bays:4,
+      aztec:.7,albedoVar:.12,tintVar:.5,hotspot:.3,accent:.08,
+      plateH:1.1,scribeW:14,scribeD:3.5,hatch:.1,
+      winRows:2,winPitch:.9,winShape:"auto",winW:.4,winH:.4,winRound:1,winFrame:.5,winLipH:8,
+      winLit:0,winRoom:1,winGlow:0,winDark:.72,winRough:.05,winMetal:.94,
+      winGrime:.3,winGrimeW:.5,winVary:.3,
+      scuff:.05,rough:.34,metalness:.24,
+      cHull:"#c3c8cb",cTint:"#aebecd",cAccent:"#87939c",cWin:"#ffd9a0",cGlass:"#232a33"}},
+    {id:"carrier",label:"Carrier flank — long lying strips",set:{
+      tileM:20,rows:12,colsMin:3,colsMax:7,subdiv:.5,subdepth:2,bays:3,
+      aztec:.46,albedoVar:.2,tintVar:.3,hotspot:.14,accent:.14,
+      plateH:3,scribeW:44,scribeD:9,hatch:.18,
+      winRows:3,winPitch:5,winShape:"auto",winW:4,winH:.8,winRound:.08,winFrame:.4,winLipH:20,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.46,winRough:.08,winMetal:.84,
+      winGrime:.5,winGrimeW:.45,winVary:.45,
+      scuff:.12,rough:.5,metalness:.16,
+      cHull:"#c0c2bd",cTint:"#b3bcc0",cAccent:"#8a9093",cWin:"#ffd196",cGlass:"#343940"}},
+    {id:"hangar",label:"Hangar door — deep scribe, no glass",set:{
+      tileM:24,rows:6,colsMin:2,colsMax:4,subdiv:.3,subdepth:1,bays:2,
+      aztec:.4,albedoVar:.24,tintVar:.22,hotspot:.1,accent:.22,
+      plateH:6,scribeW:90,scribeD:20,hatch:.3,
+      winRows:0,winPitch:2.2,winShape:"auto",winW:.75,winH:1.7,winRound:.28,winFrame:.35,winLipH:14,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
+      winGrime:.45,winGrimeW:.4,winVary:.4,
+      scuff:.16,rough:.56,metalness:.18,
+      cHull:"#b9bcb8",cTint:"#adb6ba",cAccent:"#83898b",cWin:"#ffd9a0",cGlass:"#39424e"}},
+    {id:"cargo",label:"Cargo hull — big hatches, no glass",set:{
+      tileM:16,rows:9,colsMin:2,colsMax:5,subdiv:.42,subdepth:1,bays:3,
+      aztec:.38,albedoVar:.26,tintVar:.24,hotspot:.08,accent:.2,
+      plateH:4,scribeW:52,scribeD:12,hatch:.65,
+      winRows:0,winPitch:2.2,winShape:"auto",winW:.75,winH:1.7,winRound:.28,winFrame:.35,winLipH:14,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
+      winGrime:.45,winGrimeW:.4,winVary:.4,
+      scuff:.28,rough:.6,metalness:.15,
+      cHull:"#b6b5ae",cTint:"#adaea6",cAccent:"#84847e",cWin:"#ffd9a0",cGlass:"#39424e"}},
+    {id:"drydock",label:"Drydock spar — industrial and scuffed",set:{
+      tileM:20,rows:7,colsMin:2,colsMax:4,subdiv:.3,subdepth:1,bays:2,
+      aztec:.3,albedoVar:.34,tintVar:.18,hotspot:.05,accent:.26,
+      plateH:5,scribeW:80,scribeD:18,hatch:.4,
+      winRows:0,winPitch:2.2,winShape:"auto",winW:.75,winH:1.7,winRound:.28,winFrame:.35,winLipH:14,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
+      winGrime:.45,winGrimeW:.4,winVary:.4,
+      scuff:.62,rough:.7,metalness:.22,
+      cHull:"#9fa19a",cTint:"#97a09f",cAccent:"#6e716c",cWin:"#ffd9a0",cGlass:"#39424e"}},
+    {id:"derelict",label:"Derelict — every pane dark",set:{
+      tileM:14,rows:15,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
+      aztec:.44,albedoVar:.32,tintVar:.26,hotspot:.05,accent:.14,
+      plateH:3,scribeW:30,scribeD:8,hatch:.24,
+      winRows:2,winPitch:2.4,winShape:"auto",winW:.8,winH:2,winRound:.32,winFrame:.46,winLipH:22,
+      winLit:0,winRoom:2,winGlow:0,winDark:.82,winRough:.3,winMetal:.4,
+      winGrime:1,winGrimeW:.8,winVary:.85,
+      scuff:.85,rough:.72,metalness:.16,
+      cHull:"#8f918a",cTint:"#87908f",cAccent:"#63665f",cWin:"#ffc27a",cGlass:"#20242a"}},
+    {id:"ablative",label:"Ablative armour — matte ceramic",set:{
+      tileM:12,rows:11,colsMin:3,colsMax:6,subdiv:.4,subdepth:1,bays:3,
+      aztec:.22,albedoVar:.3,tintVar:.16,hotspot:.02,accent:.1,
+      plateH:4.5,scribeW:46,scribeD:11,hatch:.06,
+      winRows:0,winPitch:2.2,winShape:"auto",winW:.75,winH:1.7,winRound:.28,winFrame:.35,winLipH:14,
+      winLit:.5,winRoom:2,winGlow:.8,winDark:.42,winRough:.07,winMetal:.85,
+      winGrime:.45,winGrimeW:.4,winVary:.4,
+      scuff:.22,rough:.88,metalness:.03,
+      cHull:"#b3aca1",cTint:"#a9a599",cAccent:"#7e7970",cWin:"#ffd9a0",cGlass:"#39424e"}},
+    {id:"latehull",label:"Late hull — darker and tighter",set:{
+      tileM:12,rows:26,colsMin:6,colsMax:13,subdiv:.7,subdepth:3,bays:5,
+      aztec:.74,albedoVar:.1,tintVar:.6,hotspot:.3,accent:.06,
+      plateH:.9,scribeW:12,scribeD:3,hatch:.1,
+      winRows:2,winPitch:1.8,winShape:"auto",winW:.55,winH:1.4,winRound:.18,winFrame:.3,winLipH:10,
+      winLit:.45,winRoom:3,winGlow:.7,winDark:.56,winRough:.05,winMetal:.9,
+      winGrime:.32,winGrimeW:.36,winVary:.3,
+      scuff:.06,rough:.5,metalness:.26,
+      cHull:"#a7adaf",cTint:"#98a7b4",cAccent:"#767e84",cWin:"#ffd39a",cGlass:"#2a313a"}},
+    {id:"tug",label:"Workbee tug — tiny tile, heavy relief",set:{
+      tileM:2.5,rows:7,colsMin:2,colsMax:4,subdiv:.3,subdepth:1,bays:2,
+      aztec:.5,albedoVar:.3,tintVar:.2,hotspot:.12,accent:.3,
+      plateH:1.6,scribeW:16,scribeD:5,hatch:.4,
+      winRows:1,winPitch:1.1,winShape:"auto",winW:.5,winH:.5,winRound:1,winFrame:.55,winLipH:12,
+      winLit:.4,winRoom:1,winGlow:.7,winDark:.5,winRough:.1,winMetal:.78,
+      winGrime:.7,winGrimeW:.55,winVary:.6,
+      scuff:.4,rough:.62,metalness:.2,
+      cHull:"#c4b98f",cTint:"#b5ae8c",cAccent:"#8b8262",cWin:"#ffcf8a",cGlass:"#33353a"}},
     {id:"scored",label:"Battle-scored",set:{
       tileM:14,rows:16,colsMin:4,colsMax:9,subdiv:.55,subdepth:2,bays:3,
       aztec:.5,albedoVar:.3,tintVar:.3,hotspot:.08,accent:.16,
       plateH:3.5,scribeW:32,scribeD:9,hatch:.28,
-      winRows:2,winPitch:2.4,winShape:"vcap",winW:.8,winH:1.5,winRound:.38,winFrame:.5,winLipH:26,
+      winRows:2,winPitch:2.4,winShape:"auto",winW:.8,winH:1.5,winRound:.38,winFrame:.5,winLipH:26,
       winLit:.22,winRoom:2,winGlow:.55,winDark:.62,winRough:.16,winMetal:.62,
       winGrime:.85,winGrimeW:.6,winVary:.7,
       scuff:.75,rough:.62,metalness:.2,
@@ -473,21 +637,29 @@ Forge.register({
       {id:"hatch",label:"Access hatches",min:0,max:1,step:0.01,value:0.15},
       {id:"winRows",label:"Window bands",min:0,max:8,step:1,value:2},
       {id:"winPitch",label:"Window pitch",unit:"m",min:0.5,max:8,step:0.1,value:2.2},
-      {id:"winShape",type:"select",label:"Pane",value:"vcap",options:[
-        ["vcap","Vertical capsules"],["hcap","Horizontal capsules"]]},
-      {id:"winW",label:"Pane across",unit:"m",min:0.2,max:3,step:0.05,value:0.75},
-      {id:"winH",label:"Pane along",unit:"m",min:0.2,max:4,step:0.05,value:1.7},
+      {id:"winW",label:"Pane width",unit:"m",min:0.2,max:8,step:0.05,value:0.75},
+      {id:"winH",label:"Pane height",unit:"m",min:0.2,max:12,step:0.05,value:1.7},
+      {id:"winShape",type:"select",label:"Lie",value:"auto",options:[
+        ["auto","However the numbers fall"],["vcap","Force upright"],
+        ["hcap","Force lying"]]},
       {id:"winRound",label:"Round ones",min:0,max:1,step:0.01,value:0.28},
       {id:"winFrame",label:"Surround width",min:0.05,max:1,step:0.01,value:0.35},
       {id:"winLipH",label:"Surround relief",unit:"mm",min:0,max:60,step:1,value:14},
-      {type:"note",html:"A pane is a <b>capsule</b> — a straight section with a semicircle "+
-        "on each end — and the shape only decides which way the straight section runs. "+
-        "<b>Across</b> is the width of it either way, and <b>along</b> is its length; a pane "+
-        "shorter than it is wide is a circle. <b>Round ones</b> scatters plain circles through "+
-        "the rows: the same capsule with the straight section taken out, so they are the same "+
-        "radius and the same glass as the slots beside them. Both axes are clamped to the "+
-        "window pitch — a pane longer than its own cell runs into its neighbour and a row "+
-        "becomes one lit stripe.<br>"+
+      {type:"checks",items:[{id:"winBlank",
+        label:"Export the blank plating alongside",value:true}]},
+      {type:"note",html:"<b>Width is across the hull and height is up it</b>, whichever "+
+        "way the pane lies, and the shape falls out of the two: taller than wide is an "+
+        "upright capsule, wider than tall is a lying one, and equal is a circle. So "+
+        "<b>height</b> is the control for how tall a window is, always — it used to be "+
+        "<i>along</i>, meaning along the pane's own straight section, which on a lying "+
+        "capsule is the horizontal one. <b>Lie</b> only overrides, swapping the two numbers "+
+        "to force a row upright or flat. <b>Round ones</b> scatters plain circles through the "+
+        "rows: the same shape with the straight section taken out, so they are the same "+
+        "radius and the same glass as the slots beside them.<br>"+
+        "Both axes are held to their own cell — a pane bigger than its cell runs into its "+
+        "neighbour and a row becomes one lit stripe. Height is capped by the <b>band</b> "+
+        "spacing, so a tall window wants fewer bands; the readout says the size actually cut "+
+        "and which of the two capped it.<br>"+
         "<b>The surround is a forging, not a scribe line.</b> A window in a pressure hull is "+
         "a machined penetration with a frame welded into it, so it is thick and it stands "+
         "<b>proud</b> of the plating. Width is a fraction of the pane's own radius — a big "+
@@ -536,6 +708,20 @@ Forge.register({
     ]}
   ],
 
+  /* THE PANEL AND THE BLANK PLATING ARE ONE JOB. A hull run needs the plating
+     with windows in it AND the plain plating to put between the window bands,
+     off the same seed and the same quilt — and forging one, exporting, dropping
+     the bands to zero, forging again and exporting again is four steps to get
+     two files that differ by one parameter, every time the seed moves.
+
+     So the archive carries both cuts. This is the whole declaration; the export
+     does the rest — full-size forge, own folder, own readme, own geometry, and
+     the panel put back exactly as it was. */
+  variants:function(P){
+    return ((P.winRows|0)>0&&P.winBlank!==false)
+      ?[{id:"blank",label:"blank plating",set:{winRows:0}}]:[];
+  },
+
   /* a maximum below the minimum would silently produce one column per row */
   derive:function(P,ui){
     if(P.colsMax<P.colsMin)ui.set("colsMax",P.colsMin);
@@ -561,13 +747,18 @@ Forge.register({
          reported the request would be describing a window nobody can see. */
       const T=+P.tileM||12;
       const nU=Math.max(1,Math.round(T/Math.max(0.2,+P.winPitch)));
-      const vert=(P.winShape||"vcap")!=="hcap";
-      const cellA=(vert?T/nU:T/P.winRows),cellB=(vert?T/P.winRows:T/nU);
-      const across=Math.min(+P.winW,cellA*0.84);
-      const along=Math.min(Math.max(+P.winH,across),cellB*0.90);
-      const cut=(across<+P.winW-1e-6)||(along<+P.winH-1e-6);
-      m+="<br>panes <b>"+across.toFixed(2)+" × "+along.toFixed(2)+" m</b> "+
-         (vert?"upright":"lying")+" capsules, "+Math.round(P.winRound*100)+"% of them round";
+      const cellA=T/nU,cellB=T/Math.max(1,P.winRows|0);
+      let across=Math.min(+P.winW,cellA*0.90),along=Math.min(+P.winH,cellB*0.90);
+      const lay=P.winShape||"auto";
+      if((lay==="vcap"&&along<across)||(lay==="hcap"&&across<along)){
+        const t=across;across=along;along=t;
+      }
+      across=Math.min(across,cellA*0.90);along=Math.min(along,cellB*0.90);
+      const cutW=across<Math.min(+P.winW,+P.winH)-1e-6||across<+P.winW-1e-6&&lay==="auto";
+      const cutH=along<+P.winH-1e-6&&lay==="auto";
+      m+="<br>panes <b>"+across.toFixed(2)+" wide × "+along.toFixed(2)+" m tall</b> — "+
+         (Math.abs(across-along)<1e-6?"circles":(along>across?"upright":"lying")+" capsules")+
+         ", "+Math.round(P.winRound*100)+"% of them round";
       /* THE SURROUND THAT WILL ACTUALLY BE CAST. It is a fraction of the pane
          radius but it has to fit the room left in the cell, so a wide frame on
          a tight pitch is held back and the readout says by how much. */
@@ -590,8 +781,11 @@ Forge.register({
       m+="<br>"+nU+" across the tile, lit in rooms of <b>"+rn+"</b>";
       if(rn!==(P.winRoom|0))m+=" — "+(P.winRoom|0)+" does not divide "+nU+
                                ", and a room across the seam would be half lit";
-      if(cut)m+="<br><b>cut down to fit the window pitch</b> — widen the pitch or "+
-                "drop a band to get the pane you asked for";
+      if(cutH)m+="<br><b>height cut to "+along.toFixed(2)+" m by the band spacing</b> — "+
+                 (P.winRows|0)+" bands over "+T+" m leaves "+cellB.toFixed(2)+
+                 " m a band, so drop a band for a taller window";
+      if(cutW)m+="<br><b>width cut to "+across.toFixed(2)+" m by the window pitch</b> — "+
+                 "widen the pitch for a broader window";
       const wPx=across*pxPerM;
       if(wPx<4)m+="<br>window panes "+wPx.toFixed(1)+" px across — too small to read";
     }
@@ -632,10 +826,12 @@ Forge.register({
     let wRoom=1;
     for(let k=Math.min(Math.max(1,P.winRoom|0),wCols);k>=1;k--)if(wCols%k===0){wRoom=k;break;}
     /* and the surround that was actually cast, held to the room in the cell */
-    const vert=(P.winShape||"vcap")!=="hcap";
-    const cA=(vert?T/wCols:T/Math.max(1,P.winRows|0)),cB=(vert?T/Math.max(1,P.winRows|0):T/wCols);
-    const acr=Math.min(+P.winW,cA*0.84),alg=Math.min(Math.max(+P.winH,acr),cB*0.90);
-    const lipM=Math.min(acr*0.5*Math.max(0.05,Math.min(1,+P.winFrame)),
+    const cA=T/wCols,cB=T/Math.max(1,P.winRows|0);
+    let acr=Math.min(+P.winW,cA*0.90),alg=Math.min(+P.winH,cB*0.90);
+    const lay=P.winShape||"auto";
+    if((lay==="vcap"&&alg<acr)||(lay==="hcap"&&acr<alg)){const t=acr;acr=alg;alg=t;}
+    acr=Math.min(acr,cA*0.90);alg=Math.min(alg,cB*0.90);
+    const lipM=Math.min(Math.min(acr,alg)*0.5*Math.max(0.05,Math.min(1,+P.winFrame)),
                         Math.max(0,Math.min(cA*0.48-acr*0.5,cB*0.48-alg*0.5)));
     return ["Texture Forge · hull — starship aztec plating",
       "",
@@ -664,8 +860,9 @@ Forge.register({
       "orm.png        R = AO, G = roughness, B = metallic.",
       ""].concat(P.winRows>0?[
       "The panes are CAPSULES — a straight section with a semicircle on each end —",
-      "laid "+(((P.winShape||"vcap")!=="hcap")?"upright":"on their side")+", with "+
-        Math.round(P.winRound*100)+"% of them round. A circle here is the same capsule",
+      acr.toFixed(2)+" m wide by "+alg.toFixed(2)+" m tall, so they lie "+
+        (Math.abs(acr-alg)<1e-6?"round":(alg>acr?"upright":"on their side"))+
+        ", with "+Math.round(P.winRound*100)+"% of them round. A circle is the same shape",
       "with its straight section taken out, so the round ones share the radius, the",
       "reveal and the glass of the slots beside them rather than being a second shape.",
       "Nothing that holds pressure has square corners, which is the whole reason.",

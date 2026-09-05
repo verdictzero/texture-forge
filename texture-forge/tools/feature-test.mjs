@@ -2287,7 +2287,7 @@ if (want("hull")) {
     }, [P.winRows, P.winPitch, P.tileM]);
   };
 
-  const V = await panes({ winShape: "vcap", winRound: 0 });
+  const V = await panes({ winShape: "auto", winRound: 0 });
   const found = V.panes.filter(Boolean);
   ok("the hull cuts windows", found.length >= 10,
      `${found.length} panes of ${V.panes.length} cells`);
@@ -2297,18 +2297,38 @@ if (want("hull")) {
      "their own bounding box — a rectangle fills it, a capsule cannot");
   ok("and it stands upright when asked to",
      found.every(p => p.dv > p.du * 1.4),
-     `reach ${found[0].du} across, ${found[0].dv} along`);
+     `${found[0].du} px wide by ${found[0].dv} tall`);
 
-  const H = await panes({ winShape: "hcap", winRound: 0 });
+  /* WIDTH IS ACROSS THE HULL AND HEIGHT IS UP IT, whichever way the pane lies,
+     so the shape falls out of the two numbers and there is nothing left for an
+     orientation control to decide. Swapping them has to swap the pane. */
+  const H = await panes({ winShape: "auto", winRound: 0, winW: 1.8, winH: 0.8 });
   const hFound = H.panes.filter(Boolean);
-  ok("the same shape lies down when asked to",
+  ok("swapping the two numbers lies the same shape down",
      hFound.length > 0 && hFound.every(p => p.du > p.dv * 1.4) && hFound.every(p => !p.corner),
-     `reach ${hFound[0].du} across, ${hFound[0].dv} along — and still no corner`);
+     `${hFound[0].du} px wide by ${hFound[0].dv} tall off 1.8 × 0.8 m — and still no corner`);
+  /* and the orientation control only OVERRIDES: same numbers, forced flat */
+  const F = await panes({ winShape: "hcap", winRound: 0, winW: 0.8, winH: 1.8 });
+  const fFound = F.panes.filter(Boolean);
+  ok("and forcing the lie overrides them",
+     fFound.length > 0 && fFound.every(p => p.du > p.dv * 1.4),
+     `${fFound[0].du} px wide by ${fFound[0].dv} tall off a tall 0.8 × 1.8 m pane`);
+
+  /* HEIGHT IS THE CONTROL FOR HOW TALL A WINDOW IS, always — it used to be
+     "along", meaning along the pane's own straight section, which on a lying
+     capsule is the horizontal one. So raising it has to raise the pane. */
+  const short = await panes({ winShape: "auto", winRound: 0, winH: 1.0 });
+  const tall = await panes({ winShape: "auto", winRound: 0, winH: 2.6 });
+  const mid = a => a.panes.filter(Boolean)[0];
+  ok("height makes a window taller and leaves its width alone",
+     mid(tall).dv > mid(short).dv * 2 && Math.abs(mid(tall).du - mid(short).du) <= 1,
+     `${mid(short).dv} px tall at 1 m, ${mid(tall).dv} at 2.6 — ` +
+     `width ${mid(short).du} and ${mid(tall).du} px throughout`);
 
   /* A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION, which is what lets
      the round ones sit in a row of slots and belong to it: same radius, same
      reveal, same glass. So at one, every pane is as wide as it is tall. */
-  const R = await panes({ winShape: "vcap", winRound: 1 });
+  const R = await panes({ winShape: "auto", winRound: 1 });
   const rFound = R.panes.filter(Boolean);
   const round = p => Math.abs(p.dv - p.du) <= Math.max(1, p.du * 0.25);
   ok("all round when the fraction is one",
@@ -2318,7 +2338,7 @@ if (want("hull")) {
      rFound.length > 0 && found.length > 0 && Math.abs(rFound[0].du - found[0].du) <= 1,
      `circle reaches ${rFound[0].du}, capsule reaches ${found[0].du} — the same radius`);
 
-  const M = await panes({ winShape: "vcap", winRound: 0.5 });
+  const M = await panes({ winShape: "auto", winRound: 0.5 });
   const mFound = M.panes.filter(Boolean);
   const nRound = mFound.filter(round).length;
   ok("and scattered through the rows in between",
@@ -2332,7 +2352,7 @@ if (want("hull")) {
      unlit pane has to be a whole material in the channels that do not care
      whether anything is switched on behind it — which is the claim, and it is
      checked with the emissive turned off completely. */
-  const D = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+  const D = await panes({ winShape: "auto", winRound: 0, winLit: 0, winGlow: 0,
                           winGrime: 0.5, winGrimeW: 0.45 });
   ok("with every window unlit the emissive is empty", D.emiMax === 0,
      `brightest emissive texel ${D.emiMax}`);
@@ -2347,7 +2367,7 @@ if (want("hull")) {
      dirty.length > 0 && dirty.every(p => p.rEdge > p.rMid + 8 && p.mEdge < p.mMid - 8),
      `edge ${dirty[0].rEdge} rough / ${dirty[0].mEdge} metallic against ` +
      `${dirty[0].rMid} / ${dirty[0].mMid} in the middle of the same pane`);
-  const clean = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+  const clean = await panes({ winShape: "auto", winRound: 0, winLit: 0, winGlow: 0,
                               winGrime: 0 });
   const flat = clean.panes.filter(Boolean);
   ok("and turning the grime off takes it away",
@@ -2364,7 +2384,7 @@ if (want("hull")) {
        nearest divisor. Twelve metres at a one-metre pitch is twelve panes,
        which three divides exactly — ask on a pitch it does not and the mode is
        right to give you two and the test would be wrong to complain. */
-    const R2 = await panes({ winShape: "vcap", winRound: 0, winLit: 0.5, winGlow: 1,
+    const R2 = await panes({ winShape: "auto", winRound: 0, winLit: 0.5, winGlow: 1,
                              winGrime: 0, winRoom: n, winPitch: 1.0 });
     const lit = R2.panes.map(p => p ? (p.emi > 0 ? 1 : 0) : null);
     let breaks = 0, runs = 0;
@@ -2484,9 +2504,162 @@ if (want("hull")) {
      `${flush.panes.filter(p => p.lipPx > 0).length} of ${flush.panes.length} panes still ` +
      `stand proud at 0 mm of relief`);
 
+  /* ========================= the preset library =========================
+     A preset that does not build, or that builds the same picture as the one
+     next to it, is worse than no preset — it is a button that lies about what
+     the mode can do. So every one of them is walked: forged, fingerprinted on
+     the pixels it actually made, and checked against its own promise about
+     windows. The fingerprint is deliberately coarse (channel means and a
+     coarse spatial hash) so two presets that differ only in seed noise would
+     still collide — the claim is that they differ in DESIGN. */
+  const presets = await page.evaluate(() =>
+    [...document.querySelectorAll("#panel-hull [data-preset]")].map(b => b.dataset.preset));
+  const seen = [];
+  /* size survives a preset (it is a rig setting, not a design), so the walk is
+     done small — and the build is FORCED rather than waited for: a preset queues
+     its rebuild on a debounce, so settling on the old build's flags reads the
+     previous preset's pixels against this one's parameters, which is exactly
+     the off-by-one this test caught itself making. */
+  await page.evaluate(() => window.Forge.setParam("hull", "size", 512));
+  for (const id of [...new Set(presets)]) {
+    await page.click(`#panel-hull [data-preset="${id}"]`);
+    await page.evaluate(() => { window.Forge.active().built = false; });
+    await page.click("#hull--forge");
+    await settle();
+    seen.push(await page.evaluate(i => {
+      const st = window.Forge.active(), B = st.B, S = B.W;
+      const mean = a => { let t = 0; for (let k = 0; k < a.length; k++) t += a[k]; return t / a.length; };
+      /* a coarse spatial hash: an 8x8 grid of channel means, so two presets
+         with the same average but a different design still separate */
+      let sig = "";
+      for (let gy = 0; gy < 8; gy++) for (let gx = 0; gx < 8; gx++) {
+        let t = 0, n = 0;
+        for (let y = gy * S >> 3; y < (gy + 1) * S >> 3; y += 4)
+          for (let x = gx * S >> 3; x < (gx + 1) * S >> 3; x += 4) { t += B.RGH[y * S + x]; n++; }
+        sig += Math.round(t / n / 4) + ",";
+      }
+      /* A PANE IS METAL THE HULL IS NOT, which is not the same as "a pane is
+         bright": the derelict's glass is deliberately dull, so the pane is
+         counted against THIS preset's own hull metalness rather than against a
+         number that only fits the default. */
+      const hullMet = Math.round(st.P.metalness * 255);
+      let glass = 0;
+      for (let k = 0; k < B.MET.length; k++) if (Math.abs(B.MET[k] - hullMet) > 40) glass++;
+      /* the spread of a channel, so a preset that made a flat grey is caught */
+      const spread = a => { const m = mean(a); let v = 0;
+        for (let k = 0; k < a.length; k += 7) v += (a[k] - m) * (a[k] - m);
+        return Math.sqrt(v / (a.length / 7)); };
+      return { id: i, built: !!st.built, glass, wantGlass: (st.P.winRows | 0) > 0,
+               sig, rgh: spread(B.RGH), alb: spread(B.A), tile: st.P.tileM };
+    }, id));
+  }
+  ok("the preset library is a library", seen.length >= 16,
+     `${seen.length} presets, tiles from ${Math.min(...seen.map(p => p.tile))} to ` +
+     `${Math.max(...seen.map(p => p.tile))} m`);
+  ok("and every one of them builds", seen.every(p => p.built),
+     `${seen.filter(p => !p.built).length} failed to forge`);
+  ok("and none of them is a flat grey",
+     seen.every(p => p.rgh > 4 && p.alb > 1.5),
+     `weakest roughness spread ${Math.min(...seen.map(p => p.rgh)).toFixed(1)}, ` +
+     `weakest albedo ${Math.min(...seen.map(p => p.alb)).toFixed(1)}`);
+  ok("and no two of them make the same picture",
+     new Set(seen.map(p => p.sig)).size === seen.length,
+     `${new Set(seen.map(p => p.sig)).size} distinct designs among ${seen.length} presets`);
+  const liars = seen.filter(p => p.wantGlass ? !(p.glass > 200) : p.glass !== 0);
+  ok("and each one keeps its own word about windows", liars.length === 0,
+     `${seen.filter(p => p.wantGlass).length} with glass, ` +
+     `${seen.filter(p => !p.wantGlass).length} of plain plating` +
+     (liars.length ? " — " + liars.map(p => `${p.id} says ${p.wantGlass} but cut ` +
+       `${p.glass}`).join(", ") : ", none disagreeing"));
+
+  /* ============== the panel and the blank plating, in one archive ==========
+     A hull run needs the plating WITH windows and the plain plating to put
+     between the window bands, off the same seed and the same quilt. Forging
+     one, exporting, dropping the bands to zero, forging again and exporting
+     again is four steps to get two files that differ by one parameter — and
+     four steps every time the seed moves.
+
+     The archive is read back out of its own blob and its entry names listed,
+     because "the export button did not throw" is not the claim. The claim is
+     that two complete cuts came out of one press, that the second one has no
+     windows in it, and that the panel on screen afterwards is the one that was
+     there before — an export that leaves your parameters somewhere else is
+     worse than no export. */
+  const archive = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({ size: 512, tileM: 12, winRows: 2, winPitch: 2.0,
+                                        winW: 0.8, winH: 1.8, winBlank: true, winRound: 0.28,
+                                        winShape: "auto", winMetal: 0.85, metalness: 0.15,
+                                        winGrime: 0, winLit: 0.5, winGlow: 0.8 }, set));
+    await page.click("#hull--forge");
+    await settle();
+    await page.click("#zipall");
+    await page.waitForFunction(() => !document.getElementById("zipsave").hidden,
+                               null, { timeout: 180000 });
+    return await page.evaluate(async () => {
+      const st = window.Forge.active();
+      const buf = new Uint8Array(await (await fetch(st.zipUrl)).arrayBuffer());
+      /* store-only zip, so every entry is a local header we can walk to */
+      const dv = new DataView(buf.buffer), names = [], entries = {};
+      for (let i = 0; i + 30 < buf.length; i++) {
+        if (dv.getUint32(i, true) !== 0x04034b50) continue;
+        const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true);
+        const size = dv.getUint32(i + 18, true);
+        const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+        names.push(name);
+        entries[name] = buf.slice(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size);
+        i += 30 + nLen + xLen + size - 1;
+      }
+      /* AND THE SECOND CUT REALLY HAS NO WINDOWS IN IT. Folder names are not
+         the claim — the pixels are, so the packed metallic map is decoded and
+         its glass counted, the same 0.85-against-0.15 cheat the shape tests
+         read. */
+      const glass = async n => {
+        const bm = await createImageBitmap(new Blob([entries[n]], { type: "image/png" }));
+        const cv = new OffscreenCanvas(bm.width, bm.height), cx = cv.getContext("2d");
+        cx.drawImage(bm, 0, 0);
+        const d = cx.getImageData(0, 0, bm.width, bm.height).data;
+        let k = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200) k++;
+        return k;
+      };
+      const met = {};
+      for (const n of names) if (n.endsWith("_metallic.png")) met[n.split("/")[0]] = await glass(n);
+      return { names, met, winRows: st.P.winRows, built: !!st.built,
+               panes: (() => { let n = 0; for (let k = 0; k < st.B.MET.length; k++)
+                                            if (st.B.MET[k] > 128) n++; return n; })() };
+    });
+  };
+  const AR = await archive({});
+  const dirs = [...new Set(AR.names.map(n => n.split("/")[0]))].filter(d => d.includes("/") === false);
+  const blankDir = dirs.find(d => d.endsWith("_blank"));
+  ok("one press packs the panel and the blank plating",
+     dirs.length === 2 && !!blankDir,
+     `${AR.names.length} entries in ${dirs.length} folders — ${dirs.join(", ")}`);
+  const per = d => AR.names.filter(n => n.startsWith(d + "/")).length;
+  ok("and the second cut really has no windows in it",
+     (() => { const p = AR.met[dirs.find(d => !d.endsWith("_blank"))],
+                    b = AR.met[blankDir];
+              return p > 500 && b === 0; })(),
+     `${AR.met[dirs.find(d => !d.endsWith("_blank"))]} texels of glass in the packed ` +
+     `metallic map of the panel, ${AR.met[blankDir]} in the blank plating`);
+  ok("and each cut is a whole export of its own",
+     dirs.every(d => per(d) === per(dirs[0]) && per(d) >= 12) &&
+     dirs.every(d => AR.names.includes(d + "/model.gltf")) &&
+     dirs.every(d => AR.names.some(n => n.startsWith(d + "/") && n.endsWith("_readme.txt"))),
+     `${per(dirs[0])} files each — maps, 16-bit height, readme and geometry in both`);
+  ok("and the panel is put back exactly as it was",
+     AR.winRows === 2 && AR.built && AR.panes > 500,
+     `bands back at ${AR.winRows} with ${AR.panes} texels of glass on screen`);
+  /* AND THE SWITCH IS A SWITCH: off, and the archive is the one cut it always was */
+  const ONE = await archive({ winBlank: false });
+  ok("and turning it off packs one cut, in no folder at all",
+     ONE.names.every(n => !n.includes("/")) && ONE.names.length >= 12,
+     `${ONE.names.length} entries, none of them in a folder`);
+
   /* A PANE LONGER THAN ITS OWN CELL runs into its neighbour and a row of
      windows becomes one lit stripe, so both axes are clamped to the pitch. */
-  const B2 = await panes({ winShape: "vcap", winRound: 0, winH: 4, winW: 3 });
+  const B2 = await panes({ winShape: "auto", winRound: 0, winH: 4, winW: 3 });
   const bFound = B2.panes.filter(Boolean);
   const cellPx = 512 / B2.nCols;
   ok("a pane too big for its pitch is cut down to fit",
