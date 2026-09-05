@@ -260,6 +260,13 @@ body[data-panel=off] .grip{display:none}
 .roadbar .seg .tab{border:0;border-radius:0}
 .roadbar .gap{width:6px;flex:0 0 auto;border-left:1px solid #2e3237;height:18px}
 .roadbar label input[type=number].xy{width:58px}
+.roadbar .tab[aria-pressed=true]{background:var(--accent);color:#1a1405}
+/* A BAR THAT RE-WRAPS RESIZES THE CANVAS UNDER THE CURSOR. The note in it
+   changes length with every click, so it is given a height and scrolls
+   inside it rather than growing into the drawing board. */
+.roadbar{height:72px;overflow-y:auto;align-content:flex-start}
+.roadbar .selnote{max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#section.draw{cursor:copy}
 .stagetag{position:absolute;left:18px;top:12px;font-family:var(--mono);font-size:10px;
   letter-spacing:.06em;text-transform:uppercase;color:var(--accent);pointer-events:none;
   background:rgba(12,13,15,.72);padding:4px 8px;border:1px solid var(--rule);border-radius:2px}
