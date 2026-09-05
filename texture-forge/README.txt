@@ -1289,15 +1289,41 @@ made again from it, because nearly every road is symmetric and the ones that
 are not are edited from a symmetric start. Ten presets to start from, from a
 single track to a dual carriageway, an embankment to a cutting.
 
-THE PLAN is the road from above with every gone slab left blank, over a long
-section showing the surface sinking toward the broken end, so "crumbles to
-nothing over the last eighteen metres" can be checked without orbiting.
+THE PLAN is the other drawing board: the road network from above. A ROUTE is
+an ordered list of nodes and the road follows a centripetal Catmull-Rom spline
+through them, so two nodes are a line and three are a curve. DRAW lays nodes
+along a new route with each click — click an existing node to join it — and
+Enter or a double-click finishes; MOVE drags nodes about, and a node dropped on
+another becomes it. Seven plans to start from, from a straight to a grid.
+Under the routes is what the sweep made of them, every slab in its kind's
+colour and every gone one as nothing, so the crumble reads at a glance.
 
-IT CRUMBLES TO NOTHING AT EITHER END, or both, or neither. A section that ends
-in a clean cut wants another section butted against it; a section that ends in
-broken slabs, bare base and rubble can end in a field, which is the difference
-between a road asset and a road-shaped block. The decay is a per-slab draw
-against a front that advances over the crumble length at each end: RAGGED is how
+A NODE TWO ROUTES SHARE IS A JUNCTION — or one route passes through and
+another ends on. Every route is cut there into links, each link is trimmed back
+from the node by what the angle to its neighbours needs, the carriageway in
+the middle is one flat fan wearing the junction tile (the four-way, turned to
+the first arm), and the outer part of the profile — kerb, footway, verge — is
+swept round a curve from each arm's edge to the next arm's, which is what a
+kerbed corner is. THE KERB RADIUS IS AT LEAST WHAT THE FOOTWAY NEEDS: the
+footway behind the kerb sweeps round the outside of the corner's curve, and a
+curve tighter than the footway is deep would fold it over itself, so the
+radius on the bar is a minimum and the depth of the profile outside the
+carriageway sets the rest; between arms at an acute angle each corner's curve
+is tried in advance and both arms pushed back until the footway fits round it.
+A big junction is what a wide verge costs.
+
+A node on one route only, at its end, is a FREE END, and free ends are where
+the road crumbles: the bar's "crumble ends" is what every free end does unless
+its node says otherwise — click one on the plan and give it its own length, or
+zero for a clean cut. Junctions never crumble; a junction is where a road is
+held up by another road. Each node also has a HEIGHT, and the road climbs to
+it along the spline.
+
+IT CRUMBLES TO NOTHING AT ANY FREE END, or all of them, or none. A section that
+ends in a clean cut wants another section butted against it; a section that
+ends in broken slabs, bare base and rubble can end in a field, which is the
+difference between a road asset and a road-shaped block. The decay is a
+per-slab draw against a front that advances over the crumble length: RAGGED is how
 noisy the front is, EDGES FIRST is how much the verge and kerbs go before the
 crown, SINK is how far the survivors drop and tilt as the front reaches them,
 and RUBBLE is how many of the dead ones leave a lump behind. The front is shaped
@@ -1893,6 +1919,20 @@ It also covers the thirteen things that are easy to break silently:
             than a fixed threshold, because the derelict's glass is deliberately
             dull and a fixed threshold called it plating
   road      a profile swept into a road is SOUND GEOMETRY before it is
+            anything else, and the NETWORK has to be as sound as the straight
+            road was: every plan preset from the straight to the grid — one,
+            three and four-armed junctions and a closed loop — wound to its
+            normals and walled edge for edge, where "edge" now honours each
+            sweep's own flags, because a link's junction end and a corner's
+            inner edge are joined to something and carry no wall. A crossroads
+            has to come out as one junction of four arms, four corners and one
+            fan, its arms trimmed alike; the crumble has to reach the four free
+            ends and nothing else; and a node's own number has to beat the
+            bar's. Then the PLAN is driven by hand: three clicks in draw mode,
+            the last on an existing node, and Enter, have to leave one more
+            route, two more nodes, one more junction and two links; and a node
+            dragged onto another has to become it, turning two free ends into
+            a bend. The rest of this entry is the single road it grew from —
             anything else: every triangle wound to its own normal, no mesh
             past a 16-bit index, and every open edge of the top skin — the
             ends, the outside of the verge, and every ragged edge the decay

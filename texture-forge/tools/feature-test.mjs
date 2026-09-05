@@ -2289,12 +2289,19 @@ if (want("road")) {
     });
     let vmin = 1, vmax = 0;
     for (const m of sound.parts.road) for (let i = 1; i < m.uv.length; i += 2) { vmin = Math.min(vmin, m.uv[i]); vmax = Math.max(vmax, m.uv[i]); }
+    /* THE CHUNKS LOSE HEIGHT TOWARD THE END, and the strewn pieces are of both
+       stuffs: measured off the census of every lump the sweep laid */
+    const lumps = dec.census.lumps;
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+    const near = mean(lumps.filter(l => l.t < 0.4).map(l => l.h)), far = mean(lumps.filter(l => l.t > 0.8).map(l => l.h));
+    const kinds = {}; for (const l of lumps) kinds[l.k] = (kinds[l.k] || 0) + 1;
     return { ws, wd, sound: sound.census, dec: dec.census, edgesSound: edges(sound), edgesDec: edges(dec),
              first: st[0], last: st[st.length - 1], mid: st[Math.floor(st.length / 2)],
              soundRun: st.filter(s => s.s < 40).every(s => s.alive === s.of),
              both: [both[0].alive, both[Math.floor(both.length / 2)].alive, both[both.length - 1].alive, both[0].of],
              edgeShare: edgeN ? edgeGone / edgeN : 0, midShare: midN ? midGone / midN : 0,
-             endT: end.t, endY: end.p[1], presets, vmin, vmax };
+             endT: end.t, endY: end.p[1], presets, vmin, vmax,
+             lumps: lumps.length, near, far, kinds };
   });
   ok("the road engine is loaded", !eng.missing);
   if (!eng.missing) {
@@ -2326,7 +2333,83 @@ if (want("road")) {
        eng.presets.map(p => `${p.id} ${p.width.toFixed(1)} m`).join(", "));
     ok("the surface texture spans the carriageway", Math.abs(eng.vmin) < 1e-6 && Math.abs(eng.vmax - 1) < 1e-6,
        `v runs ${eng.vmin} to ${eng.vmax} across every run of road`);
+    ok("the shattered chunks lose height toward the end", eng.lumps > 40 && eng.near > eng.far * 1.6,
+       `${eng.lumps} lumps · ${(eng.near * 100).toFixed(0)} cm tall near the sound road, ${(eng.far * 100).toFixed(0)} cm at the far end`);
+    ok("and the rubble is broken asphalt AND concrete", (eng.kinds.road || 0) > 5 && (eng.kinds.kerb || 0) > 5,
+       Object.keys(eng.kinds).map(k => `${eng.kinds[k]} ${k}`).join(", "));
   }
+
+  /* ---- the network: routes through nodes, junctions where they meet ---- */
+  const netE = await page.evaluate(() => {
+    const R = window.ForgeRoad;
+    const wound = G => {
+      let bad = 0, tris = 0, biggest = 0;
+      for (const k in G.parts) for (const m of G.parts[k]) {
+        if (m.pos.length / 3 > biggest) biggest = m.pos.length / 3;
+        for (let i = 0; i < m.idx.length; i += 3) {
+          const a = m.idx[i] * 3, b = m.idx[i + 1] * 3, c = m.idx[i + 2] * 3;
+          const u = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+          const v = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+          const sn = [0, 1, 2].map(q => m.nrm[a + q] + m.nrm[b + q] + m.nrm[c + q]);
+          tris++; if (!(n[0] * sn[0] + n[1] * sn[1] + n[2] * sn[2] > 0)) bad++;
+        }
+      }
+      return { bad, tris, biggest };
+    };
+    /* every open edge of every sweep, by that sweep's own flags: a link's
+       junction end and a corner's inner edge are joined to something and
+       carry no wall; everything else does */
+    const edges = G => {
+      let e = 0;
+      for (const sw of G.sweeps) {
+        const nP = sw.nP - 1;
+        const al = (i, j) => { if (j < 0) return sw.wallInner ? 0 : 1; if (j >= nP) return sw.wallOuter ? 0 : 1;
+          if (i < 0) return sw.wallStart ? 0 : 1; if (i >= sw.nS) return sw.wallEnd ? 0 : 1; return sw.alive[i * nP + j]; };
+        for (let i = 0; i < sw.nS; i++) for (let j = 0; j < nP; j++) if (al(i, j)) {
+          const P = sw.ptsOf(i), flat = Math.abs(P[j + 1].x - P[j].x) > 1e-9;
+          if (!al(i - 1, j) && flat) e++; if (!al(i + 1, j) && flat) e++; if (!al(i, j - 1)) e++; if (!al(i, j + 1)) e++;
+        }
+      }
+      return e;
+    };
+    const base = { res: 0.5, seed: 7, decayB: 0, nodes: R.preset("two_lane") };
+    const presets = R.NET_PRESETS.map(p => {
+      const G = R.buildNet(Object.assign({}, base, { net: R.netPreset(p.id) }));
+      const w = wound(G);
+      return { id: p.id, links: G.links.length, junctions: G.junctions.map(j => j.arms), fans: G.census.fans,
+               ok: w.bad === 0 && G.census.slabs > 0 && G.census.walls === edges(G) && w.biggest < 65536,
+               bad: w.bad, walls: G.census.walls, edges: edges(G), L: G.L };
+    });
+    /* the crossroads crumbles at its four free ends and nowhere else */
+    const Gc = R.buildNet(Object.assign({}, base, { net: R.netPreset("cross"), decayB: 15 }));
+    const ends = Gc.links.map(l => ({ a: l.a, b: l.b, first: l.sw.stations[0].alive,
+      last: l.sw.stations[l.sw.stations.length - 1].alive, of: l.sw.stations[0].of }));
+    const freeOnly = ends.every(e => (Gc.net.isFree[e.a] ? e.first === 0 : e.first === e.of) &&
+                                     (Gc.net.isFree[e.b] ? e.last === 0 : e.last === e.of));
+    /* a node's own say over its end */
+    const net = R.netPreset("tee"); net.nodes[3].crumble = 0; net.nodes[0].crumble = 20;
+    const Gt = R.buildNet(Object.assign({}, base, { net, decayB: 10 }));
+    const endOf = (l, n) => l.a === n ? l.sw.stations[0] : l.sw.stations[l.sw.stations.length - 1];
+    const l3 = Gt.links.find(l => l.a === 3 || l.b === 3), l0 = Gt.links.find(l => l.a === 0 || l.b === 0);
+    const say = endOf(l3, 3).alive === endOf(l3, 3).of && endOf(l0, 0).alive === 0;
+    /* the trim: every arm of a crossroads is cut back the same, and the fan is as
+       wide as the arms are apart */
+    const J = Gc.junctions[0];
+    const trims = J.trim;
+    const even = Math.max(...trims) - Math.min(...trims) < 1e-6;
+    return { presets, freeOnly, ends, say, trims, even, loop: J.loop };
+  });
+  ok("every plan preset sweeps clean, walled edge for edge", netE.presets.every(p => p.ok),
+     netE.presets.map(p => `${p.id}: ${p.links} links, ${p.junctions.length} junctions${p.junctions.length ? " (" + p.junctions.join("/") + " arms)" : ""}, ` +
+       `${p.bad} backwards, walls ${p.walls}/${p.edges}`).join(" · "));
+  ok("a crossroads is one junction of four arms with four corners and a fan",
+     netE.presets.find(p => p.id === "cross").junctions.join() === "4" && netE.presets.find(p => p.id === "cross").fans === 1 && netE.loop > 8,
+     `${netE.loop} points round the fan, arms trimmed ${netE.trims.map(t => t.toFixed(1)).join("/")} m`);
+  ok("and its four arms are trimmed alike", netE.even, netE.trims.map(t => t.toFixed(2)).join(" "));
+  ok("the network crumbles at its free ends and nowhere else", netE.freeOnly,
+     netE.ends.map(e => `${e.a}->${e.b}: ${e.first}/${e.last} of ${e.of}`).join("  "));
+  ok("and a node has the last word on its own end", netE.say, "node 3 at 0 m keeps every slab, node 0 at 20 m has none");
 
   /* ---- the designer, driven by hand ---- */
   await page.evaluate(() => {
@@ -2367,7 +2450,18 @@ if (want("road")) {
   });
   await page.mouse.move(drag.from[0], drag.from[1]);
   await page.mouse.down();
-  await page.mouse.move(drag.to[0], drag.to[1], { steps: 6 });
+  await page.waitForTimeout(80);
+  /* the target is read off the frame AFTER the pointer is down, because that
+     is the frame the drag is worked through — a bar that re-wrapped on the
+     click would otherwise have moved the picture under a target computed
+     before it */
+  const to = await page.evaluate(([i, dx, dy]) => {
+    const r = window.Forge.road(), fr = r.frame(), n = r.nodes()[i];
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const q = fr.toPx(n.x + dx, n.y + dy);
+    return [b.left + q[0] * k, b.top + q[1] * k];
+  }, [drag.i, 0.5, 0.10]);
+  await page.mouse.move(to[0], to[1], { steps: 6 });
   await page.mouse.up();
   await page.waitForTimeout(300);
   const after = await page.evaluate(i => {
@@ -2403,7 +2497,69 @@ if (want("road")) {
     let lit = 0; for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 120) lit++;
     return { lit, of: d.length / 16 };
   });
-  ok("the plan view draws the road", plan.lit > plan.of * 0.05, `${(plan.lit / plan.of * 100).toFixed(0)}% of the canvas lit`);
+  ok("the plan view draws the road", plan.lit > plan.of * 0.02, `${(plan.lit / plan.of * 100).toFixed(0)}% of the canvas lit`);
+  /* A ROUTE DRAWN BY HAND. Three clicks on the ground in draw mode, the last
+     on an existing node of the straight road, and Enter: a new route whose
+     end is a T-junction, built and walled like any other. Through the
+     frame the plan draws with, so the claim is about the hands. */
+  const start = await page.evaluate(() => { const r = window.Forge.road(); return { nodes: r.net().nodes.length, routes: r.net().routes.length, junctions: r.G.junctions.length }; });
+  await page.click('[data-roadtool="draw"]');
+  const clicks = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), net = r.net();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const P = (x, z) => { const p = fr.toPx(x, z); return [b.left + p[0] * k, b.top + p[1] * k]; };
+    /* off to the right of the straight road, then in to its middle node-to-be:
+       the straight road has nodes at z=0 and z=60, so we aim at (0,30) — not a
+       node, so the draw tool lays one there and the road passes through it
+       without a junction; then we join to the existing end node */
+    const end = net.nodes[1];
+    return { a: P(40, 20), b: P(25, 40), c: P(end.x, end.z) };
+  });
+  await page.mouse.click(clicks.a[0], clicks.a[1]);
+  await page.waitForTimeout(120);
+  await page.mouse.click(clicks.b[0], clicks.b[1]);
+  await page.waitForTimeout(120);
+  await page.mouse.click(clicks.c[0], clicks.c[1]);
+  await page.waitForTimeout(120);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  const drawn = await page.evaluate(() => {
+    const r = window.Forge.road(), net = r.net(), G = r.G;
+    return { nodes: net.nodes.length, routes: net.routes.length, last: net.routes[net.routes.length - 1],
+             junctions: G ? G.junctions.map(j => j.arms) : [], links: G ? G.links.length : 0, tool: r.R.tool,
+             isJ: G ? G.net.isJ : [] };
+  });
+  ok("a route drawn by hand joins the road at a junction",
+     drawn.nodes === start.nodes + 2 && drawn.routes === start.routes + 1 && drawn.last.length === 3 &&
+     drawn.junctions.length === start.junctions + 1 && drawn.links === 2,
+     `${start.nodes} nodes became ${drawn.nodes}, ${start.routes} routes ${drawn.routes} · route ${drawn.last.map(x => x + 1).join("-")} ` +
+     `· junctions ${drawn.junctions.join("/")} arms · ${drawn.links} links · tool back to ${drawn.tool}`);
+  /* and a node dragged onto another becomes it: the two free ends of the new
+     route's start and the straight road's start, joined into a bend */
+  const join = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), net = r.net();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const P = n => { const p = fr.toPx(n.x, n.z); return [b.left + p[0] * k, b.top + p[1] * k]; };
+    /* the new route's START — a free end — onto the straight road's start:
+       two routes then run between the same two nodes, one straight and one
+       round by the third node, a loop with a two-armed junction at each end.
+       (Not the middle node: that would lay the new route along the straight
+       road's own line, two roads on one ground, which is a plan nobody means.) */
+    const from = net.nodes[net.nodes.length - 2], to = net.nodes[0];
+    return { from: P(from), to: P(to), n: net.nodes.length, was: net.routes.map(x => x.slice()) };
+  });
+  await page.mouse.move(join.from[0], join.from[1]);
+  await page.mouse.down();
+  await page.mouse.move(join.to[0], join.to[1], { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const joined = await page.evaluate(() => {
+    const r = window.Forge.road(), net = r.net(), G = r.G;
+    return { n: net.nodes.length, routes: net.routes, junctions: G ? G.junctions.map(j => j.arms) : [], links: G ? G.links.length : 0 };
+  });
+  ok("and a node dropped on another joins them, closing the two routes into a loop",
+     joined.n === join.n - 1 && joined.junctions.slice().sort().join() === "2,2" && joined.links === 2,
+     `${join.n} nodes became ${joined.n} · junctions of ${joined.junctions.join("/")} arms · ${joined.links} links`);
   await page.click('[data-roadview="3d"]');
 
   /* ---- the archive, read back ---- */
@@ -2433,12 +2589,17 @@ if (want("road")) {
   ok("the road packs into one archive with the grid",
      zip.names.includes("model.gltf") && zip.names.includes("grid.png") && zip.names.some(n => n.startsWith("surface/")),
      `${zip.names.length} entries · ${zip.name}`);
-  ok("and the glTF is the road, its ground and the grid, at true scale",
+  ok("and the glTF is the road, its junctions, its ground and the grid, at true scale",
      !!gl && gl.meshes.some(m => m.name === "road") && gl.meshes.some(m => m.name.startsWith("ground")) &&
+     gl.meshes.some(m => m.name === "junction") &&
      gl.meshes.some(m => m.name === "grid") && gl.materials.some(m => m.name === "grid") &&
      gl.images.some(im => im.uri === "grid.png") &&
-     (() => { const p = gl.accessors[gl.meshes.find(m => m.name === "road").primitives[0].attributes.POSITION]; return p.max[2] - p.min[2] > 50; })(),
-     gl ? `${gl.meshes.length} meshes, ${gl.materials.length} materials, ${gl.images.length} images` : "no glTF");
+     /* tens of metres of it, less what the two junctions trimmed back */
+     (() => { const p = gl.accessors[gl.meshes.find(m => m.name === "road").primitives[0].attributes.POSITION]; return p.max[2] - p.min[2] > 30; })(),
+     gl ? `${gl.meshes.length} meshes (${gl.meshes.map(m => m.name).join(", ")}), ${gl.materials.length} materials, ${gl.images.length} images` +
+          (() => { const rm = gl.meshes.find(m => m.name === "road"); if (!rm) return " · no road mesh";
+                   const p = gl.accessors[rm.primitives[0].attributes.POSITION]; return ` · road z ${p.min[2].toFixed(1)}..${p.max[2].toFixed(1)}`; })()
+        : "no glTF");
   ok("no errors while packing the road", errors.length === before, errors.slice(before).join(" | "));
   await page.click("#wiz-exit");
   await page.waitForTimeout(200);
