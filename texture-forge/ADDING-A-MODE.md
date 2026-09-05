@@ -49,11 +49,33 @@ Forge.register({ id:"mymode", label:"My mode", /* … */ });
 | `previewSize` | none | width in px of the cheap build made while a slider is dragged; omit for no drag preview |
 | `chipSource` | `176` | source width the channel chips are rendered at |
 | `height16` | `true` | offer the 16-bit height PNG and include it in the zip |
+| `variants` | none | extra cuts of the same texture to pack beside the main one — see below |
 | `preview` | see below | lighting constants for the GGX preview |
 
 ```js
 preview:{gain:3.2,amb:1.15,specK:0.55,skyLo:[0.13,0.15,0.19],skyHi:[0.30,0.34,0.42]}
 ```
+
+VARIANTS: THE SAME TEXTURE WITH A FEATURE TAKEN OUT. A hull run needs the
+plating with windows in it *and* the plain plating to put between the window
+bands — same seed, same quilt, one parameter apart. Forging one, exporting,
+changing the slider, forging again and exporting again is four steps to get two
+files, every time the seed moves. So a mode can declare the extra cuts it wants
+and the archive button packs them all:
+
+```js
+variants:function(P){                       // or a plain array
+  return ((P.winRows|0)>0&&P.winBlank!==false)
+    ?[{id:"blank",label:"blank plating",set:{winRows:0}}]:[];
+}
+```
+
+Each cut is forged at FULL SIZE with `set` laid over the live parameters, packed
+into `<fileBase>_<id>/` with its own readme and its own geometry, and then the
+parameters are put back and the panel rebuilt. Return `[]` — as the example does
+when there are no windows to remove — and the archive is exactly the flat one it
+has always been, no folders. Keep the switch a control the user can see: a mode
+that quietly doubles its export time is a mode nobody trusts.
 
 `gain` scales the direct light, `amb` the sky term, `specK` the specular
 horizon rolloff, `skyLo`/`skyHi` the ambient gradient by normal Z.

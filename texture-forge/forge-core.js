@@ -987,48 +987,87 @@ async function downloadH16(){
   setTimeout(()=>URL.revokeObjectURL(url),20000);
   setStatus(sizeTag(st)+" · 16-bit height saved");
 }
+/* EVERYTHING ONE BUILD PUTS IN THE ARCHIVE, in one place — because it now
+   happens more than once. See variantsOf() below. */
+async function packBuild(st,files,dir,say){
+  let n=0;
+  for(const ch of st.mode.channels){
+    setStatus("Packing "+say+ch.label+"…");
+    setBar(++n/(st.mode.channels.length+1));
+    await new Promise(r=>setTimeout(r,0));              // let the status repaint
+    const blob=await new Promise((res,rej)=>{
+      const cv=makeMap(st,ch.key);
+      if(!cv.toBlob){rej(new Error("this browser can't encode canvas PNGs"));return;}
+      cv.toBlob(b=>b?res(b):rej(new Error("PNG encode failed on "+ch.key)),"image/png");
+    });
+    files.push({name:dir+fileName(st,ch.key),data:new Uint8Array(await blob.arrayBuffer())});
+  }
+  if(st.mode.height16!==false){
+    const h16=await png16Height(st);
+    if(h16)files.push({name:dir+fileName(st,"height16"),data:h16});
+  }
+  files.push({name:dir+fileBase(st)+"_readme.txt",
+    data:new TextEncoder().encode(readmeText(st))});
+  /* GEOMETRY. Every mode already knows how big the thing it drew really is —
+     it prints it in the readout — so the zip carries a plane at that size
+     with these maps already wired to it, rather than a paragraph telling you
+     what to scale a plane to. See forge-model.js. */
+  if(window.ForgeModel){
+    const plan=ForgeModel.planOf(st.mode,st.P);
+    const maps={};
+    for(const ch of st.mode.channels)maps[ch.key]=fileName(st,ch.key);
+    for(const f of ForgeModel.filesForFace(st.mode.id,plan,maps,plan.cutout&&!!maps.opacity))
+      files.push({name:dir+f.name,data:f.data});
+  }
+}
+/* THE SAME PANEL WITH A FEATURE TAKEN OUT is a second export, not a second
+   session. A hull run needs the plating with windows AND the plain plating to
+   put between the window bands, and forging one, exporting, changing a slider,
+   forging again and exporting again is four steps to get two files that only
+   differ by one parameter — and it is four steps EVERY time the seed moves.
+
+   So a mode may declare `variants(P)`, returning `{id,label,set}` for each
+   extra cut it wants packed beside the main one. Each is forged at full size
+   with `set` laid over the live parameters, packed into its own folder with
+   its own readme and its own geometry, and the parameters put back. */
+function variantsOf(st){
+  const v=st.mode.variants;
+  if(!v)return [];
+  try{return (typeof v==="function"?v(st.P):v)||[];}catch(e){return [];}
+}
 async function downloadZip(){
   if(!exportGuard())return;
   const st=active,btn=el("zipall"),save=el("zipsave");
   btn.disabled=true;save.hidden=true;
+  const cuts=variantsOf(st);
   try{
-    const files=[];let n=0;
-    for(const ch of st.mode.channels){
-      setStatus("Packing "+ch.label+"…");
-      setBar(++n/(st.mode.channels.length+1));
-      await new Promise(r=>setTimeout(r,0));            // let the status repaint
-      const blob=await new Promise((res,rej)=>{
-        const cv=makeMap(st,ch.key);
-        if(!cv.toBlob){rej(new Error("this browser can't encode canvas PNGs"));return;}
-        cv.toBlob(b=>b?res(b):rej(new Error("PNG encode failed on "+ch.key)),"image/png");
-      });
-      files.push({name:fileName(st,ch.key),data:new Uint8Array(await blob.arrayBuffer())});
+    const files=[];
+    /* one folder each only when there is something to tell apart, so a mode
+       with no variants packs exactly the archive it always did */
+    const root=cuts.length?fileBase(st)+"/":"";
+    await packBuild(st,files,root,"");
+    for(const cut of cuts){
+      const was={};
+      for(const k in cut.set){was[k]=st.P[k];st.P[k]=cut.set[k];}
+      try{
+        await runAsync(st,false);
+        await packBuild(st,files,fileBase(st)+"_"+cut.id+"/",cut.label+" · ");
+      }finally{
+        for(const k in was)st.P[k]=was[k];
+        await runAsync(st,false);                       // and the panel is back
+      }
     }
-    if(st.mode.height16!==false){
-      const h16=await png16Height(st);
-      if(h16)files.push({name:fileName(st,"height16"),data:h16});
-    }
-    files.push({name:fileBase(st)+"_readme.txt",
-      data:new TextEncoder().encode(readmeText(st))});
-    /* GEOMETRY. Every mode already knows how big the thing it drew really is —
-       it prints it in the readout — so the zip carries a plane at that size
-       with these maps already wired to it, rather than a paragraph telling you
-       what to scale a plane to. See forge-model.js. */
-    if(window.ForgeModel){
-      const plan=ForgeModel.planOf(st.mode,st.P);
-      const maps={};
-      for(const ch of st.mode.channels)maps[ch.key]=fileName(st,ch.key);
-      for(const f of ForgeModel.filesForFace(st.mode.id,plan,maps,plan.cutout&&!!maps.opacity))
-        files.push(f);
-    }
-    const zip=makeZip(files),name=fileBase(st)+".zip";
+    const zip=makeZip(files),name=fileBase(st)+(cuts.length?"_set":"")+".zip";
     if(st.zipUrl)URL.revokeObjectURL(st.zipUrl);
     st.zipUrl=saveBlob(zip,name);
     save.href=st.zipUrl;save.download=name;
     save.textContent="Save "+name+" ("+(zip.size/1048576).toFixed(1)+" MB)";
     save.hidden=false;
     setBar(0);
-    setStatus(files.length+" files packed · click save if nothing downloaded");
+    setStatus(files.length+" files packed"+
+      (cuts.length?" in "+(cuts.length+1)+" cuts — "+
+        ["as forged"].concat(cuts.map(c=>c.label)).join(", ")+" — ":" · ")+
+      "click save if nothing downloaded");
   }catch(err){
     setBar(0);setStatus("Zip failed — "+((err&&err.message)||err));console.error(err);
   }finally{btn.disabled=false;}
