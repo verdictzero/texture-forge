@@ -31,6 +31,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
   modes/lib/            generators shared by more than one mode
+  modes/lib/road.js     a cross-section swept into a road, crumbling at either end
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
@@ -1269,6 +1270,68 @@ how many texels you want of a given face is a property of the export, not of the
 building, and which face a step is is the one thing that step exists to pin.
 
 
+AND ROAD, WHICH IS A PROFILE
+----------------------------
+A road asset is a CROSS-SECTION swept along a length, and neither half of that
+is a texture. So the Road structure has three texture steps — surface, kerb and
+verge — and everything else lives in the 3D view: a bar for the length, bend,
+rise and decay, and a DRAWING BOARD for the cross-section itself.
+
+THE SECTION is the designer. The profile is a polyline of nodes in metres on a
+scale grid — x across the road, y up, the vertical exaggerated because a real
+road is fourteen metres wide and a hand's width tall, and at 1× a kerb is one
+pixel. Drag a node and it moves; double-click a segment to add one, a node to
+remove it; each node says what the segment to its right is made of — road
+surface, kerb or paving, verge, bare ground — and whether the corner at it is
+ROUNDED, which is what a crown and a ditch bottom are and a kerb's arris is not.
+MIRROR keeps the two sides the same: edit one and the other is thrown away and
+made again from it, because nearly every road is symmetric and the ones that
+are not are edited from a symmetric start. Ten presets to start from, from a
+single track to a dual carriageway, an embankment to a cutting.
+
+THE PLAN is the road from above with every gone slab left blank, over a long
+section showing the surface sinking toward the broken end, so "crumbles to
+nothing over the last eighteen metres" can be checked without orbiting.
+
+IT CRUMBLES TO NOTHING AT EITHER END, or both, or neither. A section that ends
+in a clean cut wants another section butted against it; a section that ends in
+broken slabs, bare base and rubble can end in a field, which is the difference
+between a road asset and a road-shaped block. The decay is a per-slab draw
+against a front that advances over the crumble length at each end: RAGGED is how
+noisy the front is, EDGES FIRST is how much the verge and kerbs go before the
+crown, SINK is how far the survivors drop and tilt as the front reaches them,
+and RUBBLE is how many of the dead ones leave a lump behind. The front is shaped
+so the last few metres go fastest — long sound, then quickly rubble — which is
+what a road eroded from its end looks like.
+
+AND IT IS SOLID. Every slab has a base under it (THICK says how far) and a wall
+down every edge that has nothing beside it — the two ends, the outside of the
+verge, and every ragged edge the decay opens up — so the mesh is closed
+wherever the eye can reach and a broken end shows the thickness of the road
+rather than a sheet of nothing. No profile segment is wider than about a metre
+whatever you draw: a seven-metre carriageway drawn as one segment would tip over
+as one seven-metre piece when the decay reached it, which is not what crumbling
+looks like. A slab sinks as one piece, no further than the base, and its tilt
+is held to what its own size allows, so a corner never stands higher than the
+road is thick.
+
+THE TEXTURES ARE LAID BY WHAT THEY ARE. The street tile is stretched across
+each run of carriageway — however wide you draw it, the lanes and lines fit —
+and repeats along the road at its own length; the bar says how far the drawn
+carriageway is from the tile's own width. The kerb is one precast concrete unit
+laid end to end, which is what a kerb is, and the footway is the same concrete
+tiled. The verge is exposed-aggregate concrete at three metres to the panel,
+which reads as gravel and earth, and the same texture worn darker is the bare
+ground: the base you see at a broken end, the retaining wall of a causeway, the
+slope of a cutting.
+
+THE SCALE GRID goes with it. A five-metre tile with the metre and quarter-metre
+lines drawn on it lies under the road in the 3D view and leaves in the archive
+as grid.png on a plane of its own, so what arrives in Blender can be read
+against something. Delete the grid object once the scale is checked. The road
+runs along +Z from the origin, +X to the right of the direction of travel, and
+the archive's readme lists the profile node by node.
+
 TYPEFACES
 ---------
 Some things a texture needs are LETTERS — a tag sprayed on a derelict wall being
@@ -1829,6 +1892,22 @@ It also covers the thirteen things that are easy to break silently:
             check is measured against each preset's OWN hull metalness rather
             than a fixed threshold, because the derelict's glass is deliberately
             dull and a fixed threshold called it plating
+  road      a profile swept into a road is SOUND GEOMETRY before it is
+            anything else: every triangle wound to its own normal, no mesh
+            past a 16-bit index, and every open edge of the top skin — the
+            ends, the outside of the verge, and every ragged edge the decay
+            opens — with a wall under it, counted edge for edge against the
+            alive grid. Then the DECAY does what the bar says: nothing for
+            the first forty metres, nothing left at the very end, both ends
+            when both are asked for, and in the half-gone zone the edge slabs
+            gone measurably more often than the crown's. The DESIGNER is
+            driven with the mouse through the frame it draws with — a node
+            dragged half a metre lands half a metre over, in metres, with
+            its mirror twin at minus that; a double-click on a segment adds
+            a node to both sides — and the plan view has to put pixels on
+            its canvas. The archive is read back out of its own blob: the
+            glTF has to hold a road mesh over fifty metres long, its ground,
+            and a grid material pointing at grid.png
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and

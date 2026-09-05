@@ -805,8 +805,16 @@ function renderView(){
   const lit=(view==="lit"),box=(view===BUILD_VIEW);
   glc.classList.toggle("on",lit);
   flat.classList.toggle("on",!lit&&!box);
-  if(solid)solid.classList.toggle("on",box);
-  el("hint").textContent=box
+  /* THE ROAD'S 2D VIEWS take the stage's place: same box, the section canvas
+     on top of it, the WebGL one off so it is not drawing for nobody */
+  const sec=el("section");
+  const road2d=!!(box&&wiz&&wiz.s.road&&ROAD.view!=="3d");
+  if(sec)sec.classList.toggle("on",road2d);
+  if(solid)solid.classList.toggle("on",box&&!road2d);
+  el("hint").textContent=road2d
+    ? (ROAD.view==="section"?"Drag a node · double-click a segment to add one, a node to remove it · Delete removes the selected one"
+                            :"The road from above, start at the left · the long section under it")
+    : box
     ? "Drag to orbit · wheel to zoom · shift-drag the sun · click a face to work on it"
     : "Drag the preview to move the light";
   el("hint").style.display=(lit||box)?"block":"none";
@@ -822,16 +830,17 @@ function renderView(){
      and are out of the way the rest of the time */
   const bb=el("bakebar");
   if(bb)bb.hidden=(view!=="unlit");
-  townBarSync();
+  townBarSync();roadBarSync();
   if(box)stageSync();
   else if(lit)refreshGL();
   else drawFlat();
+  if(road2d)sectionDraw();
 }
 
 /* every place that has to put the preview back on screen — a pane change, the
    grip, a resize — without each of them having to know what the views are */
 function repaint(){
-  if(view===BUILD_VIEW){if(stageOK)ForgeStage.draw();}
+  if(view===BUILD_VIEW){if(stageOK)ForgeStage.draw();sectionDraw();}
   else if(view==="lit")drawGL();
   else drawFlat();
 }
@@ -1589,10 +1598,664 @@ function townEdit(fn){
   townBarSync();
 }
 
+
+/* ---------------------------------------------------------------------------
+   THE ROAD
+
+   A road is a PROFILE swept along a PATH, and neither is a texture. The
+   profile is drawn — nodes on a canvas, at scale, with a grid in metres under
+   them — and the path's length, bend and decay live on a bar next to the
+   picture they move, the way the town's grid does. modes/lib/road.js is the
+   geometry; ForgeModel.roadScene dresses it; this is the hands.
+
+   THREE VIEWS OF ONE THING. The 3D stage shows the road the way it will land
+   in Blender. The SECTION is the designer: the cross-section on a scale grid,
+   vertically exaggerated because a real profile is fourteen metres wide and a
+   hand's width tall. The PLAN is the road from above with its broken ends,
+   over a long section showing what the decay has done to the height — so
+   "crumbles to nothing over the last eighteen metres" can be checked without
+   orbiting.
+   --------------------------------------------------------------------------- */
+const ROAD={seed:7,preset:"two_lane",nodes:null,
+            length:60,res:0.5,bend:0,rise:0,wobble:0.02,
+            decayA:0,decayB:18,rough:0.6,edge:0.6,drop:0.6,debris:0.5,thick:0.35,
+            solid:true,grid:true,mirror:true,snap:true,vx:3,view:"3d",sel:-1};
+let roadG=null;                          // the last road built off ROAD, for every view
+let roadHad=false;                       // has the stage seen this road yet
+let roadBarBuilt=false,roadDrag=null,roadFrame=null;
+
+function roadNodes(){
+  if(!ROAD.nodes||ROAD.nodes.length<2)ROAD.nodes=ForgeRoad.preset(ROAD.preset);
+  return ROAD.nodes;
+}
+function roadParams(){
+  return {seed:ROAD.seed|0,length:+ROAD.length,res:+ROAD.res,bend:+ROAD.bend,rise:+ROAD.rise,
+          wobble:+ROAD.wobble,decayA:+ROAD.decayA,decayB:+ROAD.decayB,rough:+ROAD.rough,
+          edge:+ROAD.edge,drop:+ROAD.drop,debris:+ROAD.debris,thick:+ROAD.thick,
+          solid:!!ROAD.solid,nodes:roadNodes()};
+}
+/* the kit: which step's texture each kind wears, and the real size of each,
+   because the surface tile is laid across the carriageway at its own length
+   and the kerb is one precast unit long */
+function roadKit(by){
+  const k=(wiz&&wiz.s.road&&wiz.s.road.kit)||{surface:"surface",kerb:"kerb",verge:"verge"};
+  const out={};
+  for(const key in k)out[key]=by[k[key]]||null;
+  return out;
+}
+function roadTiles(kit){
+  const t={};
+  const s=kit.surface&&kit.surface.plan;if(s)t.surface=s.tile||s.w;
+  const kb=kit.kerb&&kit.kerb.plan;if(kb){t.kerb=kb.w;t.kerbH=kb.h;}
+  const v=kit.verge&&kit.verge.plan;if(v)t.verge=v.w;
+  return t;
+}
+/* the road, built off the current numbers, for whichever view asks first */
+function roadEnsure(){
+  if(!wiz||!wiz.s.road||!window.ForgeRoad)return null;
+  const by=stagePlans();
+  const kit=roadKit(by);
+  roadG=ForgeRoad.build(roadParams(),roadTiles(kit));
+  roadG.kit=kit;
+  return roadG;
+}
+/* THE SCALE GRID: one five-metre tile with the metres and quarter-metres
+   drawn on it, laid under the road in both the stage and the export so what
+   arrives in Blender can be read against something. */
+function gridCanvas(px){
+  const c=document.createElement("canvas");c.width=c.height=px;
+  const g=c.getContext("2d");
+  g.fillStyle="#8f9398";g.fillRect(0,0,px,px);
+  const lines=(step,col,w)=>{
+    g.strokeStyle=col;g.lineWidth=w;g.beginPath();
+    for(let k=0;k<=5.0001;k+=step){
+      const q=Math.round(k/5*px)+0.5;
+      g.moveTo(q,0);g.lineTo(q,px);g.moveTo(0,q);g.lineTo(px,q);
+    }
+    g.stroke();
+  };
+  lines(0.25,"rgba(0,0,0,0.10)",1);
+  lines(1,"rgba(0,0,0,0.32)",Math.max(1,px/400));
+  g.strokeStyle="rgba(0,0,0,0.6)";g.lineWidth=Math.max(2,px/170);g.strokeRect(1,1,px-2,px-2);
+  g.fillStyle="rgba(0,0,0,0.5)";
+  g.font="bold "+Math.round(px*0.045)+"px monospace";
+  g.fillText("1 m",px*0.03,px*0.17);
+  g.font="bold "+Math.round(px*0.06)+"px monospace";
+  g.fillText("5 m",px*0.03,px*0.97);
+  return c;
+}
+/* a one-colour map, for the grid's ORM: full occlusion, matte, no metal —
+   without it the stage binds nothing there and a plane with no roughness is a
+   black mirror */
+function flatCanvas(r,g,b){
+  const c=document.createElement("canvas");c.width=c.height=4;
+  const x=c.getContext("2d");x.fillStyle="rgb("+r+","+g+","+b+")";x.fillRect(0,0,4,4);
+  return c;
+}
+function roadDraw(){
+  if(!wiz||!wiz.s.road||!roadG||!stageOK)return;
+  if(ROAD.grid&&!ForgeStage.hasFace("grid"))
+    ForgeStage.setFace("grid",{basecolor:gridCanvas(512),normal:flatCanvas(128,128,255),
+                               orm:flatCanvas(255,225,0)},false);
+  ForgeStage.setScene(ForgeModel.roadScene(wiz.s.id,roadG,roadG.kit,
+    {grid:ROAD.grid?{file:"grid.png"}:null,notes:roadNotes(roadG),
+     /* the base just clear of the stage's own ground; the export is not lifted */
+     lift:0.03-roadG.bounds.lo[1]}));
+}
+/* any change to the road's numbers or its profile */
+function roadRegrid(){
+  stageSig="";roadG=null;
+  if(view===BUILD_VIEW)stageSync();
+  roadBarSync();
+  sectionDraw();
+}
+function roadNotes(G){
+  const c=G.census,E=ForgeRoad.extents(roadNodes());
+  const tile=G.tiles.surface;
+  const out=["THIS IS A ROAD: a cross-section "+E.w.toFixed(2)+" m wide swept "+G.L.toFixed(1)+" m"+
+    (Math.abs(+ROAD.bend)>0.5?", turning "+(+ROAD.bend).toFixed(0)+" degrees":"")+
+    (Math.abs(+ROAD.rise)>0.01?", rising "+(+ROAD.rise).toFixed(2)+" m":"")+".",
+    "It runs along +Z from the origin, +X to the right of the direction of travel.",
+    c.slabs+" slabs of surface, "+c.walls+" walls down its open edges, "+c.base+" of base"+
+    (c.debris?" and "+c.debris+" lumps of rubble":"")+"."];
+  if(+ROAD.decayA>0||+ROAD.decayB>0)out.push(
+    "IT CRUMBLES TO NOTHING"+(+ROAD.decayA>0&&+ROAD.decayB>0?" AT BOTH ENDS":+ROAD.decayA>0?" AT ITS START":" AT ITS END")+
+    ": over the last "+(+ROAD.decayA>0?(+ROAD.decayA).toFixed(0)+" m":"")+
+    (+ROAD.decayA>0&&+ROAD.decayB>0?" and ":"")+(+ROAD.decayB>0?(+ROAD.decayB).toFixed(0)+" m":"")+
+    " the slabs go, edges first, the survivors sinking and tilting, the base",
+    "showing through, and "+c.gone+" of "+(c.slabs+c.gone)+" slabs are gone. Every open edge that",
+    "left has a wall down to the base, so the broken end is closed, not hollow.");
+  out.push("The road surface texture ("+tile.toFixed(2)+" m tile) is stretched across each run of",
+    "carriageway"+(E.road>0?" ("+E.road.toFixed(2)+" m drawn)":"")+" and repeats along the road at its own length; kerbs are one",
+    "precast unit ("+G.tiles.kerb.toFixed(3)+" m) end to end; verge and ground tile at "+G.tiles.verge.toFixed(2)+" m.");
+  if(ROAD.grid)out.push("grid.png is a SCALE GRID under the whole thing: a five-metre tile with the metre and",
+    "quarter-metre lines drawn on it. Delete the grid object once the scale is checked.");
+  return out;
+}
+
+/* ---- the bar ---- */
+const ROAD_ROWS=[
+  {id:"length",label:"Length",min:6,max:300,step:1,unit:"m"},
+  {id:"bend",label:"Bend",min:-180,max:180,step:1,unit:"°"},
+  {id:"rise",label:"Rise",min:-12,max:12,step:0.1,unit:"m"},
+  {id:"wobble",label:"Wobble",min:0,max:0.3,step:0.01,unit:"m"},
+  {id:"res",label:"Station",min:0.25,max:2,step:0.05,unit:"m"},
+  {id:"thick",label:"Thick",min:0.1,max:1.5,step:0.05,unit:"m"},
+  /* THE DECAY. Length of road that crumbles at each end; zero is a clean cut.
+     The rest say how: how ragged the front is, how much the edges go before
+     the crown, how far the survivors sink, and how much rubble is left. */
+  {id:"decayA",label:"Crumble start",min:0,max:120,step:1,unit:"m"},
+  {id:"decayB",label:"Crumble end",min:0,max:120,step:1,unit:"m"},
+  {id:"rough",label:"Ragged",min:0,max:1,step:0.05},
+  {id:"edge",label:"Edges first",min:0,max:1,step:0.05},
+  {id:"drop",label:"Sink",min:0,max:1.5,step:0.05,unit:"m"},
+  {id:"debris",label:"Rubble",min:0,max:1,step:0.05}
+];
+const ROAD_CHECKS=[
+  {id:"solid",label:"Solid",title:"A base under every slab, so the road is a closed block"},
+  {id:"grid",label:"Grid",title:"A five-metre scale grid under the road, in the view and in the export"},
+  {id:"mirror",label:"Mirror",title:"Edit one side of the profile and the other follows"},
+  {id:"snap",label:"Snap",title:"Nodes land on 5 cm"}
+];
+function roadFmt(r,v){return (r.step<1?(+v).toFixed(2):(+v).toFixed(0))+(r.unit||"");}
+
+function roadBar(){
+  const bar=el("roadbar");
+  if(!bar||roadBarBuilt)return;
+  roadBarBuilt=true;
+  bar.appendChild(make("span","pallab","Road"));
+
+  /* which picture */
+  const seg=make("span","seg");
+  for(const v of [["3d","3D"],["section","Section"],["plan","Plan"]]){
+    const b=make("button","tab",v[1]);
+    b.type="button";b.dataset.roadview=v[0];
+    b.title=v[0]==="3d"?"The road as it will land in Blender"
+           :v[0]==="section"?"Draw the cross-section: drag nodes, double-click to add or remove"
+           :"The road from above with its broken ends, over a long section";
+    b.addEventListener("click",()=>{ROAD.view=v[0];renderView();roadBarSync();});
+    seg.appendChild(b);
+  }
+  bar.appendChild(seg);
+
+  /* which road to start from */
+  const pre=document.createElement("select");
+  pre.id="road-preset";
+  for(const p of ForgeRoad.PRESETS){
+    const o=document.createElement("option");
+    o.value=p.id;o.textContent=p.label;o.title=p.blurb||"";
+    pre.appendChild(o);
+  }
+  pre.value=ROAD.preset;
+  pre.title="A profile to start from — every one is editable";
+  pre.addEventListener("change",()=>{
+    ROAD.preset=pre.value;ROAD.nodes=ForgeRoad.preset(pre.value);ROAD.sel=-1;
+    roadRegrid();
+  });
+  bar.appendChild(pre);
+
+  const seed=document.createElement("label");
+  seed.innerHTML='<span>Seed</span>';
+  const sn=document.createElement("input");
+  sn.type="number";sn.id="road-seed";sn.step="1";sn.value=ROAD.seed;
+  sn.addEventListener("change",()=>{ROAD.seed=sn.value|0;roadRegrid();});
+  seed.appendChild(sn);
+  bar.appendChild(seed);
+  const roll=make("button","tab","Re-roll");
+  roll.type="button";roll.title="A different crumble off the same numbers";
+  roll.addEventListener("click",()=>{
+    ROAD.seed=(Math.random()*1e6)|0;
+    const n=el("road-seed");if(n)n.value=ROAD.seed;
+    roadRegrid();
+  });
+  bar.appendChild(roll);
+
+  for(const r of ROAD_ROWS){
+    const lab=document.createElement("label");
+    lab.title=r.label;
+    lab.innerHTML="<span>"+r.label+"</span>";
+    const inp=document.createElement("input");
+    inp.type="range";inp.id="road-"+r.id;
+    inp.min=r.min;inp.max=r.max;inp.step=r.step;inp.value=ROAD[r.id];
+    const out=make("span","","");
+    out.id="road-"+r.id+"-val";
+    const show=()=>{out.textContent=roadFmt(r,inp.value);};
+    show();
+    inp.addEventListener("input",()=>{ROAD[r.id]=+inp.value;show();roadRegrid();});
+    lab.appendChild(inp);lab.appendChild(out);
+    bar.appendChild(lab);
+  }
+  for(const c of ROAD_CHECKS){
+    const lab=document.createElement("label");
+    lab.title=c.title;
+    const inp=document.createElement("input");
+    inp.type="checkbox";inp.id="road-"+c.id;inp.checked=!!ROAD[c.id];
+    inp.addEventListener("change",()=>{
+      ROAD[c.id]=inp.checked;
+      if(c.id==="mirror"&&inp.checked&&ROAD.sel>=0)roadMirrorFrom(ROAD.sel);
+      else if(c.id==="mirror"&&inp.checked)roadMirrorFrom(roadNodes().length-1);
+      if(c.id==="grid"&&stageOK)ForgeStage.dropFace("grid");
+      roadRegrid();
+    });
+    lab.appendChild(inp);lab.appendChild(document.createTextNode(c.label));
+    bar.appendChild(lab);
+  }
+
+  /* ---- the designer's tools: what is selected and what you can do to it ---- */
+  bar.appendChild(make("span","gap"));
+  const note=make("span","selnote","Section: click a node to work on it");
+  note.id="road-sel";
+  bar.appendChild(note);
+  const act=(label,title,fn)=>{
+    const b=make("button","tab",label);
+    b.type="button";b.title=title;b.dataset.roadact="1";
+    b.addEventListener("click",fn);
+    bar.appendChild(b);
+    return b;
+  };
+  const kind=document.createElement("select");
+  kind.id="road-kind";kind.title="What the segment to the right of this node is made of";
+  for(const k of ForgeRoad.KIND_ORDER){
+    const o=document.createElement("option");o.value=k;o.textContent=ForgeRoad.KINDS[k].label;
+    kind.appendChild(o);
+  }
+  kind.dataset.roadact="1";
+  kind.addEventListener("change",()=>roadEdit(n=>{n.k=kind.value;}));
+  bar.appendChild(kind);
+  const xy=(id,label)=>{
+    const lab=document.createElement("label");
+    lab.innerHTML="<span>"+label+"</span>";
+    const inp=document.createElement("input");
+    inp.type="number";inp.step="0.01";inp.id="road-"+id;inp.className="xy";
+    inp.dataset.roadact="1";
+    inp.addEventListener("change",()=>roadEdit(n=>{n[id]=+inp.value||0;}));
+    lab.appendChild(inp);
+    bar.appendChild(lab);
+  };
+  xy("x","x");xy("y","y");
+  act("Round","A rounded corner here rather than a crease — a crown, a ditch bottom",
+      ()=>roadEdit(n=>{n.s=!n.s;}));
+  act("Add","A new node halfway to the next one",()=>{
+    const nodes=roadNodes(),i=ROAD.sel;
+    if(i<0||i>=nodes.length-1)return;
+    const a=nodes[i],b=nodes[i+1];
+    nodes.splice(i+1,0,ForgeRoad.node((a.x+b.x)/2,(a.y+b.y)/2,a.k,false));
+    ROAD.sel=i+1;
+    if(ROAD.mirror)roadMirrorFrom(ROAD.sel);
+    roadRegrid();
+  });
+  act("Remove","Take this node out",()=>{
+    const nodes=roadNodes(),i=ROAD.sel;
+    if(i<0||nodes.length<=3)return;
+    nodes.splice(i,1);
+    ROAD.sel=Math.min(i,nodes.length-1);
+    if(ROAD.mirror)roadMirrorFrom(Math.max(0,Math.min(ROAD.sel,nodes.length-1)));
+    roadRegrid();
+  });
+  const vx=document.createElement("label");
+  vx.title="Vertical exaggeration of the section — a road is wide and flat, and at 1× a kerb is one pixel";
+  vx.innerHTML="<span>V×</span>";
+  const vi=document.createElement("input");
+  vi.type="range";vi.id="road-vx";vi.min=1;vi.max=10;vi.step=0.5;vi.value=ROAD.vx;
+  const vo=make("span","",ROAD.vx+"×");
+  vi.addEventListener("input",()=>{ROAD.vx=+vi.value;vo.textContent=ROAD.vx+"×";sectionDraw();});
+  vx.appendChild(vi);vx.appendChild(vo);
+  bar.appendChild(vx);
+
+  sectionWire();
+}
+
+/* a change to the SELECTED node */
+function roadEdit(fn){
+  const nodes=roadNodes(),i=ROAD.sel;
+  if(i<0||i>=nodes.length)return;
+  fn(nodes[i]);
+  if(ROAD.mirror)roadMirrorFrom(i);
+  roadRegrid();
+}
+/* MIRROR FROM THE SIDE THAT WAS EDITED. The centre is whichever node is
+   nearest the centreline, pinned to it; the half from there to the edited side
+   is the profile, and the other half is thrown away and made again from it.
+   The kind of a segment lives on the node to its left, so walking the left
+   half outward reads each node's kind off the node before it. */
+function roadMirrorFrom(i){
+  const nodes=roadNodes(),n=nodes.length;
+  if(n<2)return;
+  let c=0;
+  for(let k=1;k<n;k++)if(Math.abs(nodes[k].x)<Math.abs(nodes[c].x))c=k;
+  nodes[c].x=0;
+  const half=[];
+  if(i>=c)for(let k=c;k<n;k++)half.push(ForgeRoad.node(Math.max(0,nodes[k].x),nodes[k].y,nodes[k].k,nodes[k].s));
+  else for(let k=c;k>=0;k--)half.push(ForgeRoad.node(Math.max(0,-nodes[k].x),nodes[k].y,k>0?nodes[k-1].k:nodes[0].k,nodes[k].s));
+  if(half.length<2)return;
+  ROAD.nodes=ForgeRoad.mirror(half);
+  const h=i>=c?(i-c):(c-i);
+  ROAD.sel=(half.length-1)+(i>=c?h:-h);
+}
+
+function roadBarSync(){
+  const bar=el("roadbar");
+  if(!bar)return;
+  const on=!!(wiz&&wiz.s.road&&view===BUILD_VIEW&&stageOK&&window.ForgeRoad);
+  bar.hidden=!on;
+  if(!on)return;
+  roadBar();
+  for(const b of bar.querySelectorAll("[data-roadview]"))
+    b.setAttribute("aria-pressed",String(b.dataset.roadview===ROAD.view));
+  const pre=el("road-preset");if(pre&&pre.value!==ROAD.preset)pre.value=ROAD.preset;
+  for(const r of ROAD_ROWS){
+    const n=el("road-"+r.id);
+    if(n&&+n.value!==+ROAD[r.id]){
+      n.value=ROAD[r.id];
+      const o=el("road-"+r.id+"-val");if(o)o.textContent=roadFmt(r,n.value);
+    }
+  }
+  for(const c of ROAD_CHECKS){const n=el("road-"+c.id);if(n)n.checked=!!ROAD[c.id];}
+  const nodes=roadNodes(),sel=(ROAD.sel>=0&&ROAD.sel<nodes.length)?nodes[ROAD.sel]:null;
+  const note=el("road-sel");
+  if(note){
+    const E=ForgeRoad.extents(nodes);
+    const c=roadG?roadG.census:null;
+    note.textContent=sel
+      ?("Node "+(ROAD.sel+1)+" of "+nodes.length+" · "+sel.x.toFixed(2)+", "+sel.y.toFixed(2)+" m · "+
+        (ForgeRoad.KINDS[sel.k]||{}).label+(sel.s?" · rounded":""))
+      :(E.w.toFixed(1)+" m wide"+(E.road>0?" · "+E.road.toFixed(1)+" m of carriageway":"")+
+        (c?" · "+c.slabs+" slabs"+(c.gone?", "+c.gone+" gone":"")+(c.debris?", "+c.debris+" rubble":""):"")+
+        (ROAD.view==="section"?" · click a node":""));
+  }
+  for(const b of bar.querySelectorAll("[data-roadact]"))b.disabled=!sel;
+  const kind=el("road-kind");if(kind&&sel&&kind.value!==sel.k)kind.value=sel.k;
+  const nx=el("road-x"),ny=el("road-y");
+  if(nx&&sel&&document.activeElement!==nx)nx.value=sel.x.toFixed(2);
+  if(ny&&sel&&document.activeElement!==ny)ny.value=sel.y.toFixed(2);
+}
+
+/* ---- the section canvas ---- */
+function sectionFit(){
+  const cv=el("section");
+  if(!cv)return null;
+  const host=cv.parentNode;
+  const aw=Math.max(80,host.clientWidth-32),ah=Math.max(80,host.clientHeight-32);
+  cv.style.width=aw+"px";cv.style.height=ah+"px";
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const pw=Math.max(1,Math.round(aw*dpr)),ph=Math.max(1,Math.round(ah*dpr));
+  if(cv.width!==pw||cv.height!==ph){cv.width=pw;cv.height=ph;}
+  return {cv:cv,g:cv.getContext("2d"),w:pw,h:ph,dpr:dpr};
+}
+/* metres to pixels for the section: the profile framed across the width, the
+   height exaggerated by V× and then held to the frame */
+function sectionFrame(w,h){
+  const E=ForgeRoad.extents(roadNodes());
+  const padX=Math.max(1,E.w*0.08),padY=Math.max(0.5,E.h*0.3);
+  const mx=Math.round(w*0.06),my=Math.round(h*0.08);
+  const sx=(w-2*mx)/(E.w+2*padX);
+  let sy=sx*Math.max(1,+ROAD.vx||3);
+  if((E.h+2*padY)*sy>h-2*my)sy=(h-2*my)/(E.h+2*padY);
+  const cx=(E.x0+E.x1)/2,cy=(E.y0+E.y1)/2;
+  return {sx:sx,sy:sy,E:E,cx:cx,cy:cy,
+          toPx:(x,y)=>[w/2+(x-cx)*sx,h/2-(y-cy)*sy],
+          toM:(px,py)=>[cx+(px-w/2)/sx,cy-(py-h/2)/sy]};
+}
+function sectionDraw(){
+  const sec=el("section");
+  if(!sec||!sec.classList.contains("on")||!wiz||!wiz.s.road||!window.ForgeRoad)return;
+  const F=sectionFit();if(!F)return;
+  const g=F.g,w=F.w,h=F.h,dpr=F.dpr;
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0,0,w,h);
+  g.fillStyle="#101214";g.fillRect(0,0,w,h);
+  if(ROAD.view==="plan"){planDraw(g,w,h,dpr);return;}
+  const fr=sectionFrame(w,h);roadFrame=fr;
+  const nodes=roadNodes();
+  const font=Math.round(10*dpr)+"px ui-monospace, SFMono-Regular, Menlo, monospace";
+
+  /* the grid, in metres: quarter lines faint, metre lines plain, the datum and
+     the centreline strong, and every metre labelled along both edges */
+  const [xm0]=fr.toM(0,0),[xm1]=fr.toM(w,0);
+  const [,ym1]=fr.toM(0,0),[,ym0]=fr.toM(0,h);
+  const gridLines=(step,col,lw)=>{
+    g.strokeStyle=col;g.lineWidth=lw;g.beginPath();
+    for(let x=Math.floor(xm0/step)*step;x<=xm1;x+=step){const p=fr.toPx(x,0)[0];g.moveTo(p,0);g.lineTo(p,h);}
+    for(let y=Math.floor(ym0/step)*step;y<=ym1;y+=step){const p=fr.toPx(0,y)[1];g.moveTo(0,p);g.lineTo(w,p);}
+    g.stroke();
+  };
+  if(fr.sx*0.25>6*dpr)gridLines(0.25,"rgba(255,255,255,0.045)",1);
+  gridLines(1,"rgba(255,255,255,0.11)",1);
+  g.strokeStyle="rgba(255,255,255,0.35)";g.lineWidth=1;g.setLineDash([4*dpr,4*dpr]);
+  g.beginPath();const c0=fr.toPx(0,0);g.moveTo(c0[0],0);g.lineTo(c0[0],h);g.stroke();
+  g.setLineDash([]);
+  g.beginPath();g.moveTo(0,c0[1]);g.lineTo(w,c0[1]);g.stroke();
+  g.fillStyle="rgba(255,255,255,0.45)";g.font=font;g.textAlign="center";g.textBaseline="bottom";
+  for(let x=Math.ceil(xm0);x<=xm1;x++){const p=fr.toPx(x,0)[0];g.fillText((x>0?"+":"")+x+" m",p,h-4*dpr);}
+  g.textAlign="left";g.textBaseline="middle";
+  const ystep=fr.sy>=60*dpr?0.25:(fr.sy>=25*dpr?0.5:1);
+  for(let y=Math.ceil(ym0/ystep)*ystep;y<=ym1;y+=ystep){
+    const p=fr.toPx(0,y)[1];
+    g.fillText((y>0?"+":"")+y.toFixed(2)+" m",6*dpr,p);
+  }
+
+  /* the solid: the profile down to the base, filled, so the thickness reads */
+  const prof=ForgeRoad.resample(nodes);
+  let yMin=Infinity;for(const p of prof.pts)if(p.y<yMin)yMin=p.y;
+  const baseY=yMin-Math.max(0.05,+ROAD.thick||0.35);
+  g.beginPath();
+  const first=fr.toPx(prof.pts[0].x,baseY);g.moveTo(first[0],first[1]);
+  for(const p of prof.pts){const q=fr.toPx(p.x,p.y);g.lineTo(q[0],q[1]);}
+  const last=fr.toPx(prof.pts[prof.pts.length-1].x,baseY);g.lineTo(last[0],last[1]);
+  g.closePath();
+  g.fillStyle="rgba(120,110,95,0.28)";g.fill();
+
+  /* every segment in its own kind's colour, the rounded ones as curves */
+  g.lineJoin="round";g.lineCap="round";
+  for(let i=0;i<prof.pts.length-1;i++){
+    const a=prof.pts[i],b=prof.pts[i+1];
+    const col=(ForgeRoad.KINDS[a.k]||ForgeRoad.KINDS.ground).colour;
+    g.strokeStyle=col;g.lineWidth=Math.max(3,4*dpr);
+    g.beginPath();const pa=fr.toPx(a.x,a.y),pb=fr.toPx(b.x,b.y);g.moveTo(pa[0],pa[1]);g.lineTo(pb[0],pb[1]);g.stroke();
+  }
+  /* the nodes: corners filled, rounded ones as rings, the selected one lit */
+  const accent=getComputedStyle(document.body).getPropertyValue("--accent")||"#8fa0ff";
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i],p=fr.toPx(n.x,n.y);
+    const r=(i===ROAD.sel?7:5)*dpr;
+    g.beginPath();g.arc(p[0],p[1],r,0,Math.PI*2);
+    if(n.s){g.fillStyle="#101214";g.fill();g.strokeStyle=i===ROAD.sel?accent:"#e8e6e1";g.lineWidth=2*dpr;g.stroke();}
+    else{g.fillStyle=i===ROAD.sel?accent:"#e8e6e1";g.fill();}
+    if(i===ROAD.sel){
+      g.fillStyle=accent;g.font=font;g.textAlign="left";g.textBaseline="bottom";
+      g.fillText(n.x.toFixed(2)+", "+n.y.toFixed(2)+" m",p[0]+10*dpr,p[1]-8*dpr);
+    }
+  }
+  /* the legend, and the scale of the picture */
+  g.font=font;g.textAlign="left";g.textBaseline="top";
+  let lx=10*dpr,ly=34*dpr;                    // under the stage's own tag
+  for(const k of ForgeRoad.KIND_ORDER){
+    g.fillStyle=ForgeRoad.KINDS[k].colour;g.fillRect(lx,ly+2*dpr,14*dpr,8*dpr);
+    g.fillStyle="rgba(255,255,255,0.7)";g.fillText(ForgeRoad.KINDS[k].label,lx+18*dpr,ly);
+    ly+=15*dpr;
+  }
+  g.fillStyle="rgba(255,255,255,0.45)";
+  g.fillText("vertical ×"+(fr.sy/fr.sx).toFixed(1)+" · "+fr.E.w.toFixed(1)+" m across · "+
+             (ROAD.mirror?"mirrored":"free")+" · drag a node · double-click to add or remove",lx,ly+4*dpr);
+}
+/* THE PLAN: the road from above, every slab in its kind's colour and every
+   gone one as nothing, so the crumble reads at a glance — over a long section
+   showing the surface sinking toward the broken end. */
+function planDraw(g,w,h,dpr){
+  const G=roadG||roadEnsure();
+  if(!G)return;
+  const font=Math.round(10*dpr)+"px ui-monospace, SFMono-Regular, Menlo, monospace";
+  const b=G.bounds;
+  const top=h*0.62;
+  const m=30*dpr;
+  const sc=Math.min((w-2*m)/Math.max(1,b.d),(top-2*m)/Math.max(1,b.w));
+  const ox=m+((w-2*m)-b.d*sc)/2,oz=m+((top-2*m)-b.w*sc)/2;
+  /* along the road runs left to right, across it runs down the picture */
+  const P=(x,z)=>[ox+(z-b.lo[2])*sc,oz+(x-b.lo[0])*sc];
+  g.strokeStyle="rgba(255,255,255,0.08)";g.lineWidth=1;g.beginPath();
+  for(let z=Math.ceil(b.lo[2]);z<=b.hi[2];z++){const p=P(0,z);g.moveTo(p[0],oz);g.lineTo(p[0],oz+b.w*sc);}
+  for(let x=Math.ceil(b.lo[0]);x<=b.hi[0];x++){const p=P(x,0);g.moveTo(ox,p[1]);g.lineTo(ox+b.d*sc,p[1]);}
+  g.stroke();
+  const pts=G.profile.pts,nP=G.nP-1,st=G.stations;
+  for(let i=0;i<G.nS;i++)for(let j=0;j<nP;j++){
+    if(!G.alive[i*nP+j])continue;
+    const S0=st[i],S1=st[i+1],a=pts[j],c=pts[j+1];
+    const q=[[S0.p[0]+S0.r[0]*a.x,S0.p[2]+S0.r[2]*a.x],[S0.p[0]+S0.r[0]*c.x,S0.p[2]+S0.r[2]*c.x],
+             [S1.p[0]+S1.r[0]*c.x,S1.p[2]+S1.r[2]*c.x],[S1.p[0]+S1.r[0]*a.x,S1.p[2]+S1.r[2]*a.x]];
+    g.fillStyle=(ForgeRoad.KINDS[a.k]||ForgeRoad.KINDS.ground).colour;
+    g.beginPath();
+    for(let k=0;k<4;k++){const p=P(q[k][0],q[k][1]);if(k)g.lineTo(p[0],p[1]);else g.moveTo(p[0],p[1]);}
+    g.closePath();g.fill();
+  }
+  g.fillStyle="rgba(255,255,255,0.5)";g.font=font;g.textAlign="left";g.textBaseline="top";
+  g.fillText("PLAN · "+G.L.toFixed(0)+" m along, "+b.w.toFixed(1)+" m across · "+G.census.gone+" of "+
+             (G.census.slabs+G.census.gone)+" slabs gone · start at the left",10*dpr,34*dpr);
+  /* the long section: crown height and the sink toward each end */
+  const y0=top+m,hh=h-top-2*m;
+  let hi=-Infinity,lo=Infinity;
+  for(const S of st){if(S.p[1]>hi)hi=S.p[1];if(S.base<lo)lo=S.base;}
+  const yMaxP=Math.max(...pts.map(p=>p.y));
+  hi+=yMaxP;
+  const span=Math.max(0.5,hi-lo);
+  const Y=y=>y0+hh-(y-lo)/span*hh;
+  g.strokeStyle="rgba(255,255,255,0.15)";g.beginPath();g.moveTo(ox,Y(0));g.lineTo(ox+b.d*sc,Y(0));g.stroke();
+  /* the alive fraction as a bar under the surface line */
+  for(let i=0;i<G.nS;i++){
+    const c=G.census.stations[i],S=st[i];
+    const x=ox+(S.p[2]-b.lo[2])*sc,x1=ox+(st[i+1].p[2]-b.lo[2])*sc;
+    const frac=c.of?c.alive/c.of:0;
+    g.fillStyle="rgba(120,110,95,"+(0.15+0.45*frac)+")";
+    g.fillRect(x,Y(S.base+(S.p[1]+yMaxP-S.base)*frac),Math.max(1,x1-x),Y(S.base)-Y(S.base+(S.p[1]+yMaxP-S.base)*frac));
+  }
+  g.strokeStyle="#e8e6e1";g.lineWidth=1.5*dpr;g.beginPath();
+  for(let i=0;i<=G.nS;i++){const S=st[i];const p=[ox+(S.p[2]-b.lo[2])*sc,Y(S.p[1]+yMaxP*(1-S.d))];if(i)g.lineTo(p[0],p[1]);else g.moveTo(p[0],p[1]);}
+  g.stroke();
+  g.strokeStyle="rgba(255,120,80,0.8)";g.setLineDash([3*dpr,3*dpr]);g.beginPath();
+  for(let i=0;i<=G.nS;i++){const S=st[i];const p=[ox+(S.p[2]-b.lo[2])*sc,y0+hh-S.d*hh];if(i)g.lineTo(p[0],p[1]);else g.moveTo(p[0],p[1]);}
+  g.stroke();g.setLineDash([]);
+  g.fillStyle="rgba(255,255,255,0.5)";
+  g.fillText("LONG SECTION · white: the surface · dashed: how far gone, 0 at the bottom to 1 at the top · "+
+             "base "+G.baseY.toFixed(2)+" m under the lowest point",10*dpr,top+4*dpr);
+}
+/* the hands on the section: drag a node, double-click a segment to add one,
+   double-click a node to remove it, Delete for the selected one */
+let sectionWired=false;
+function sectionWire(){
+  const cv=el("section");
+  if(!cv||sectionWired)return;
+  sectionWired=true;
+  const pos=e=>{const r=cv.getBoundingClientRect();const k=cv.width/Math.max(1,r.width);return [(e.clientX-r.left)*k,(e.clientY-r.top)*k];};
+  const hitNode=(px,py)=>{
+    const fr=roadFrame||sectionFrame(cv.width,cv.height),nodes=roadNodes();
+    const R=12*(cv.width/Math.max(1,cv.getBoundingClientRect().width));
+    let best=-1,bd=R*R;
+    for(let i=0;i<nodes.length;i++){
+      const p=fr.toPx(nodes[i].x,nodes[i].y),d=(p[0]-px)*(p[0]-px)+(p[1]-py)*(p[1]-py);
+      if(d<bd){bd=d;best=i;}
+    }
+    return best;
+  };
+  const hitSeg=(px,py)=>{
+    const fr=roadFrame||sectionFrame(cv.width,cv.height),nodes=roadNodes();
+    const R=14*(cv.width/Math.max(1,cv.getBoundingClientRect().width));
+    let best=-1,bd=R*R;
+    for(let i=0;i<nodes.length-1;i++){
+      const a=fr.toPx(nodes[i].x,nodes[i].y),b=fr.toPx(nodes[i+1].x,nodes[i+1].y);
+      const dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy||1;
+      const t=clamp(((px-a[0])*dx+(py-a[1])*dy)/l2,0,1);
+      const qx=a[0]+dx*t-px,qy=a[1]+dy*t-py,d=qx*qx+qy*qy;
+      if(d<bd){bd=d;best=i;}
+    }
+    return best;
+  };
+  cv.addEventListener("pointerdown",e=>{
+    if(ROAD.view!=="section"||!wiz||!wiz.s.road)return;
+    const [px,py]=pos(e);
+    const i=hitNode(px,py);
+    ROAD.sel=i;
+    if(i>=0){roadDrag={i:i,id:e.pointerId,moved:false};try{cv.setPointerCapture(e.pointerId);}catch(x){}}
+    roadBarSync();sectionDraw();
+  });
+  cv.addEventListener("pointermove",e=>{
+    if(!roadDrag||roadDrag.id!==e.pointerId)return;
+    const fr=roadFrame||sectionFrame(cv.width,cv.height),nodes=roadNodes();
+    const [px,py]=pos(e);
+    let [x,y]=fr.toM(px,py);
+    if(ROAD.snap){x=Math.round(x*20)/20;y=Math.round(y*20)/20;}
+    const n=nodes[roadDrag.i];
+    if(!n)return;
+    if(n.x===x&&n.y===y)return;
+    n.x=x;n.y=y;roadDrag.moved=true;
+    if(ROAD.mirror){roadMirrorFrom(roadDrag.i);roadDrag.i=ROAD.sel;}
+    roadBarSync();sectionDraw();
+  });
+  const done=e=>{
+    if(!roadDrag||roadDrag.id!==e.pointerId)return;
+    const moved=roadDrag.moved;
+    roadDrag=null;
+    if(moved)roadRegrid();
+  };
+  cv.addEventListener("pointerup",done);
+  cv.addEventListener("pointercancel",done);
+  cv.addEventListener("dblclick",e=>{
+    if(ROAD.view!=="section"||!wiz||!wiz.s.road)return;
+    const [px,py]=pos(e),nodes=roadNodes();
+    const i=hitNode(px,py);
+    if(i>=0){
+      if(nodes.length<=3)return;
+      nodes.splice(i,1);
+      ROAD.sel=-1;
+      if(ROAD.mirror)roadMirrorFrom(Math.min(i,nodes.length-1));
+      ROAD.sel=-1;
+      roadRegrid();
+      return;
+    }
+    const k=hitSeg(px,py);
+    if(k<0)return;
+    const fr=roadFrame||sectionFrame(cv.width,cv.height);
+    let [x,y]=fr.toM(px,py);
+    if(ROAD.snap){x=Math.round(x*20)/20;y=Math.round(y*20)/20;}
+    nodes.splice(k+1,0,ForgeRoad.node(x,y,nodes[k].k,false));
+    ROAD.sel=k+1;
+    if(ROAD.mirror)roadMirrorFrom(ROAD.sel);
+    roadRegrid();
+  });
+  document.addEventListener("keydown",e=>{
+    if(e.key!=="Delete"&&e.key!=="Backspace")return;
+    const sec=el("section");
+    if(!sec||!sec.classList.contains("on")||ROAD.view!=="section")return;
+    const t=e.target;
+    if(t&&(t.tagName==="INPUT"||t.tagName==="SELECT"||t.tagName==="TEXTAREA"))return;
+    const nodes=roadNodes(),i=ROAD.sel;
+    if(i<0||nodes.length<=3)return;
+    e.preventDefault();
+    nodes.splice(i,1);ROAD.sel=-1;
+    if(ROAD.mirror)roadMirrorFrom(Math.min(i,nodes.length-1));
+    ROAD.sel=-1;
+    roadRegrid();
+  });
+}
+
 function stageScene(){
   if(!wiz||!stageOK||!window.ForgeModel)return;
   const by=stagePlans();
   const steps=wizSteps();
+
+  if(wiz.s.road&&window.ForgeRoad){
+    const sig=JSON.stringify([ROAD,steps.map(x=>by[x.id]&&by[x.id].plan)]);
+    if(sig===stageSig)return;
+    stageSig=sig;
+    try{
+      const first=!roadHad;
+      roadEnsure();
+      roadHad=true;
+      roadDraw();
+      /* a road is looked along and down: three-quarters from the start, high
+         enough that the profile reads, low enough that the length does */
+      if(first&&ForgeStage.look)ForgeStage.look(-0.85,0.42);
+    }catch(e){console.warn("ForgeStage: "+(e&&e.message||e));}
+    return;
+  }
 
   if(wiz.s.town&&window.ForgeTown){
     const sig=JSON.stringify([TOWN,steps.map(x=>by[x.id]&&by[x.id].plan)]);
@@ -1785,7 +2448,7 @@ function townBarSync(){
 function stageSync(){
   if(!wiz||!stageOK)return;
   stageScene();
-  townBarSync();
+  townBarSync();roadBarSync();
   stageAccent();
   const step=wizSteps()[wiz.i];
   ForgeStage.mark(step?step.id:null);
@@ -1802,6 +2465,11 @@ function stageLabel(){
   for(const x of steps)if(wiz.made[x.id])n++;
   const made=n+" of "+steps.length+" textures forged"+
              (n<steps.length?" · the rest is massing":"");
+  if(wiz.s.road&&roadG){
+    const c=roadG.census,E=ForgeRoad.extents(roadNodes());
+    return wiz.s.label+" · "+E.w.toFixed(1)+" m wide, "+roadG.L.toFixed(0)+" m long · "+
+           c.slabs+" slabs"+(c.gone?", "+c.gone+" gone":"")+(c.debris?", "+c.debris+" rubble":"")+" · "+made;
+  }
   if(wiz.s.town&&townL){
     const c=ForgeTown.census(townL);
     const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+ForgeModel.plural(k,c.by[k])).join(" · ");
@@ -1921,6 +2589,7 @@ function wizStart(id){
   for(const st of s.steps)if(!STATE[st.mode]){setStatus("The "+st.mode+" mode is not loaded");return;}
   wiz={s:s,i:0,snap:{},vals:{},reached:0,made:{}};
   townL=null;
+  roadG=null;roadHad=false;ROAD.sel=-1;
   stageSig="";
   /* the building is what a wizard is FOR, so it opens on it */
   if(stageOK){ForgeStage.reset();view=BUILD_VIEW;}
@@ -1932,6 +2601,7 @@ function wizExit(){
   for(const st of steps)wizMark(st.mode,{});
   wiz=null;
   townL=null;townEdits={};townSel=-1;
+  roadG=null;roadHad=false;ROAD.sel=-1;ROAD.view="3d";
   stageSig="";
   if(stageOK)ForgeStage.reset();
   if(view===BUILD_VIEW)view="lit";     // buildViewTabs corrects this where there is no WebGL
@@ -2049,7 +2719,21 @@ async function wizBuildAll(){
        just forged at full size goes onto the layout the 3D view is showing —
        the same layout, edits and all, so what leaves is what you were looking
        at rather than a fresh roll of the dice. */
-    if(window.ForgeModel&&wiz.s.town&&window.ForgeTown){
+    /* THE ROAD, not three planes: the kit just forged at full size goes onto
+       the profile and the numbers the 3D view is showing, with the scale grid
+       under it as a PNG of its own. */
+    if(window.ForgeModel&&wiz.s.road&&window.ForgeRoad){
+      const kit=roadKit(faceBy);
+      const G=ForgeRoad.build(roadParams(),roadTiles(kit));
+      if(ROAD.grid){
+        const gc=gridCanvas(512);
+        const gb=await new Promise((res,rej)=>gc.toBlob(b=>b?res(b):rej(new Error("grid PNG failed")),"image/png"));
+        files.push({name:"grid.png",data:new Uint8Array(await gb.arrayBuffer())});
+      }
+      const model=ForgeModel.filesForRoad(wiz.s.id+"_"+(ROAD.seed|0),G,kit,planList,
+        {grid:ROAD.grid?{file:"grid.png"}:null,notes:roadNotes(G)});
+      for(const f of model)files.push(f);
+    }else if(window.ForgeModel&&wiz.s.town&&window.ForgeTown){
       const L=townLayout(faceBy);
       if(L){
         const model=ForgeModel.filesForTown(wiz.s.id+"_"+(TOWN.seed|0),L,L.kit,planList);
@@ -2068,7 +2752,7 @@ async function wizBuildAll(){
     }
     files.push({name:"readme.txt",data:new TextEncoder().encode(wizReadme())});
     const zip=makeZip(files),
-          name=wiz.s.id+"_"+((wiz.s.town?TOWN.seed:wiz.vals.seed)|0)+"_all.zip";
+          name=wiz.s.id+"_"+((wiz.s.town?TOWN.seed:wiz.s.road?ROAD.seed:wiz.vals.seed)|0)+"_all.zip";
     /* back to the step we were on FIRST, and let it finish rebuilding: both
        activate() and the end of a build clear the save link as stale, so a link
        put up before that lands is taken straight back down again */
@@ -2129,6 +2813,22 @@ function wizReadme(){
     wiz.s.blurb||"","",
     "One folder per face, each with its own maps and its own readme:",""];
   for(const st of steps)out.push("  "+st.id+"/   "+st.label+"  ("+st.mode+" mode)");
+  if(wiz.s.road&&window.ForgeRoad){
+    const G=roadG||roadEnsure();
+    out.push("","THIS IS A ROAD, so these three are a KIT rather than one building's faces:",
+      "the surface goes across every run of carriageway in the profile, the kerb is",
+      "one precast unit laid end to end, and the verge is the ground — worn darker",
+      "for the base and the walls. model.gltf is the road itself, at true scale.","");
+    if(G)for(const n of roadNotes(G))out.push(n);
+    out.push("","The profile, as drawn (x across in metres, y up, then what the segment to the",
+      "right of that node is made of):");
+    for(const n of roadNodes())out.push("  "+n.x.toFixed(2).padStart(7)+"  "+n.y.toFixed(3).padStart(7)+"  "+n.k+(n.s?"  rounded":""));
+    out.push("",
+      "model.gltf, model.obj and model.mtl are the road, its walls and base, the rubble",
+      "and the scale grid. Import the glTF into Blender and the materials arrive wired;",
+      "model_readme.txt has the dimensions and the caveats.");
+    return out.join("\n");
+  }
   if(wiz.s.town&&townL&&window.ForgeTown){
     const c=ForgeTown.census(townL);
     const kinds=Object.keys(c.by).sort().map(k=>c.by[k]+" "+ForgeModel.plural(k,c.by[k])).join(", ");
@@ -2817,6 +3517,9 @@ function boot(){
          because one of them was clicked would be answering a question nobody
          asked; the step rail is right there for that. A click on the road,
          which carries no lot, clears the selection. */
+      /* a road has no lots and no faces to jump to: the section is where it
+         is edited, and a click on the stage is an orbit that stopped short */
+      if(wiz.s.road)return;
       if(wiz.s.town&&townL){
         const want=(typeof tag==="number"&&tag>=0)?tag:-1;
         if(want!==townSel){
@@ -2839,6 +3542,7 @@ function boot(){
       const tag=el("stagetag");
       if(!tag||!wiz)return;
       const steps=wizSteps();
+      if(wiz.s.road){tag.textContent=stageLabel();return;}
       if(wiz.s.town&&townL){
         const lot=(typeof lotTag==="number"&&lotTag>=0)?townLotAt(lotTag):null;
         tag.textContent=lot
@@ -2914,6 +3618,9 @@ Forge.makeMap=(key,maxW)=>makeMap(active,key,maxW);
 Forge.active=()=>active;
 Forge.activate=activate;
 Forge.state=id=>STATE[id];
+/* the road, for the feature test: the numbers, the last build, and the hands */
+Forge.road=()=>({R:ROAD,G:roadG,ensure:roadEnsure,regrid:roadRegrid,
+                 mirrorFrom:roadMirrorFrom,nodes:roadNodes,frame:()=>roadFrame});
 
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);
 else boot();

@@ -1344,8 +1344,9 @@ if (want("stage")) {
     const M = window.ForgeModel, out = [];
     for (const s of window.Forge.structures) {
       /* a town is not one building and has no front face to hand this; its own
-         section checks the winding of a whole town instead */
-      if (s.town) continue;
+         section checks the winding of a whole town instead — and a road is a
+         profile, not a box, checked by its own section too */
+      if (s.town || s.road) continue;
       const by = {};
       for (const step of s.steps) {
         const st = window.Forge.state(step.mode);
@@ -1379,7 +1380,7 @@ if (want("stage")) {
      checked by its own section, which asks the questions a town raises
      instead. */
   for (const s of await page.evaluate(() => window.Forge.structures
-        .filter(x => !x.town).map(x => ({ id: x.id, n: x.steps.length })))) {
+        .filter(x => !x.town && !x.road).map(x => ({ id: x.id, n: x.steps.length })))) {
     console.log(`  · ${s.id}`);
     await page.evaluate(n => {
       for (const st of window.Forge.structures.find(x => x.id === n).steps)
@@ -2213,6 +2214,234 @@ if (want("town")) {
        geo.selMeshes > 0 && geo.selTags.length === 1 && geo.selTags[0] === geo.want,
        `${geo.selTris} triangles in ${geo.selMeshes} meshes, all tagged ${geo.selTags.join(",")}`);
   }
+}
+
+/* ============================ the road ============================
+   A road is a PROFILE swept along a PATH, and the claims are about both: that
+   the sweep is sound geometry — wound to its normals, closed down every open
+   edge, under a 16-bit index — and that the decay does what it says: nothing
+   in the middle, everything at the very end, edges before crown, and never a
+   hole in the side of what is left. Then the DESIGNER, driven the way a
+   person drives it: a node dragged with the mouse has to move in metres, a
+   double-click on a segment has to add one, and the mirror has to keep the
+   other side honest. And the archive, read back out of its own blob.
+   ========================================================================== */
+if (want("road")) {
+  console.log("\n— the road —");
+
+  /* ---- the engine on its own ---- */
+  const eng = await page.evaluate(() => {
+    const R = window.ForgeRoad;
+    if (!R) return { missing: true };
+    const wound = G => {
+      let bad = 0, tris = 0, biggest = 0;
+      for (const k in G.parts) for (const m of G.parts[k]) {
+        if (m.pos.length / 3 > biggest) biggest = m.pos.length / 3;
+        for (let i = 0; i < m.idx.length; i += 3) {
+          const a = m.idx[i] * 3, b = m.idx[i + 1] * 3, c = m.idx[i + 2] * 3;
+          const u = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+          const v = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+          const sn = [0, 1, 2].map(q => m.nrm[a + q] + m.nrm[b + q] + m.nrm[c + q]);
+          tris++;
+          if (!(n[0] * sn[0] + n[1] * sn[1] + n[2] * sn[2] > 0)) bad++;
+        }
+      }
+      return { bad, tris, biggest };
+    };
+    /* every open edge of the top skin, less the zero-length ones on the ends
+       of a vertical kerb face, which are not edges */
+    const edges = G => {
+      let e = 0; const nP = G.nP - 1, P = G.profile.pts;
+      const al = (i, j) => (i >= 0 && i < G.nS && j >= 0 && j < nP) ? G.alive[i * nP + j] : 0;
+      for (let i = 0; i < G.nS; i++) for (let j = 0; j < nP; j++) if (al(i, j)) {
+        const flat = Math.abs(P[j + 1].x - P[j].x) > 1e-9;
+        if (!al(i - 1, j) && flat) e++; if (!al(i + 1, j) && flat) e++;
+        if (!al(i, j - 1)) e++; if (!al(i, j + 1)) e++;
+      }
+      return e;
+    };
+    const base = { length: 60, res: 0.5, seed: 7, nodes: R.preset("two_lane") };
+    const sound = R.build(base), ws = wound(sound);
+    const dec = R.build(Object.assign({}, base, { decayB: 20 })), wd = wound(dec);
+    const st = dec.census.stations;
+    const both = R.build(Object.assign({}, base, { decayA: 15, decayB: 15 })).census.stations;
+    /* EDGES BEFORE CROWN: in the half-gone zone the outermost slabs should be
+       gone more often than the middle ones */
+    let edgeGone = 0, edgeN = 0, midGone = 0, midN = 0;
+    const nP = dec.nP - 1, pts = dec.profile.pts, half = Math.max(...pts.map(p => Math.abs(p.x)));
+    for (let i = 0; i < dec.nS; i++) {
+      const t = Math.max(dec.stations[i].d, dec.stations[i + 1].d);
+      if (t < 0.25 || t > 0.75) continue;
+      for (let j = 0; j < nP; j++) {
+        const xc = Math.abs(pts[j].x + pts[j + 1].x) / 2;
+        const g = dec.alive[i * nP + j] ? 0 : 1;
+        if (xc > half * 0.7) { edgeGone += g; edgeN++; } else if (xc < half * 0.3) { midGone += g; midN++; }
+      }
+    }
+    const bent = R.build(Object.assign({}, base, { bend: 90, rise: 3 }));
+    const end = bent.path.at(60);
+    const presets = R.PRESETS.map(p => {
+      const G = R.build(Object.assign({}, base, { nodes: R.preset(p.id), decayA: 6, decayB: 12 }));
+      const w = wound(G);
+      return { id: p.id, ok: w.bad === 0 && G.census.slabs > 0 && G.census.walls === edges(G), slabs: G.census.slabs,
+               width: R.extents(R.preset(p.id)).w };
+    });
+    let vmin = 1, vmax = 0;
+    for (const m of sound.parts.road) for (let i = 1; i < m.uv.length; i += 2) { vmin = Math.min(vmin, m.uv[i]); vmax = Math.max(vmax, m.uv[i]); }
+    return { ws, wd, sound: sound.census, dec: dec.census, edgesSound: edges(sound), edgesDec: edges(dec),
+             first: st[0], last: st[st.length - 1], mid: st[Math.floor(st.length / 2)],
+             soundRun: st.filter(s => s.s < 40).every(s => s.alive === s.of),
+             both: [both[0].alive, both[Math.floor(both.length / 2)].alive, both[both.length - 1].alive, both[0].of],
+             edgeShare: edgeN ? edgeGone / edgeN : 0, midShare: midN ? midGone / midN : 0,
+             endT: end.t, endY: end.p[1], presets, vmin, vmax };
+  });
+  ok("the road engine is loaded", !eng.missing);
+  if (!eng.missing) {
+    ok("a profile sweeps into a road", eng.sound.slabs > 1000 && eng.sound.gone === 0,
+       `${eng.sound.slabs} slabs, ${eng.sound.walls} walls, ${eng.sound.base} of base`);
+    ok("every triangle is wound to its own normal", eng.ws.bad === 0 && eng.wd.bad === 0,
+       `${eng.ws.bad} of ${eng.ws.tris} backwards sound, ${eng.wd.bad} of ${eng.wd.tris} crumbled`);
+    ok("and no mesh can outgrow a 16-bit index", eng.ws.biggest < 65536 && eng.wd.biggest < 65536,
+       `${Math.max(eng.ws.biggest, eng.wd.biggest)} vertices in the biggest`);
+    /* THE ROAD IS SOLID: every edge of the top skin with nothing beside it —
+       the ends, the outside of the verge, and every ragged edge the decay
+       opens — has a wall down to the base, counted edge for edge */
+    ok("a sound road is walled only round its outside", eng.sound.walls === eng.edgesSound,
+       `${eng.sound.walls} walls for ${eng.edgesSound} open edges`);
+    ok("it crumbles to nothing at the end", eng.first.alive === eng.first.of && eng.last.alive === 0 && eng.soundRun,
+       `full for the first 40 m, ${eng.last.alive} of ${eng.last.of} slabs left at the end · ` +
+       `${eng.dec.gone} gone, ${eng.dec.debris} lumps of rubble`);
+    ok("and every ragged edge it opens is walled", eng.dec.walls === eng.edgesDec,
+       `${eng.dec.walls} walls for ${eng.edgesDec} open edges`);
+    ok("edges go before the crown", eng.edgeShare > eng.midShare + 0.15,
+       `in the half-gone zone ${(eng.edgeShare * 100).toFixed(0)}% of edge slabs are gone against ` +
+       `${(eng.midShare * 100).toFixed(0)}% in the middle`);
+    ok("or at both ends", eng.both[0] === 0 && eng.both[2] === 0 && eng.both[1] === eng.both[3],
+       `${eng.both[0]} / ${eng.both[1]} / ${eng.both[2]} of ${eng.both[3]} at start, middle and end`);
+    ok("a bend turns the road and a rise lifts it",
+       Math.abs(eng.endT[0] + 1) < 1e-6 && Math.abs(eng.endY - 3) < 1e-9,
+       `end tangent (${eng.endT.map(v => v.toFixed(2))}) after 90°, ${eng.endY} m up`);
+    ok("every preset profile sweeps clean", eng.presets.every(p => p.ok),
+       eng.presets.map(p => `${p.id} ${p.width.toFixed(1)} m`).join(", "));
+    ok("the surface texture spans the carriageway", Math.abs(eng.vmin) < 1e-6 && Math.abs(eng.vmax - 1) < 1e-6,
+       `v runs ${eng.vmin} to ${eng.vmax} across every run of road`);
+  }
+
+  /* ---- the designer, driven by hand ---- */
+  await page.evaluate(() => {
+    for (const st of window.Forge.structures.find(x => x.id === "road").steps)
+      window.Forge.setParam(st.mode, "size", 256);
+  });
+  await page.click('[data-struct="road"]');
+  await settle();
+  await page.waitForTimeout(400);
+  ok("the road opens on its 3D view with its own bar",
+     await page.evaluate(() => !document.getElementById("roadbar").hidden &&
+                                document.getElementById("solid").classList.contains("on") &&
+                                !!window.Forge.road().G));
+  const stage = await page.evaluate(() => window.ForgeStage.debug());
+  ok("and the stage holds the road, its ground and the scale grid",
+     stage.meshes.some(m => m.name === "road") && stage.meshes.some(m => m.name.startsWith("ground")) &&
+     stage.meshes.some(m => m.name === "grid") && stage.faces.includes("grid"),
+     stage.meshes.map(m => m.name + " " + m.tris).join(", "));
+
+  await page.click('[data-roadview="section"]');
+  await page.waitForTimeout(300);
+  const secOn = await page.evaluate(() => ({
+    on: document.getElementById("section").classList.contains("on"),
+    solid: document.getElementById("solid").classList.contains("on") }));
+  ok("the section takes the stage's place", secOn.on && !secOn.solid);
+  /* a node, dragged with the mouse, moves in METRES — through the frame the
+     designer itself uses, so the claim is about the hands and not the maths */
+  const drag = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), nodes = r.nodes();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect();
+    const k = b.width / cv.width;
+    let i = -1;   // a right-side node clear of the centre and its neighbours: the kerb top
+    for (let n = 0; n < nodes.length; n++) if (nodes[n].x > 3 && nodes[n].x < 4 && nodes[n].y > 0.1) { i = n; break; }
+    const p = fr.toPx(nodes[i].x, nodes[i].y);
+    const q = fr.toPx(nodes[i].x + 0.5, nodes[i].y + 0.10);
+    return { i, was: { x: nodes[i].x, y: nodes[i].y }, from: [b.left + p[0] * k, b.top + p[1] * k],
+             to: [b.left + q[0] * k, b.top + q[1] * k], n: nodes.length };
+  });
+  await page.mouse.move(drag.from[0], drag.from[1]);
+  await page.mouse.down();
+  await page.mouse.move(drag.to[0], drag.to[1], { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(i => {
+    const nodes = window.Forge.road().nodes(), n = nodes.length;
+    return { x: nodes[i].x, y: nodes[i].y, mx: nodes[n - 1 - i].x, my: nodes[n - 1 - i].y, sel: window.Forge.road().R.sel, n };
+  }, drag.i);
+  ok("a node dragged with the mouse moves in metres",
+     Math.abs(after.x - (drag.was.x + 0.5)) < 0.06 && Math.abs(after.y - (drag.was.y + 0.10)) < 0.03,
+     `node ${drag.i} from ${drag.was.x.toFixed(2)}, ${drag.was.y.toFixed(2)} to ${after.x.toFixed(2)}, ${after.y.toFixed(2)} m — asked for +0.50, +0.10`);
+  ok("and the mirror moves its twin", Math.abs(after.mx + after.x) < 1e-6 && Math.abs(after.my - after.y) < 1e-6 && after.n === drag.n,
+     `twin at ${after.mx.toFixed(2)}, ${after.my.toFixed(2)}`);
+  /* a double-click on a segment adds a node, on both sides */
+  const add = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), nodes = r.nodes();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    /* the middle of the right-hand carriageway segment, where nothing else is */
+    let i = -1; for (let n = 0; n < nodes.length - 1; n++) if (nodes[n].k === "road" && nodes[n].x >= 0 && nodes[n + 1].x > 1) { i = n; break; }
+    const p = fr.toPx((nodes[i].x + nodes[i + 1].x) / 2, (nodes[i].y + nodes[i + 1].y) / 2);
+    return { n: nodes.length, at: [b.left + p[0] * k, b.top + p[1] * k] };
+  });
+  await page.mouse.dblclick(add.at[0], add.at[1]);
+  await page.waitForTimeout(300);
+  const added = await page.evaluate(() => window.Forge.road().nodes().length);
+  ok("a double-click on a segment adds a node to both sides", added === add.n + 2, `${add.n} nodes became ${added}`);
+  ok("and the road on the stage followed the edit",
+     await page.evaluate(() => { const r = window.Forge.road(); return !!r.G && r.G.nP > 0; }));
+
+  await page.click('[data-roadview="plan"]');
+  await page.waitForTimeout(300);
+  const plan = await page.evaluate(() => {
+    const cv = document.getElementById("section"), g = cv.getContext("2d");
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0; for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 120) lit++;
+    return { lit, of: d.length / 16 };
+  });
+  ok("the plan view draws the road", plan.lit > plan.of * 0.05, `${(plan.lit / plan.of * 100).toFixed(0)}% of the canvas lit`);
+  await page.click('[data-roadview="3d"]');
+
+  /* ---- the archive, read back ---- */
+  const before = errors.length;
+  await page.click("#wiz-all");
+  for (let i = 0; i < 600; i++) {
+    const t = await page.$eval("#status", n => n.textContent);
+    if (/packed|Could not/.test(t)) break;
+    await page.waitForTimeout(250);
+  }
+  const zip = await page.evaluate(async () => {
+    const a = document.getElementById("zipsave");
+    if (a.hidden) return { names: [] };
+    const buf = new Uint8Array(await (await fetch(a.href)).arrayBuffer());
+    const dv = new DataView(buf.buffer), names = [], sizes = {};
+    for (let i = 0; i + 30 < buf.length; i++) {
+      if (dv.getUint32(i, true) !== 0x04034b50) continue;
+      const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true), size = dv.getUint32(i + 18, true);
+      const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+      names.push(name); sizes[name] = size;
+      if (name === "model.gltf") sizes.gltfText = new TextDecoder().decode(buf.subarray(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size));
+      i += 30 + nLen + xLen + size - 1;
+    }
+    return { names, sizes, name: a.getAttribute("download") };
+  });
+  const gl = zip.sizes && zip.sizes.gltfText ? JSON.parse(zip.sizes.gltfText) : null;
+  ok("the road packs into one archive with the grid",
+     zip.names.includes("model.gltf") && zip.names.includes("grid.png") && zip.names.some(n => n.startsWith("surface/")),
+     `${zip.names.length} entries · ${zip.name}`);
+  ok("and the glTF is the road, its ground and the grid, at true scale",
+     !!gl && gl.meshes.some(m => m.name === "road") && gl.meshes.some(m => m.name.startsWith("ground")) &&
+     gl.meshes.some(m => m.name === "grid") && gl.materials.some(m => m.name === "grid") &&
+     gl.images.some(im => im.uri === "grid.png") &&
+     (() => { const p = gl.accessors[gl.meshes.find(m => m.name === "road").primitives[0].attributes.POSITION]; return p.max[2] - p.min[2] > 50; })(),
+     gl ? `${gl.meshes.length} meshes, ${gl.materials.length} materials, ${gl.images.length} images` : "no glTF");
+  ok("no errors while packing the road", errors.length === before, errors.slice(before).join(" | "));
+  await page.click("#wiz-exit");
+  await page.waitForTimeout(200);
 }
 
 /* ============================ the hull's windows ============================

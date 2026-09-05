@@ -745,6 +745,70 @@ function readme(S,plans){
   return out.join("\n");
 }
 
+/* ---------------------------------------------------------------------------
+   A ROAD
+
+   The engine in modes/lib/road.js has already made the triangles — parts by
+   kind, each rolled over before a 16-bit index runs out. What this adds is the
+   MATERIAL each kind wears: the surface, the kerb and the verge are the three
+   forged textures, and bare ground is the verge's texture worn darker, one
+   image in two materials the way a town's paint works. And the scale grid,
+   which is a plane under the whole thing carrying a five-metre tile with the
+   metres and quarter-metres drawn on it, so what arrives in Blender can be
+   read against something.
+   --------------------------------------------------------------------------- */
+function roadScene(name,G,kit,opts){
+  const S=scene(name);
+  const K=(window.ForgeRoad&&ForgeRoad.KINDS)||{};
+  const order=(window.ForgeRoad&&ForgeRoad.KIND_ORDER)||Object.keys(G.parts);
+  const matIdx={};
+  const use=kind=>{
+    const kd=K[kind]||{tex:"verge"};
+    const f=kit&&kit[kd.tex];
+    const t=kd.tint||[1,1,1];
+    const flat=(t[0]===1&&t[1]===1&&t[2]===1);
+    const base=(f&&f.material)?f.material.name:kd.tex;
+    const n=base+(flat?"":"#"+t.join("_"));
+    if(matIdx[n]!==undefined)return matIdx[n];
+    const m={name:n,face:(f&&f.material)?(f.material.face||f.material.name):kd.tex,
+             maps:(f&&f.material)?f.material.maps:{},cutout:false};
+    if(!flat)m.tint=t;
+    S.materials.push(m);
+    return (matIdx[n]=S.materials.length-1);
+  };
+  /* THE EXPORT KEEPS THE SURFACE AT ZERO, because that is where a road asset
+     wants its origin — at grade, so sections butt together. The stage has a
+     ground plane at zero that swallows everything under it, which is the base,
+     the walls and every sunk slab of a broken end, so the preview asks for a
+     lift that stands the lowest point just above that ground. */
+  const lift=(opts&&opts.lift)||0;
+  const lifted=pos=>{if(!lift)return pos;const out=pos.slice();for(let i=1;i<out.length;i+=3)out[i]+=lift;return out;};
+  for(const kind of order){
+    const list=G.parts[kind];
+    if(!list||!list.length)continue;
+    const mi=use(kind);
+    for(const pm of list)S.meshes.push({name:pm.name,mat:mi,pos:lifted(pm.pos),nrm:pm.nrm,uv:pm.uv,idx:pm.idx});
+  }
+  /* THE SCALE GRID. One repeat of the texture is five metres, and the texture
+     draws the metre lines and the quarter-metre lines inside that, so the UVs
+     are simply world metres over five. It sits a hair under the lowest thing
+     in the model — the base of an embankment, the floor of a cutting's drain —
+     and reaches a few metres past the road on every side. */
+  if(opts&&opts.grid){
+    const gi=S.materials.push({name:"grid",face:"grid",
+      maps:{basecolor:opts.grid.file||"grid.png"},cutout:false})-1;
+    const m=mesh("grid",gi);
+    const b=G.bounds,pad=Math.max(3,Math.min(12,b.w*0.35));
+    const x0=b.lo[0]-pad,x1=b.hi[0]+pad,z0=b.lo[2]-pad,z1=b.hi[2]+pad,y=b.lo[1]-0.02+lift;
+    const GM=5;
+    quad(m,[x0,y,z1],[x1,y,z1],[x1,y,z0],[x0,y,z0],[0,1,0],
+         [[x0/GM,z1/GM],[x1/GM,z1/GM],[x1/GM,z0/GM],[x0/GM,z0/GM]]);
+    S.meshes.push(m);
+  }
+  if(opts&&opts.notes)for(const n of opts.notes)S.notes.push(n);
+  return S;
+}
+
 /* ============================ what the app calls ============================ */
 
 window.ForgeModel={
@@ -771,6 +835,12 @@ window.ForgeModel={
   },
 
   townScene:townScene,
+  roadScene:roadScene,
+  /* Files for a road: the swept profile, its walls and base, the rubble, and
+     the scale grid under it. */
+  filesForRoad:function(name,G,kit,plans,opts){
+    return pack(roadScene(name,G,kit,opts),plans);
+  },
 
   /* Files for a whole town: every building the layout placed, standing on the
      streets that placed them. */

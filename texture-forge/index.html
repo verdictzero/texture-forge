@@ -252,6 +252,14 @@ body[data-panel=off] .grip{display:none}
    it is a room the building stands in, not a picture of a wall */
 #solid{max-width:none;max-height:none;box-shadow:none;background:#0d0e10;cursor:grab}
 #solid.on{display:block}
+#section{max-width:none;max-height:none;box-shadow:none;background:#101214;cursor:crosshair}
+#section.on{display:block}
+.roadbar select{font-family:var(--mono);font-size:10px;background:#15171a;color:#d7dbe0;
+  border:1px solid #2e3237;border-radius:3px;padding:2px 4px;max-width:150px}
+.roadbar .seg{display:inline-flex;border:1px solid #2e3237;border-radius:4px;overflow:hidden}
+.roadbar .seg .tab{border:0;border-radius:0}
+.roadbar .gap{width:6px;flex:0 0 auto;border-left:1px solid #2e3237;height:18px}
+.roadbar label input[type=number].xy{width:58px}
 .stagetag{position:absolute;left:18px;top:12px;font-family:var(--mono);font-size:10px;
   letter-spacing:.06em;text-transform:uppercase;color:var(--accent);pointer-events:none;
   background:rgba(12,13,15,.72);padding:4px 8px;border:1px solid var(--rule);border-radius:2px}
@@ -545,12 +553,21 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
            it needs is the same eight controls whatever is loaded. -->
       <div class="palbar townbar" id="townbar" hidden></div>
 
+      <!-- THE ROAD'S OWN BAR, and its drawing board. A cross-section is not a
+           texture either: its nodes live on a canvas you drag them about on,
+           and its length, bend and decay live next to the picture they move.
+           The section canvas takes the stage's place in the 2D views. -->
+      <div class="palbar townbar roadbar" id="roadbar" hidden></div>
+
       <div class="stage" id="stage">
         <canvas id="gl" class="on" width="900" height="900"></canvas>
         <canvas id="flat" width="900" height="900"></canvas>
         <!-- the wizard's 3D building. Off in every other view, and never
              offered at all where there is no WebGL. -->
         <canvas id="solid" width="900" height="900"></canvas>
+        <!-- the road's 2D designer and plan: drawn in script, on top of the
+             3D view's place, only while a road structure asks for it -->
+        <canvas id="section" width="900" height="900"></canvas>
         <div class="hint" id="hint">Drag the preview to move the light</div>
         <div class="stagetag" id="stagetag" hidden></div>
         <div class="tiletag" id="tiletag"></div>
@@ -619,6 +636,7 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <script src="modes/vent.js"></script>
 <script src="modes/panel.js"></script>
 <script src="modes/lib/town.js"></script>
+<script src="modes/lib/road.js"></script>
 <script src="modes/lib/loom.js"></script>
 <script src="modes/conduit.js"></script>
 <script src="modes/raceway.js"></script>
