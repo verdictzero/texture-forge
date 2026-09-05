@@ -2398,7 +2398,29 @@ if (want("road")) {
     const J = Gc.junctions[0];
     const trims = J.trim;
     const even = Math.max(...trims) - Math.min(...trims) < 1e-6;
-    return { presets, freeOnly, ends, say, trims, even, loop: J.loop };
+    /* THE INFILL: the grid encloses four blocks and a crossroads encloses
+       none, so the flood has to find exactly that; every slab in a block is
+       sound and clear of the road; the apron's survivors thin out with
+       distance and its walls close every open edge */
+    const Gi = R.buildNet(Object.assign({}, base, { net: R.netPreset("grid"), infill: "all", apron: 20, apronBreak: 0.6, debris: 0.6 }));
+    const F = Gi.infill, wi = wound(Gi);
+    let nearRoad = 0, blockAlive = 0, apronNear = 0, apronNearN = 0, apronFar = 0, apronFarN = 0;
+    for (let q = 0; q < F.nx * F.nz; q++) {
+      const st = F.state[q];
+      if (st === 2) { blockAlive++; if (F.dist[q] < F.halfW) nearRoad++; }
+      if (st === 3 || st === 4) {
+        const d = F.dist[q] - F.halfW;
+        if (d < 20 * 0.45) { apronNearN++; if (st === 3) apronNear++; } else if (d > 20 * 0.85) { apronFarN++; if (st === 3) apronFar++; }
+      }
+    }
+    const Gx = R.buildNet(Object.assign({}, base, { net: R.netPreset("cross"), infill: "blocks" }));
+    const Gn = R.buildNet(Object.assign({}, base, { net: R.netPreset("grid"), infill: "none" }));
+    const infill = { blocks: F.blocks, blockAlive, nearRoad, apronCells: F.apronCells, gone: F.gone, lumps: F.lumps,
+                     walls: F.walls, openEdges: F.openEdges, bad: wi.bad, tris: wi.tris, biggest: wi.biggest,
+                     nearShare: apronNearN ? apronNear / apronNearN : 0, farShare: apronFarN ? apronFar / apronFarN : 0,
+                     crossBlocks: Gx.infill ? Gx.infill.blocks : -1, crossSlabs: Gx.infill ? Gx.infill.slabs : -1,
+                     off: !Gn.infill && !Gn.parts.slab, slabMesh: !!Gi.parts.slab };
+    return { presets, freeOnly, ends, say, trims, even, loop: J.loop, infill };
   });
   ok("every plan preset sweeps clean, walled edge for edge", netE.presets.every(p => p.ok),
      netE.presets.map(p => `${p.id}: ${p.links} links, ${p.junctions.length} junctions${p.junctions.length ? " (" + p.junctions.join("/") + " arms)" : ""}, ` +
@@ -2410,6 +2432,17 @@ if (want("road")) {
   ok("the network crumbles at its free ends and nowhere else", netE.freeOnly,
      netE.ends.map(e => `${e.a}->${e.b}: ${e.first}/${e.last} of ${e.of}`).join("  "));
   ok("and a node has the last word on its own end", netE.say, "node 3 at 0 m keeps every slab, node 0 at 20 m has none");
+  const F = netE.infill;
+  ok("the ground between the streets is found by flooding", F.blocks > 500 && F.crossBlocks === 0,
+     `${F.blocks} pieces of slab inside the grid's four blocks, ${F.crossBlocks} inside a crossroads (which encloses nothing)`);
+  ok("and every slab in a block is sound and clear of the road", F.blockAlive === F.blocks && F.nearRoad === 0,
+     `${F.blockAlive} of ${F.blocks} alive, ${F.nearRoad} within the road's half-width`);
+  ok("the apron breaks up toward its edge", F.apronCells > 200 && F.gone > 50 && F.nearShare > 0.95 && F.farShare < 0.35,
+     `${(F.nearShare * 100).toFixed(0)}% of slabs left near the road, ${(F.farShare * 100).toFixed(0)}% at the far edge · ` +
+     `${F.gone} gone, ${F.lumps} fragments of concrete`);
+  ok("and the field is closed and wound like the road", F.walls === F.openEdges && F.bad === 0 && F.biggest < 65536 && F.slabMesh,
+     `${F.walls} walls for ${F.openEdges} open edges · ${F.bad} of ${F.tris} backwards · biggest mesh ${F.biggest} vertices`);
+  ok("and none of it is there when it is off", F.off, "no infill, no slab mesh");
 
   /* ---- the designer, driven by hand ---- */
   await page.evaluate(() => {
@@ -2589,6 +2622,13 @@ if (want("road")) {
   ok("the road packs into one archive with the grid",
      zip.names.includes("model.gltf") && zip.names.includes("grid.png") && zip.names.some(n => n.startsWith("surface/")),
      `${zip.names.length} entries · ${zip.name}`);
+  /* the infill on the stage and in the archive */
+  await page.evaluate(() => { const r = window.Forge.road(); r.R.infill = "all"; r.R.apron = 12; r.regrid(); });
+  await page.waitForTimeout(600);
+  const inf = await page.evaluate(() => { const d = window.ForgeStage.debug(); const r = window.Forge.road(); return { stage: d.meshes.some(m => m.name === "slab"), field: r.G && r.G.infill ? r.G.infill.slabs : 0 }; });
+  ok("switching the infill on puts paving on the stage", inf.stage && inf.field > 100, `${inf.field} pieces of slab, a slab mesh on the stage`);
+  await page.evaluate(() => { const r = window.Forge.road(); r.R.infill = "none"; r.regrid(); });
+  await page.waitForTimeout(300);
   ok("and the glTF is the road, its junctions, its ground and the grid, at true scale",
      !!gl && gl.meshes.some(m => m.name === "road") && gl.meshes.some(m => m.name.startsWith("ground")) &&
      gl.meshes.some(m => m.name === "junction") &&

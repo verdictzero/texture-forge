@@ -1312,6 +1312,21 @@ carriageway sets the rest; between arms at an acute angle each corner's curve
 is tried in advance and both arms pushed back until the footway fits round it.
 A big junction is what a wide verge costs.
 
+THE GROUND BETWEEN THE STREETS CAN BE PAVED. Infill lays a field of precast
+concrete slabs on a regular grid — one texture panel per slab, three metres
+square by default, so the panel's chamfer is the joint — across every block the
+streets enclose, and, if asked, out into an APRON beyond the network too.
+Which ground is "between the streets" is answered by flooding: the site is
+rasterised at a third of a slab, the roads painted onto it, and everything the
+outside can reach without crossing a road is outside; what it cannot reach is
+a block. The blocks are sound. The apron BREAKS UP toward its edge, by the
+same rule the road ends use — a per-slab draw against a front over the outer
+fraction of it, the survivors sinking, tilting and shrinking, the dead ones
+leaving fragments of concrete — so a paved site ends in a broken edge rather
+than a saw cut. The slabs are laid at the height of the profile's outer edge
+and stop a hair short of the road, so the verge meets paving and not a step.
+It is flat: a plan with heights on its nodes climbs, and the paving does not.
+
 A node on one route only, at its end, is a FREE END, and free ends are where
 the road crumbles: the bar's "crumble ends" is what every free end does unless
 its node says otherwise — click one on the plan and give it its own length, or
@@ -1932,7 +1947,14 @@ It also covers the thirteen things that are easy to break silently:
             the last on an existing node, and Enter, have to leave one more
             route, two more nodes, one more junction and two links; and a node
             dragged onto another has to become it, turning two free ends into
-            a bend. The rest of this entry is the single road it grew from —
+            a bend. And the INFILL: the grid encloses four blocks and a
+            crossroads encloses none, so the flood has to find exactly that;
+            every slab in a block is sound and none is inside the road's own
+            half-width; the apron's survivors thin from nearly all of them by
+            the road to a third at the far edge, leaving fragments; the field
+            is walled edge for edge and wound like the road; nothing of it is
+            there when it is off, and switching it on puts a slab mesh on the
+            stage. The rest of this entry is the single road it grew from —
             anything else: every triangle wound to its own normal, no mesh
             past a 16-bit index, and every open edge of the top skin — the
             ends, the outside of the verge, and every ragged edge the decay

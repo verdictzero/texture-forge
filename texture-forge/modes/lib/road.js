@@ -35,11 +35,12 @@ const clamp=Forge.clamp,lerp=Forge.lerp,smoothstep=Forge.smoothstep,hashi=Forge.
 const KINDS={
   road:  {label:"Road surface",tex:"surface",colour:"#41454b"},
   junction:{label:"Junction",tex:"junction",colour:"#4c5058",hide:true},
+  slab:  {label:"Paving",tex:"paving",colour:"#9b9792",hide:true},
   kerb:  {label:"Kerb / paving",tex:"kerb",colour:"#b9b4a9"},
   verge: {label:"Verge",tex:"verge",colour:"#6e7a4b"},
   ground:{label:"Bare ground",tex:"verge",colour:"#7a6a55",tint:[0.60,0.54,0.46]}
 };
-const KIND_ORDER=["road","junction","kerb","verge","ground"];
+const KIND_ORDER=["road","junction","kerb","verge","slab","ground"];
 
 /* ============================ the profile ============================
    A node is {x,y,k,s}: x across the road (metres, negative to the left),
@@ -278,7 +279,7 @@ function flatN(a,b,c){return nrm(cross(sub(b,a),sub(c,a)));}
    R: {res,wobble,rough,edge,drop,debris,thick,solid,seed,nodes,decayB,kerbR}
    tiles: {surface,kerb,kerbH,verge,junction} — the real size of each texture */
 function makeSweeper(R,tiles){
-  const T=Object.assign({surface:7.3,kerb:0.915,kerbH:0.15,verge:3,junction:14},tiles||{});
+  const T=Object.assign({surface:7.3,kerb:0.915,kerbH:0.15,verge:3,junction:14,paving:3},tiles||{});
   const nodes=R.nodes&&R.nodes.length>=2?R.nodes:preset("two_lane");
   const prof=resample(nodes);
   const seed=(R.seed|0)||7;
@@ -298,6 +299,33 @@ function makeSweeper(R,tiles){
   const census={slabs:0,gone:0,walls:0,base:0,debris:0,fans:0,byKind:{},stations:[],lumps:[]};
   const sweeps=[];
   const wobAt=s=>wob?(vn(s/6,0.5,seed+31)-0.5)*2*wob:0;
+
+  /* A LUMP OF SOMETHING: a small irregular box wearing one of the textures,
+     for the rubble at a broken road end and the fragments at a broken edge
+     of paving. Kept here rather than in sweep() because both need it. */
+  const chunk=(kind,px,pz,py,hw,hd,h,yaw,lean,ragged,h1,h2,t)=>{
+      const cs=Math.cos(yaw),sn=Math.sin(yaw);
+      const Pt=(u,v,dy)=>[px+cs*u-sn*v,py+dy+u*lean,pz+sn*u+cs*v];
+      /* an irregular outline: each corner pulled in by its own draw, so no
+         two pieces are the same rectangle */
+      const cw=[1-ragged*h1*0.5,1-ragged*h2*0.5,1-ragged*(1-h1)*0.5,1-ragged*(1-h2)*0.5];
+      const top=[Pt(-hw*cw[0],-hd*cw[0],h/2),Pt(hw*cw[1],-hd*cw[1],h/2),Pt(hw*cw[2],hd*cw[2],h/2),Pt(-hw*cw[3],hd*cw[3],h/2)];
+      const bot=[Pt(-hw*cw[0],-hd*cw[0],-h/2),Pt(hw*cw[1],-hd*cw[1],-h/2),Pt(hw*cw[2],hd*cw[2],-h/2),Pt(-hw*cw[3],hd*cw[3],-h/2)];
+      const mt=part(parts,kind),mg=part(parts,"ground");
+      const nT=flatN(top[0],top[3],top[1]);
+      /* a piece wears the middle of its own texture, not the corner of it */
+      const tw=kind==="road"?T.surface:(kind==="kerb"?T.kerb:(kind==="slab"?T.paving:T.verge));
+      const uv=[[0.4,0.4],[0.4+hw*2/tw,0.4],[0.4+hw*2/tw,0.4+hd*2/tw],[0.4,0.4+hd*2/tw]];
+      if(!quad(mt,top[0],top[3],top[2],top[1],nT,nT,nT,nT,uv[0],uv[3],uv[2],uv[1]))return false;
+      for(let e=0;e<4;e++){
+        const a=top[e],b=top[(e+1)%4],A=bot[e],B=bot[(e+1)%4];
+        const n=flatN(b,a,A);
+        quad(mg,b,a,A,B,n,n,n,n,uv[0],uv[1],[uv[1][0],h/T.verge],[0,h/T.verge]);
+      }
+      census.debris++;
+      census.lumps.push({t:t||0,h:h,k:kind});
+      return true;
+    };
 
   /* st: [{s,p,t,r,d,base}]; ptsOf(i): the profile at station i, every station
      the same length; opts: {name,wallStart,wallEnd,wallInner,wallOuter,tag} */
@@ -479,30 +507,6 @@ function makeSweeper(R,tiles){
        the end: a lump near the sound road is a slab on its side, a lump at
        the far end is a flake, and past the last station a few are flung on
        into the field. */
-    const chunk=(kind,px,pz,py,hw,hd,h,yaw,lean,ragged,h1,h2)=>{
-      const cs=Math.cos(yaw),sn=Math.sin(yaw);
-      const Pt=(u,v,dy)=>[px+cs*u-sn*v,py+dy+u*lean,pz+sn*u+cs*v];
-      /* an irregular outline: each corner pulled in by its own draw, so no
-         two pieces are the same rectangle */
-      const cw=[1-ragged*h1*0.5,1-ragged*h2*0.5,1-ragged*(1-h1)*0.5,1-ragged*(1-h2)*0.5];
-      const top=[Pt(-hw*cw[0],-hd*cw[0],h/2),Pt(hw*cw[1],-hd*cw[1],h/2),Pt(hw*cw[2],hd*cw[2],h/2),Pt(-hw*cw[3],hd*cw[3],h/2)];
-      const bot=[Pt(-hw*cw[0],-hd*cw[0],-h/2),Pt(hw*cw[1],-hd*cw[1],-h/2),Pt(hw*cw[2],hd*cw[2],-h/2),Pt(-hw*cw[3],hd*cw[3],-h/2)];
-      const mt=part(parts,kind),mg=part(parts,"ground");
-      const nT=flatN(top[0],top[3],top[1]);
-      /* a piece wears the middle of its own texture, not the corner of it */
-      const tw=kind==="road"?T.surface:(kind==="kerb"?T.kerb:T.verge);
-      const uv=[[0.4,0.4],[0.4+hw*2/tw,0.4],[0.4+hw*2/tw,0.4+hd*2/tw],[0.4,0.4+hd*2/tw]];
-      if(!quad(mt,top[0],top[3],top[2],top[1],nT,nT,nT,nT,uv[0],uv[3],uv[2],uv[1]))return false;
-      for(let e=0;e<4;e++){
-        const a=top[e],b=top[(e+1)%4],A=bot[e],B=bot[(e+1)%4];
-        const n=flatN(b,a,A);
-        quad(mg,b,a,A,B,n,n,n,n,uv[0],uv[1],[uv[1][0],h/T.verge],[0,h/T.verge]);
-      }
-      census.debris++;
-      census.lumps.push({t:chunkT,h:h,k:kind});
-      return true;
-    };
-    let chunkT=0;
     if(debris>0){
       const lastAlong=st[nS];
       for(let i=0;i<nS;i++)for(let j=0;j<nP-1;j++){
@@ -514,7 +518,6 @@ function makeSweeper(R,tiles){
         const cx=[(c[0][0]+c[2][0])/2,0,(c[0][2]+c[2][2])/2];
         const S=st[i];
         const low=1-t*0.78;                          // how much height is left out here
-        chunkT=t;
         /* the slab's own lump, where it died */
         if(!alive[q]&&t<=0.96&&hashi(i+tagS,j,seed+601)<=debris*0.65*(1-t*0.5)){
           const kind=pts[j].k;
@@ -526,7 +529,7 @@ function makeSweeper(R,tiles){
           const cw=(c[1][0]-c[0][0])*sz,cd=(c[3][2]-c[0][2])*sz;
           const hw=Math.max(0.1,Math.hypot(cw,cd)*0.5),hd=hw*(0.6+hashi(i+tagS,j,seed+631)*0.6);
           chunk(kind,cx[0]+S.r[0]*scat,cx[2]+S.r[2]*scat,cy,hw,hd,h,yaw,lean,0.6,
-                hashi(i+tagS,j,seed+641),hashi(i+tagS,j,seed+643));
+                hashi(i+tagS,j,seed+641),hashi(i+tagS,j,seed+643),t);
         }
         /* and the strewn pieces: asphalt and concrete, anyone's, anywhere in
            the zone, more of them where the road is half gone, all of them
@@ -541,7 +544,7 @@ function makeSweeper(R,tiles){
           const px=cx[0]+S.r[0]*sx+S.t[0]*sz2,pz=cx[2]+S.r[2]*sx+S.t[2]*sz2;
           chunk(kind,px,pz,S.base+h*0.5+hashi(i+tagS,j,seed+717)*0.03,size,size*(0.5+hashi(i+tagS,j,seed+719)*0.8),h,
                 hashi(i+tagS,j,seed+721)*Math.PI,(hashi(i+tagS,j,seed+723)-0.5)*0.35*low,0.9,
-                hashi(i+tagS,j,seed+727),hashi(i+tagS,j,seed+729));
+                hashi(i+tagS,j,seed+727),hashi(i+tagS,j,seed+729),t);
         }
         /* flung past the end: only from the last few stations, out along the
            tangent, lower still */
@@ -553,7 +556,7 @@ function makeSweeper(R,tiles){
           const size=0.1+hashi(i+tagS,j,seed+811)*0.3;
           const px=cx[0]+lastAlong.t[0]*out+S.r[0]*side,pz=cx[2]+lastAlong.t[2]*out+S.r[2]*side;
           chunk(kind,px,pz,lastAlong.base+h*0.5,size,size*(0.6+hashi(i+tagS,j,seed+813)*0.6),h,
-                hashi(i+tagS,j,seed+815)*Math.PI,0,0.9,hashi(i+tagS,j,seed+817),hashi(i+tagS,j,seed+819));
+                hashi(i+tagS,j,seed+815)*Math.PI,0,0.9,hashi(i+tagS,j,seed+817),hashi(i+tagS,j,seed+819),t);
         }
       }
     }
@@ -626,7 +629,8 @@ function makeSweeper(R,tiles){
     };
   }
   return {sweep:sweep,fan:fan,finish:finish,prof:prof,baseY:baseY,thick:thick,halfW:halfW,
-          wobAt:wobAt,T:T,seed:seed};
+          wobAt:wobAt,T:T,seed:seed,parts:parts,census:census,chunk:chunk,
+          rough:rough,edge:edge,dropM:dropM,debris:debris};
 }
 
 /* ============================ one straight-or-arced road ============================
@@ -779,6 +783,197 @@ function netPreset(id){
   return p.make();
 }
 
+/* ============================ the infill ============================
+   THE GROUND BETWEEN THE STREETS, paved. A field of precast concrete slabs on
+   a regular grid — one texture panel per slab, so the chamfered joint falls
+   where the joint is — filling every block the streets enclose, and, if
+   asked, an APRON outside the network too. The blocks are sound; the apron
+   BREAKS UP toward its edge with the same machinery the road ends use: a
+   per-slab draw against a front, the survivors sinking, tilting and shrinking,
+   the dead ones leaving fragments of concrete.
+
+   Which ground is "between the streets" is answered by flooding: the site is
+   rasterised at a third of a slab, the road painted onto it, and everything
+   the outside can reach without crossing a road is outside. What it cannot
+   reach is a block. The slabs are laid at the height of the profile's outer
+   edge, and stop a hair short of it, so the verge meets paving and not a
+   step. */
+function slabField(W,R,routePolys,halfW){
+  const parts=W.parts,census=W.census,T=W.T,seed=W.seed;
+  const mode=R.infill==="all"?"all":"blocks";
+  const slabM=clamp(+R.slabM||3,0.5,12);
+  const apron=mode==="all"?clamp(+R.apron||20,0,200):0;
+  const brk=clamp(R.apronBreak===undefined?0.5:+R.apronBreak,0,1);
+  const slabT=clamp(+R.slabThick||0.15,0.03,1);
+  const fine=slabM/3;
+  const pts=W.prof.pts;
+  const y0=Math.max(pts[0].y,pts[pts.length-1].y);
+  const base=y0-slabT;
+
+  /* the site: the routes' bounds, and the apron beyond */
+  let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity;
+  const samples=[];
+  for(const poly of routePolys){
+    let last=-1e9;
+    for(let i=0;i<poly.pts.length;i++){
+      const p=poly.pts[i];
+      if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[2]<z0)z0=p[2];if(p[2]>z1)z1=p[2];
+      if(poly.s[i]-last>=0.5||i===poly.pts.length-1){samples.push([p[0],p[2]]);last=poly.s[i];}
+    }
+  }
+  if(!(x0<x1)||!samples.length)return null;
+  const reach=halfW+apron+fine*2;
+  x0-=reach;x1+=reach;z0-=reach;z1+=reach;
+  /* snapped to the slab grid, so a slab is a slab wherever the site starts */
+  x0=Math.floor(x0/slabM)*slabM;z0=Math.floor(z0/slabM)*slabM;
+  const nx=Math.min(1200,Math.ceil((x1-x0)/fine)),nz=Math.min(1200,Math.ceil((z1-z0)/fine));
+  if(nx<2||nz<2)return null;
+
+  /* distance from every fine cell to the nearest road centreline, on a bucket
+     grid of the samples so a big site does not go quadratic */
+  const bk=Math.max(halfW+1,4);
+  const buckets={};
+  for(const sm of samples){
+    const k=Math.floor(sm[0]/bk)+","+Math.floor(sm[1]/bk);
+    (buckets[k]||(buckets[k]=[])).push(sm);
+  }
+  const distTo=(x,z)=>{
+    let best=Infinity;
+    const bx=Math.floor(x/bk),bz=Math.floor(z/bk);
+    const R2=Math.ceil(reach/bk)+1;
+    for(let r=0;r<=R2;r++){
+      /* rings outward, stopping once a ring cannot beat what is found */
+      if(best<(r-1)*bk)break;
+      for(let dx=-r;dx<=r;dx++)for(let dz=-r;dz<=r;dz++){
+        if(Math.max(Math.abs(dx),Math.abs(dz))!==r)continue;
+        const list=buckets[(bx+dx)+","+(bz+dz)];
+        if(!list)continue;
+        for(const sm of list){const d=Math.hypot(sm[0]-x,sm[1]-z);if(d<best)best=d;}
+      }
+    }
+    return best;
+  };
+  const dist=new Float32Array(nx*nz);
+  const state=new Uint8Array(nx*nz);     // 0 nothing, 1 road, 2 block, 3 apron, 4 gone
+  for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
+    const x=x0+(i+0.5)*fine,z=z0+(j+0.5)*fine;
+    const d=distTo(x,z);
+    dist[j*nx+i]=d;
+    if(d<=halfW+0.05)state[j*nx+i]=1;
+  }
+  /* the flood: what the outside can reach is outside */
+  const outside=new Uint8Array(nx*nz);
+  const stack=[];
+  for(let i=0;i<nx;i++){stack.push(i);stack.push((nz-1)*nx+i);}
+  for(let j=0;j<nz;j++){stack.push(j*nx);stack.push(j*nx+nx-1);}
+  while(stack.length){
+    const q=stack.pop();
+    if(outside[q]||state[q]===1)continue;
+    outside[q]=1;
+    const i=q%nx,j=(q-i)/nx;
+    if(i>0)stack.push(q-1);if(i<nx-1)stack.push(q+1);
+    if(j>0)stack.push(q-nx);if(j<nz-1)stack.push(q+nx);
+  }
+  /* what is what, and how far gone the apron is */
+  const tOf=new Float32Array(nx*nz);
+  let blocks=0,apronN=0,gone=0;
+  for(let q=0;q<nx*nz;q++){
+    if(state[q]===1)continue;
+    if(!outside[q]){state[q]=2;blocks++;continue;}
+    if(apron<=0)continue;
+    const d=dist[q]-halfW;
+    if(d>apron)continue;
+    const sound=apron*(1-brk);
+    const t=brk>0?clamp((d-sound)/(apron*brk),0,1):0;
+    tOf[q]=Math.pow(t,0.85);
+    const i=q%nx,j=(q-i)/nx;
+    const n=fb((x0+i*fine)/1.6,(z0+j*fine)/1.6,seed+919);
+    const k=clamp(0.5+(n-0.5)*W.rough*1.7,0.02,0.98);
+    if(tOf[q]<k){state[q]=3;apronN++;}else{state[q]=4;gone++;}
+  }
+  /* ---- the slabs ---- */
+  const alive=q=>state[q]===2||state[q]===3;
+  const aliveAt=(i,j)=>(i>=0&&i<nx&&j>=0&&j<nz)?alive(j*nx+i):false;
+  const cornersOf=(i,j)=>{
+    const q=j*nx+i;
+    const ci=Math.floor((x0+(i+0.5)*fine)/slabM),cj=Math.floor((z0+(j+0.5)*fine)/slabM);
+    /* every slab a few millimetres its own height, so a field is a field
+       and not a floor */
+    const jit=(hashi(ci,cj,seed+931)-0.5)*0.012;
+    const xa=x0+i*fine,xb=xa+fine,za=z0+j*fine,zb=za+fine;
+    const c=[[xa,y0+jit,za],[xb,y0+jit,za],[xb,y0+jit,zb],[xa,y0+jit,zb]];
+    const t=tOf[q];
+    if(state[q]!==3||t<=0.001)return c;
+    /* a fragment at the broken edge: how close to the front it is decides
+       how far it has sunk, tilted and shrunk — the road end's own rule */
+    const n=fb((x0+i*fine)/1.6,(z0+j*fine)/1.6,seed+919);
+    const k=clamp(0.5+(n-0.5)*W.rough*1.7,0.02,0.98);
+    const w=clamp(t/k,0,1);
+    const h1=hashi(i,j,seed+941),h2=hashi(i,j,seed+947),h3=hashi(i,j,seed+953);
+    const cx=[(xa+xb)/2,y0+jit,(za+zb)/2];
+    const lim=slabT*0.8/(fine*0.5);
+    const roll=clamp((h2-0.5)*0.55*w,-lim,lim),pitch=clamp((h3-0.5)*0.45*w,-lim,lim),sh=1-w*0.14;
+    const drop=W.dropM*0.5*Math.pow(w,1.5)*(0.5+0.5*h1)+slabT*w*w*0.9;
+    const out=c.map(p=>{
+      const dx=(p[0]-cx[0])*sh,dz=(p[2]-cx[2])*sh;
+      return [cx[0]+dx,p[1]+dx*roll+dz*pitch,cx[2]+dz];
+    });
+    let low=Infinity;for(const p of out)if(p[1]<low)low=p[1];
+    const fall=Math.min(drop,low-(base+0.01));
+    for(const p of out)p[1]-=fall;
+    return out;
+  };
+  const up=[0,1,0];
+  let walls=0,openEdges=0,slabs=0;
+  const wall=(a,b)=>{
+    const m=part(parts,"ground");
+    const A=[a[0],base,a[2]],B=[b[0],base,b[2]];
+    const n=flatN(a,b,A);
+    const len=Math.hypot(b[0]-a[0],b[2]-a[2]),h=Math.max(0.01,Math.max(a[1],b[1])-base);
+    const uv=[[0,0],[len/T.verge,0],[len/T.verge,h/T.verge],[0,h/T.verge]];
+    openEdges++;
+    if(quad(m,a,b,B,A,n,n,n,n,uv[0],uv[1],uv[2],uv[3]))walls++;
+  };
+  for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
+    const q=j*nx+i;
+    if(!alive(q))continue;
+    const c=cornersOf(i,j);
+    const m=part(parts,"slab");
+    const uv=c.map(p=>[p[0]/slabM,p[2]/slabM]);
+    const flat=state[q]===3&&tOf[q]>0.001;
+    const n=flat?flatN(c[0],c[3],c[1]):up;
+    /* c0 (xa,za) c1 (xb,za) c2 (xb,zb) c3 (xa,zb): wound to face the sky */
+    quad(m,c[0],c[3],c[2],c[1],n,n,n,n,uv[0],uv[3],uv[2],uv[1]);
+    slabs++;
+    census.slabs++;census.byKind.slab=(census.byKind.slab||0)+1;
+    /* walls where nothing stands beside a slab — a road, a gone slab, the
+       edge of the apron — seen from outside, top edge left to right */
+    if(!aliveAt(i,j-1))wall(c[0],c[1]);       // the -z side
+    if(!aliveAt(i+1,j))wall(c[1],c[2]);       // the +x side
+    if(!aliveAt(i,j+1))wall(c[2],c[3]);       // the +z side
+    if(!aliveAt(i-1,j))wall(c[3],c[0]);       // the -x side
+  }
+  census.walls+=walls;
+  /* ---- fragments where the apron broke ---- */
+  let lumps=0;
+  if(W.debris>0)for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){
+    const q=j*nx+i;
+    if(state[q]!==4)continue;
+    const t=tOf[q];
+    if(t>0.94||hashi(i,j,seed+961)>W.debris*0.5*(1-t*0.5))continue;
+    const low=1-t*0.78;
+    const h=Math.max(0.02,slabT*(0.4+hashi(i,j,seed+967)*0.5)*low);
+    const size=fine*(0.18+hashi(i,j,seed+971)*0.3);
+    const px=x0+(i+0.5)*fine+(hashi(i,j,seed+977)-0.5)*fine,pz=z0+(j+0.5)*fine+(hashi(i,j,seed+983)-0.5)*fine;
+    if(W.chunk("slab",px,pz,base+h*0.5,size,size*(0.6+hashi(i,j,seed+989)*0.7),h,
+               hashi(i,j,seed+991)*Math.PI,(hashi(i,j,seed+997)-0.5)*0.3*low,0.9,
+               hashi(i,j,seed+1009),hashi(i,j,seed+1013),t))lumps++;
+  }
+  return {mode:mode,slabM:slabM,fine:fine,apron:apron,x0:x0,z0:z0,nx:nx,nz:nz,y0:y0,
+          state:state,dist:dist,t:tOf,halfW:halfW,
+          blocks:blocks,apronCells:apronN,gone:gone,slabs:slabs,walls:walls,openEdges:openEdges,lumps:lumps};
+}
+
 function buildNet(R,tiles){
   const W=makeSweeper(R,tiles);
   const net=R.net&&R.net.nodes&&R.net.nodes.length>=2&&R.net.routes&&R.net.routes.length?R.net:netPreset("straight");
@@ -820,10 +1015,12 @@ function buildNet(R,tiles){
 
   /* ---- the routes as splines, cut into links at junctions ---- */
   const links=[];
+  const routePolys=[];
   for(let ri=0;ri<routes.length;ri++){
     const r=routes[ri];
     const P=r.map(i=>[N[i].x,+N[i].y||0,N[i].z]);
     const poly=catmull(P);
+    routePolys.push(poly);
     let k0=0;
     for(let k=1;k<r.length;k++){
       const junction=isJ[r[k]]||k===r.length-1;
@@ -1058,7 +1255,12 @@ function buildNet(R,tiles){
     J.loopPts=loop;
   }
 
+  /* ---- the ground between the streets, if asked for ---- */
+  let infill=null;
+  if(R.infill&&R.infill!=="none")infill=slabField(W,R,routePolys,W.halfW);
+
   const G=W.finish();
+  G.infill=infill;
   G.links=links.map(lk=>({a:lk.a,b:lk.b,L:lk.L,tA:lk.tA,tB:lk.tB,sw:lk.sw,poly:lk.poly}));
   G.junctions=junctions.map(J=>({node:J.node,arms:J.arms.length,corners:J.corners||0,loop:J.loop||0,
                                  trim:J.arms.map(a=>a.trim),loopPts:J.loopPts||[],p:J.p}));
@@ -1079,7 +1281,7 @@ Forge.registerStructure({
   label:"Road",
   blurb:"A cross-section you draw, swept into a road that can crumble away at either end",
   road:{
-    kit:{surface:"surface",junction:"junction",kerb:"kerb",verge:"verge"}
+    kit:{surface:"surface",junction:"junction",kerb:"kerb",verge:"verge",paving:"paving"}
   },
   steps:[
     {id:"surface",label:"Surface",mode:"street",set:{piece:"cross",kerb:"none"},fresh:true,
@@ -1103,7 +1305,14 @@ Forge.registerStructure({
      note:"THE GROUND. Exposed aggregate at three metres to the panel reads as gravel and "+
           "earth, and the same texture worn darker is the bare ground under the road — the "+
           "base you see at a broken end, the retaining wall of a causeway, the slope of a "+
-          "cutting. Tint it green for a verge or brown for a track."}
+          "cutting. Tint it green for a verge or brown for a track."},
+    {id:"paving",label:"Paving",mode:"slab",
+     set:{panWmm:3000,panHmm:3000,form:"smooth",tieX:0,tieY:0,lifts:false,chamMm:22,stain:0.35,
+          effl:0.15,moss:0.1,voids:0.35,spall:0.3,cConc:"#a9a59c",cAgg:"#7a766e"},fresh:true,
+     note:"THE GROUND BETWEEN THE STREETS, when the plan asks for infill: one precast slab "+
+          "per panel, three metres square by default, laid on a grid across every block the "+
+          "streets enclose — and out into an apron beyond them that breaks up toward its "+
+          "edge. The chamfer is the joint, so the panel's own edge is where one slab ends."}
   ]
 });
 

@@ -1622,6 +1622,9 @@ const ROAD={seed:7,preset:"two_lane",nodes:null,
                its end, is a free end and where the road can crumble. */
             net:null,netPreset:"straight",tool:"select",nsel:-1,draft:null,
             res:0.5,wobble:0.02,kerbR:4,
+            /* the ground between the streets: none, the blocks the streets
+               enclose, or those and an apron outside that breaks up */
+            infill:"none",slabM:3,apron:20,apronBreak:0.5,
             decayB:18,rough:0.6,edge:0.6,drop:0.6,debris:0.5,thick:0.35,
             solid:true,grid:true,mirror:true,snap:true,vx:3,view:"3d",sel:-1,
             zoom:1,panX:0,panZ:0};
@@ -1639,6 +1642,7 @@ function roadNet(){
 }
 function roadParams(){
   return {seed:ROAD.seed|0,res:+ROAD.res,wobble:+ROAD.wobble,kerbR:+ROAD.kerbR,
+          infill:ROAD.infill,slabM:+ROAD.slabM,apron:+ROAD.apron,apronBreak:+ROAD.apronBreak,
           decayB:+ROAD.decayB,rough:+ROAD.rough,
           edge:+ROAD.edge,drop:+ROAD.drop,debris:+ROAD.debris,thick:+ROAD.thick,
           solid:!!ROAD.solid,nodes:roadNodes(),net:roadNet()};
@@ -1647,7 +1651,7 @@ function roadParams(){
    because the surface tile is laid across the carriageway at its own length
    and the kerb is one precast unit long */
 function roadKit(by){
-  const k=(wiz&&wiz.s.road&&wiz.s.road.kit)||{surface:"surface",junction:"junction",kerb:"kerb",verge:"verge"};
+  const k=(wiz&&wiz.s.road&&wiz.s.road.kit)||{surface:"surface",junction:"junction",kerb:"kerb",verge:"verge",paving:"paving"};
   const out={};
   for(const key in k)out[key]=by[k[key]]||null;
   return out;
@@ -1658,6 +1662,7 @@ function roadTiles(kit){
   const j=kit.junction&&kit.junction.plan;if(j)t.junction=j.tile||j.w;
   const kb=kit.kerb&&kit.kerb.plan;if(kb){t.kerb=kb.w;t.kerbH=kb.h;}
   const v=kit.verge&&kit.verge.plan;if(v)t.verge=v.w;
+  const pv=kit.paving&&kit.paving.plan;if(pv)t.paving=pv.w;
   return t;
 }
 /* the road, built off the current numbers, for whichever view asks first */
@@ -1743,6 +1748,10 @@ function roadNotes(G){
   out.push("The road surface texture ("+tile.toFixed(2)+" m tile) is stretched across each run of",
     "carriageway"+(E.road>0?" ("+E.road.toFixed(2)+" m drawn)":"")+" and repeats along the road at its own length; kerbs are one",
     "precast unit ("+G.tiles.kerb.toFixed(3)+" m) end to end; verge and ground tile at "+G.tiles.verge.toFixed(2)+" m.");
+  if(G.infill)out.push("THE GROUND BETWEEN THE STREETS IS PAVED: "+G.infill.slabs+" pieces of precast slab on a "+
+    G.infill.slabM.toFixed(1)+" m grid, "+G.infill.blocks+" of them in the blocks the streets enclose"+
+    (G.infill.apron>0?" and the rest in a "+G.infill.apron.toFixed(0)+" m apron outside, which breaks up toward its edge ("+
+     G.infill.gone+" gone, "+G.infill.lumps+" fragments)":"")+". Laid at the height of the profile's outer edge.");
   if(ROAD.grid)out.push("grid.png is a SCALE GRID under the whole thing: a five-metre tile with the metre and",
     "quarter-metre lines drawn on it. Delete the grid object once the scale is checked.");
   return out;
@@ -1754,6 +1763,11 @@ const ROAD_ROWS=[
   {id:"res",label:"Station",min:0.25,max:2,step:0.05,unit:"m"},
   {id:"thick",label:"Thick",min:0.1,max:1.5,step:0.05,unit:"m"},
   {id:"kerbR",label:"Kerb radius",min:0.5,max:20,step:0.5,unit:"m"},
+  /* THE INFILL. Slab size is also the paving texture's own panel; the apron
+     reaches out from the outermost road, and its outer fraction is broken. */
+  {id:"slabM",label:"Slab",min:1,max:8,step:0.5,unit:"m",need:"infill"},
+  {id:"apron",label:"Apron",min:0,max:120,step:1,unit:"m",need:"apron"},
+  {id:"apronBreak",label:"Broken",min:0,max:1,step:0.05,need:"apron"},
   /* THE DECAY. How much road crumbles at every free end, unless a node says
      otherwise in the plan; zero is a clean cut. The rest say how: how ragged
      the front is, how much the edges go before the crown, how far the
@@ -1823,9 +1837,19 @@ function roadBar(){
   });
   bar.appendChild(roll);
 
+  /* the ground between the streets */
+  const inf=document.createElement("select");
+  inf.id="road-infill";inf.title="Pave the ground between the streets with precast slabs, and out into an apron that breaks up at its edge";
+  for(const o of [["none","No infill"],["blocks","Slabs between streets"],["all","Slabs between and around"]]){
+    const e=document.createElement("option");e.value=o[0];e.textContent=o[1];inf.appendChild(e);
+  }
+  inf.value=ROAD.infill;
+  inf.addEventListener("change",()=>{ROAD.infill=inf.value;roadRegrid();});
+  bar.appendChild(inf);
   for(const r of ROAD_ROWS){
     const lab=document.createElement("label");
     lab.title=r.label;
+    if(r.need)lab.dataset.roadneed=r.need;
     lab.innerHTML="<span>"+r.label+"</span>";
     const inp=document.createElement("input");
     inp.type="range";inp.id="road-"+r.id;
@@ -2026,6 +2050,11 @@ function roadBarSync(){
     }
   }
   for(const c of ROAD_CHECKS){const n=el("road-"+c.id);if(n)n.checked=!!ROAD[c.id];}
+  const inf=el("road-infill");if(inf&&inf.value!==ROAD.infill)inf.value=ROAD.infill;
+  for(const lab of bar.querySelectorAll("[data-roadneed]")){
+    const need=lab.dataset.roadneed;
+    lab.hidden=need==="infill"?ROAD.infill==="none":(need==="apron"?ROAD.infill!=="all":false);
+  }
   const nodes=roadNodes(),sel=(ROAD.sel>=0&&ROAD.sel<nodes.length)?nodes[ROAD.sel]:null;
   const note=el("road-sel");
   if(note){
@@ -2237,6 +2266,19 @@ function planDraw(g,w,h,dpr){
   g.strokeStyle="rgba(255,255,255,0.3)";g.setLineDash([4*dpr,4*dpr]);g.beginPath();
   const o=fr.toPx(0,0);g.moveTo(o[0],0);g.lineTo(o[0],h);g.moveTo(0,o[1]);g.lineTo(w,o[1]);g.stroke();g.setLineDash([]);
 
+  /* the paving between the streets, under everything else */
+  if(G&&G.infill){
+    const F=G.infill;
+    g.fillStyle=ForgeRoad.KINDS.slab.colour;
+    for(let j=0;j<F.nz;j++)for(let i=0;i<F.nx;i++){
+      const st=F.state[j*F.nx+i];
+      if(st!==2&&st!==3)continue;
+      const a=fr.toPx(F.x0+i*F.fine,F.z0+(j+1)*F.fine),b=fr.toPx(F.x0+(i+1)*F.fine,F.z0+j*F.fine);
+      g.globalAlpha=st===3?0.55+0.45*(1-F.t[j*F.nx+i]):1;
+      g.fillRect(a[0],a[1],Math.max(1,b[0]-a[0]),Math.max(1,b[1]-a[1]));
+    }
+    g.globalAlpha=1;
+  }
   /* what the sweep made: every alive slab of every sweep, the fans */
   if(G){
     for(const sw of G.sweeps){
