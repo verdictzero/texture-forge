@@ -420,8 +420,17 @@ function readParams(st){
 }
 
 /* Things a preset must not touch: they belong to the export, or to which face
-   you happen to be looking at, not to the building being described. */
+   you happen to be looking at, not to the building being described. A mode may
+   name more of its own in `presetKeep`: the hull's linked-panel set is an
+   export decision and shopping for a look should not dismantle it on every
+   click. A preset that names one of these in its own `set` still wins — this
+   only stops the reset-to-defaults below from clearing them. */
 const PRESET_KEEP={size:1,face:1,seed:1};
+function presetKeeps(st,id){
+  if(PRESET_KEEP[id])return true;
+  const k=st.mode.presetKeep;
+  return !!k&&k.indexOf(id)>=0;
+}
 
 /* A preset is a description of a whole building, not a patch on whatever was
    last on screen. Several of them switch a feature off — the rowhouse has no
@@ -433,7 +442,7 @@ function applyPreset(st,id){
   const preset=(st.mode.presets||[]).find(p=>p.id===id);
   if(!preset)return;
   for(const d of st.params){
-    if(PRESET_KEEP[d.id]||d.def===undefined)continue;
+    if(presetKeeps(st,d.id)||d.def===undefined)continue;
     const n=node(st,d.id);
     if(!n)continue;
     if(n.type==="checkbox")n.checked=!!d.def;else n.value=d.def;
@@ -462,6 +471,16 @@ function syncUI(st){
       n.hidden=!n.getAttribute("data-need-any").split(" ").some(k=>need.indexOf(k)>=0);
     const ro=el(pid(st,"readout"));
     if(ro&&m.readout)ro.innerHTML=m.readout(P);
+    /* A MODE MAY HAVE MORE THAN ONE READOUT. The scale line belongs at the top
+       beside the size it describes; what a set of linked panels came out as
+       belongs beside the controls that built it, five groups down, and a
+       reader who has to scroll back to the first group to find out what the
+       fifth one just did will not scroll. So any {type:"readout",id:"x"} row
+       is filled from readouts.x(P), and the unnamed one keeps readout(P). */
+    for(const k in (m.readouts||{})){
+      const n=el(pid(st,k));
+      if(n)n.innerHTML=m.readouts[k](P);
+    }
   }
   if(st===active)el("tiletag").textContent=m.tileTag?m.tileTag(P):"";
 }
@@ -1044,17 +1063,29 @@ function variantsOf(st){
   if(!v)return [];
   try{return (typeof v==="function"?v(st.P):v)||[];}catch(e){return [];}
 }
+/* AND THE ROOT CUT MAY HAVE A NAME. Where the variants are a feature TAKEN OUT
+   there is an obvious "the one you asked for" to hold the unlabelled folder —
+   the hull panel, with the blank plating beside it. Where they are a SET there
+   is not: five linked hull panels off one quilt are five peers, and packing
+   whichever one happens to be on screen into a folder named after none of them
+   is an archive you have to guess at. `variantRoot(P)` names that folder; a
+   mode without one keeps the bare fileBase folder it has always had. */
+function rootCutOf(st){
+  const f=st.mode.variantRoot;
+  if(!f)return null;
+  try{return f(st.P)||null;}catch(e){return null;}
+}
 async function downloadZip(){
   if(!exportGuard())return;
   const st=active,btn=el("zipall"),save=el("zipsave");
   btn.disabled=true;save.hidden=true;
-  const cuts=variantsOf(st);
+  const cuts=variantsOf(st),rootCut=cuts.length?rootCutOf(st):null;
   try{
     const files=[];
     /* one folder each only when there is something to tell apart, so a mode
        with no variants packs exactly the archive it always did */
-    const root=cuts.length?fileBase(st)+"/":"";
-    await packBuild(st,files,root,"");
+    const root=cuts.length?fileBase(st)+(rootCut?"_"+rootCut.id:"")+"/":"";
+    await packBuild(st,files,root,rootCut?rootCut.label+" · ":"");
     for(const cut of cuts){
       const was={};
       for(const k in cut.set){was[k]=st.P[k];st.P[k]=cut.set[k];}
@@ -1075,7 +1106,7 @@ async function downloadZip(){
     setBar(0);
     setStatus(files.length+" files packed"+
       (cuts.length?" in "+(cuts.length+1)+" cuts — "+
-        ["as forged"].concat(cuts.map(c=>c.label)).join(", ")+" — ":" · ")+
+        [rootCut?rootCut.label:"as forged"].concat(cuts.map(c=>c.label)).join(", ")+" — ":" · ")+
       "click save if nothing downloaded");
   }catch(err){
     setBar(0);setStatus("Zip failed — "+((err&&err.message)||err));console.error(err);

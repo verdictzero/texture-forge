@@ -3058,6 +3058,250 @@ if (want("hull")) {
      `reaches ${bFound[0].du} px of a ${cellPx.toFixed(0)} px cell`);
 }
 
+/* ==================== a set of panels off one quilt ====================
+   One tile on a hull is a repeat you can count. The quilt hides its own repeat
+   — it is a specular effect a millimetre deep — but the windows hide nothing,
+   and the same four lit rooms at the same height forty times along a saucer
+   rim is what gives a tiled hull away. So the mode packs SEVERAL panels off
+   one quilt: two or three window layouts and a stretch of plain plating, any
+   of which butts against any other.
+
+   THE CLAIM IS THE BORDER, and it is measured as one. Everything else here —
+   the layouts, the archive, the height scale — is a detail of a set whose
+   panels do not actually meet. The cells divide the tile, a pane is held to
+   90% of its cell and its collar to 96%, so the whole border of every panel is
+   plain plating carved from the one quilt: byte for byte, in every channel,
+   including the ambient occlusion that is blurred across a fortieth of it.
+   ====================================================================== */
+if (want("linked")) {
+  console.log("\n— a set of panels off one quilt —");
+  await page.click('#modebar-tabs [data-mode="hull"]');
+  await settle();
+
+  /* pinned down far enough that the section is hermetic — one of these tests
+     clicks a preset on purpose, and everything after it would otherwise be
+     measuring that preset's plate relief */
+  const BASE = { size: 512, tileM: 12, seed: 1701, rows: 16, colsMin: 4, colsMax: 9,
+                 subdiv: 0.55, subdepth: 2, bays: 3, plateH: 1.5, scribeW: 25, scribeD: 5,
+                 winRows: 2, winPitch: 2.0, winW: 0.8, winH: 1.8, winShape: "auto",
+                 winRound: 0.28, winFrame: 0.35, winLipH: 14,
+                 winLit: 0.6, winRoom: 2, winGlow: 0.8, winGrime: 0.45, winSeed: 0,
+                 winMetal: 0.85, metalness: 0.15, hatch: 0.15,
+                 link: 3, link2: "draw", link3: "blank", linkShow: 1 };
+  const forge = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({}, BASE, set));
+    await page.click("#hull--forge");
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, S = B.W;
+      /* every channel along all four edges of the tile, in one list: this is
+         the whole seamlessness claim and it is one comparison */
+      const edge = [];
+      const at = (x, y) => { const i = y * S + x;
+        edge.push(B.A[i*3], B.A[i*3+1], B.A[i*3+2], B.NRM[i*3], B.NRM[i*3+1], B.NRM[i*3+2],
+                  B.RGH[i], B.MET[i], B.AO[i], B.EMI ? B.EMI[i] : 0); };
+      for (let x = 0; x < S; x++) { at(x, 0); at(x, S - 1); }
+      for (let y = 0; y < S; y++) { at(0, y); at(S - 1, y); }
+      /* the grid this panel actually cut, counted off the glass rather than
+         off the parameters — a layout that says "one band more" and draws two
+         is exactly what this is here to catch */
+      const rowHas = [], glassAt = (x, y) => B.MET[y * S + x] > 128;
+      let glass = 0, emi = 0;
+      for (let y = 0; y < S; y++) { let any = false;
+        for (let x = 0; x < S; x++) if (glassAt(x, y)) { any = true; glass++; }
+        rowHas.push(any); }
+      for (let i = 0; i < S * S; i++) if (B.EMI && B.EMI[i] > 10) emi++;
+      const runs = a => { let n = 0; for (let i = 0; i < a.length; i++)
+        if (a[i] && !a[(i - 1 + a.length) % a.length]) n++; return n; };
+      const bands = runs(rowHas);
+      let across = 0;
+      if (bands) {                       // count the panes across the first band's middle
+        let s0 = rowHas.indexOf(true), e0 = s0;
+        while (e0 + 1 < S && rowHas[e0 + 1]) e0++;
+        const mid = (s0 + e0) >> 1, colHas = [];
+        for (let x = 0; x < S; x++) colHas.push(glassAt(x, mid));
+        across = runs(colHas);
+      }
+      return { edge: edge.join(","), hMin: B.hMin, hMax: B.hMax,
+               glass, emi, bands, across };
+    });
+  };
+
+  const P1 = await forge({ linkShow: 1 });
+  const P2 = await forge({ linkShow: 2 });
+  const P3 = await forge({ linkShow: 3 });
+  ok("every panel of a set has the same border, in every channel",
+     P1.edge === P2.edge && P1.edge === P3.edge,
+     `${P1.edge.split(",").length} samples round all four edges — base colour, normal, ` +
+     "roughness, metallic, AO and emissive — identical across the windowed panel, the " +
+     "re-drawn one and the blank plating");
+  ok("and the windows really did move",
+     P1.glass > 500 && P2.glass > 500 && P1.emi !== P2.emi && P3.glass === 0,
+     `${P1.glass} texels of glass lit in ${P1.emi} on panel 1, ${P2.glass}/${P2.emi} on ` +
+     `panel 2's own draw, ${P3.glass} on the plain plating`);
+  ok("and every cut is on one height scale",
+     Math.abs(P1.hMin - P3.hMin) < 1e-12 && Math.abs(P1.hMax - P3.hMax) < 1e-12 &&
+     Math.abs(P1.hMin - P2.hMin) < 1e-12 && Math.abs(P1.hMax - P2.hMax) < 1e-12,
+     `all three span ${P1.hMin.toFixed(6)}..${P1.hMax.toFixed(6)} — blank plating ` +
+     "normalised to its own shallow range would step against the panel beside it");
+
+  /* THE LAYOUTS DO WHAT THEY SAY, counted off the glass. A vocabulary of names
+     is only worth having if a name means one thing. */
+  const L = {};
+  for (const [id, key] of [["draw", "l2"], ["dark", "l3"], ["round", "l4"],
+                           ["sparse", "l5"], ["dense", "l6"], ["fewer", "l7"], ["more", "l8"]])
+    L[id] = await forge({ link: 2, link2: id, linkShow: 2 });
+  ok("the same-grid layouts leave the grid alone",
+     ["draw", "dark", "round"].every(k => L[k].bands === P1.bands && L[k].across === P1.across),
+     `panel 1 cut ${P1.bands} bands of ${P1.across}; ` +
+     ["draw", "dark", "round"].map(k => `${k} ${L[k].bands}×${L[k].across}`).join(", "));
+  ok("and every pane dark really is dark, and still glass",
+     L.dark.emi === 0 && L.dark.glass > 500,
+     `${L.dark.emi} lit texels over ${L.dark.glass} of glass — an unlit pane is dark ` +
+     "tinted glass, not a hole, so it keeps its metallic");
+  ok("and the round ones are round",
+     L.round.glass > 500 && L.round.glass < P1.glass,
+     `${L.round.glass} texels against the base panel's ${P1.glass} — a circle is the ` +
+     "same capsule with the straight section taken out, so it cannot be bigger");
+  ok("half and twice as many across are half and twice as many",
+     L.sparse.across * 2 === P1.across && L.dense.across === P1.across * 2 &&
+     L.sparse.bands === P1.bands && L.dense.bands === P1.bands,
+     `${L.sparse.across}, ${P1.across}, ${L.dense.across} across — and ${P1.bands} bands ` +
+     "throughout, because the pitch is the only thing that moved");
+  ok("and a band fewer and a band more are one band either way",
+     L.fewer.bands === P1.bands - 1 && L.more.bands === P1.bands + 1,
+     `${L.fewer.bands}, ${P1.bands}, ${L.more.bands} bands`);
+
+  /* THE WINDOW DRAW IS ITS OWN SEED. It used to be the seed that also lays out
+     the plate quilt, so re-rolling the lighting re-rolled the whole hull —
+     which is the one thing a set cannot survive. */
+  const D0 = await forge({ link: 1, winSeed: 0 });
+  const D1 = await forge({ link: 1, winSeed: 7 });
+  ok("the window draw re-rolls the windows and leaves the plating alone",
+     D0.edge === D1.edge && D0.emi !== D1.emi && D0.bands === D1.bands,
+     `a different draw lights ${D1.emi} texels where the first lit ${D0.emi}, ` +
+     "off a border that has not moved a byte");
+
+  /* AND IT SAYS SO WHEN THE ASSEMBLY RUNS OUT OF CELL. All of the above holds
+     while the window assembly stops short of its own cell edge; on a tight
+     enough pitch the machined pad's fairing does not, and then two panels of
+     one set genuinely disagree along a join. Claiming otherwise would be worse
+     than not offering the feature. */
+  const warns = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({}, BASE, set));
+    await page.evaluate(() => document.getElementById("hull--link")
+      .dispatchEvent(new Event("change", { bubbles: true })));
+    await page.waitForTimeout(150);
+    return await page.$eval("#hull--linked", n => n.textContent);
+  };
+  const roomy = await warns({ link: 3, winPitch: 2.0, winW: 0.8 });
+  const tight = await warns({ link: 3, winPitch: 0.6, winW: 0.5 });
+  ok("and the readout says when the assembly runs out of cell",
+     !/reaches the edge of its own cell/.test(roomy) &&
+     /reaches the edge of its own cell/.test(tight),
+     "quiet on a 2.0 m pitch, and warns on a 0.6 m one");
+  const T1 = await forge({ link: 2, link2: "blank", winPitch: 0.6, winW: 0.5, linkShow: 1 });
+  const T2 = await forge({ link: 2, link2: "blank", winPitch: 0.6, winW: 0.5, linkShow: 2 });
+  ok("and it is not crying wolf — that border really does move",
+     T1.edge !== T2.edge,
+     "the same two panels that match byte for byte on a 2.0 m pitch differ along " +
+     "the join once the collar reaches the cell edge");
+
+  /* A PRESET DESCRIBES A LOOK, NOT AN EXPORT. Twenty of them in the library
+     and clicking through to find one should not dismantle the set twenty
+     times — while the window draw, which IS part of the look, resets with
+     everything else. */
+  await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                      Object.assign({}, BASE, { link: 4, link2: "dense", winSeed: 5 }));
+  await page.click('#panel-hull [data-preset="tvera"]');
+  await settle();
+  const kept = await page.evaluate(() => {
+    const P = window.Forge.state("hull").P;
+    return { link: P.link, link2: P.link2, winSeed: P.winSeed, tileM: P.tileM };
+  });
+  ok("a preset changes the look and leaves the set alone",
+     kept.link === 4 && kept.link2 === "dense" && kept.winSeed === 0 && kept.tileM === 16,
+     `set of ${kept.link} still standing with panel 2 on ${kept.link2}, ` +
+     `on the preset's own ${kept.tileM} m tile, window draw back to ${kept.winSeed}`);
+
+  /* ============ the whole set out of one press ============
+     Same claim as the panel and the blank plating before it, with more members
+     and one thing added: the folder holding the live build has to say WHICH
+     panel it is. Among peers off one quilt there is no "the one you asked for"
+     to hold an unlabelled folder. */
+  await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                      Object.assign({}, BASE, { size: 256, link: 3, link2: "draw",
+                                                link3: "blank", linkShow: 2 }));
+  await page.click("#hull--forge");
+  await settle();
+  await page.click("#zipall");
+  await page.waitForFunction(() => !document.getElementById("zipsave").hidden,
+                             null, { timeout: 180000 });
+  const SET = await page.evaluate(async () => {
+    const st = window.Forge.active();
+    const buf = new Uint8Array(await (await fetch(st.zipUrl)).arrayBuffer());
+    const dv = new DataView(buf.buffer), names = [], entries = {};
+    for (let i = 0; i + 30 < buf.length; i++) {
+      if (dv.getUint32(i, true) !== 0x04034b50) continue;
+      const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true);
+      const size = dv.getUint32(i + 18, true);
+      const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+      names.push(name);
+      entries[name] = buf.slice(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size);
+      i += 30 + nLen + xLen + size - 1;
+    }
+    const glass = async n => {
+      const bm = await createImageBitmap(new Blob([entries[n]], { type: "image/png" }));
+      const cv = new OffscreenCanvas(bm.width, bm.height), cx = cv.getContext("2d");
+      cx.drawImage(bm, 0, 0);
+      const d = cx.getImageData(0, 0, bm.width, bm.height).data;
+      let k = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 200) k++;
+      return k;
+    };
+    const met = {}, ranges = {}, says = {};
+    for (const n of names) {
+      if (n.endsWith("_metallic.png")) met[n.split("/")[0]] = await glass(n);
+      if (/hull_[0-9]+_[0-9]+_readme\.txt$/.test(n)) {
+        const txt = new TextDecoder().decode(entries[n]);
+        const mm = txt.match(/spanning ([\d.]+) mm/), who = txt.match(/THIS IS [^\n]*/);
+        ranges[n.split("/")[0]] = mm && mm[1];
+        says[n.split("/")[0]] = who && who[0];
+      }
+    }
+    return { names, met, ranges, says, shown: st.P.linkShow, built: !!st.built,
+             panes: (() => { let n = 0; for (let k = 0; k < st.B.MET.length; k++)
+                                          if (st.B.MET[k] > 128) n++; return n; })() };
+  });
+  const dirs = [...new Set(SET.names.map(n => n.split("/")[0]))];
+  const per = d => SET.names.filter(n => n.startsWith(d + "/")).length;
+  ok("one press packs the whole set, one folder per panel",
+     dirs.length === 3 && ["_p1", "_p2", "_p3"].every(t => dirs.some(d => d.endsWith(t))),
+     `${SET.names.length} entries in ${dirs.join(", ")}`);
+  ok("and each panel is a whole export of its own",
+     dirs.every(d => per(d) === per(dirs[0]) && per(d) >= 12) &&
+     dirs.every(d => SET.names.includes(d + "/model.gltf")) &&
+     dirs.every(d => SET.names.some(n => n.startsWith(d + "/") && n.endsWith("_readme.txt"))),
+     `${per(dirs[0])} files each — maps, 16-bit height, readme and geometry in all three`);
+  ok("and the pixels agree with the folder names",
+     SET.met[dirs.find(d => d.endsWith("_p1"))] > 200 &&
+     SET.met[dirs.find(d => d.endsWith("_p2"))] > 200 &&
+     SET.met[dirs.find(d => d.endsWith("_p3"))] === 0,
+     dirs.map(d => `${d.slice(-2)} ${SET.met[d]}`).join(", ") +
+     " texels of glass in the packed metallic maps");
+  ok("and every readme says which panel it is, on one shared height scale",
+     Object.keys(SET.says).length === 3 &&
+     /PANEL 1 OF A SET OF 3\./.test(SET.says[dirs.find(d => d.endsWith("_p1"))] || "") &&
+     /PANEL 3 OF A SET OF 3 — no windows\./.test(SET.says[dirs.find(d => d.endsWith("_p3"))] || "") &&
+     new Set(Object.values(SET.ranges)).size === 1,
+     `all three quote ${Object.values(SET.ranges)[0]} mm of relief`);
+  ok("and the panel you were looking at is the one still on screen",
+     SET.shown === 2 && SET.built && SET.panes > 200,
+     `back on panel ${SET.shown} with ${SET.panes} texels of glass`);
+}
+
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
 console.log(fails ? `\nFAIL (${fails})` : "\nALL GOOD");
 await browser.close();

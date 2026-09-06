@@ -474,6 +474,62 @@ Hull — starship aztec plating
   the single flat one it has always been. Any mode can do this — see `variants`
   in ADDING-A-MODE.md.
 
+  LINKED PANELS: SEVERAL WINDOW LAYOUTS OFF ONE QUILT. One tile on a hull is a
+  repeat you can count. The quilt itself hides its repeat rather well — it is a
+  specular effect a millimetre deep and the eye does not track plate corners —
+  but the windows hide nothing, and the same four lit rooms at the same height
+  forty times along a saucer rim is the thing that gives a tiled hull away. A
+  bigger tile does not fix it; it only makes the count longer.
+
+  So PANELS IN THE SET takes the archive from one cut to as many as six, and
+  each panel after the first names a window layout to lay over the quilt: the
+  same grid with a different draw, the same grid with every pane dark, the same
+  grid all in round ports, half or twice as many across, a band fewer, a band
+  more, or no windows at all. Two or three layouts and a stretch of plain
+  plating is usually the whole answer — scatter them along a hull and the
+  rhythm breaks while the surface does not.
+
+  A PANEL MAY MOVE THE WINDOWS AND NOTHING ELSE, and that is the whole feature
+  rather than a caution about it. Every panel of a set is cut from one seed,
+  one plate subdivision, one set of scribe lines and one set of colours; a
+  layout is a NAME rather than a second copy of the sliders precisely so that
+  nothing in it can reach the plating. A pane is held to 90% of its own cell
+  and its collar to 96%, and the cells divide the tile, so the whole border of
+  every panel is plain plating carved from that one quilt — identical byte for
+  byte in every channel, ambient occlusion included. Any of them butts against
+  any other, in any rotation, in any order.
+
+  THE SAME GRID LAYOUTS ALSO BUTT WITH THE WINDOW ROWS RUNNING THROUGH, since
+  they leave every pane in its own cell and change only what is drawn in it. A
+  band fewer and a band more move the band heights: those are for a different
+  stretch of hull rather than for the panel next door, and the readout says
+  which of yours do it. It also says when a tight pitch has left the window
+  assembly reaching the edge of its own cell — that is the one case where two
+  panels of a set genuinely differ along a join, and widening the pitch or
+  narrowing the surround is the fix.
+
+  ON SCREEN steps through the set, so each panel can be looked at before it is
+  committed to; the archive packs the whole set whichever one you are looking
+  at, and puts that one back afterwards. That is one full-size forge per panel
+  on one press, and the readout says how many.
+
+  ALL THE CUTS OF A SET SHARE ONE HEIGHT SCALE. height.png carries no units — it
+  is normalised to the range the build happened to occupy — so plain plating,
+  with no window recess and no collar in it, would otherwise be stretched over a
+  fraction of the range of the panel it is meant to sit beside, and mid-grey
+  would mean a different number of millimetres in each. Displace two cuts of one
+  set with their own height maps and the join would be a step you could measure,
+  on exactly the pair the feature exists to put side by side. So every cut
+  reserves the range the SET can reach, and the readme of each quotes the same
+  figure.
+
+  THE WINDOW DRAW IS ITS OWN SEED, which is what makes all of the above cheap.
+  Which rooms are lit, which panes came out round and how dirty each one is used
+  to hang off the seed that also lays out the plate quilt, so re-rolling the
+  lighting re-rolled the whole hull. It is a separate number now: roll it and
+  the plating does not move a texel. Useful on a single panel too, when the
+  plating is right and the lit rooms are not.
+
 Greeble — machined surface clutter
   The fine mechanical detail that makes a hull, a machine bay or a reactor face
   read as built rather than moulded. A base plate carries a field of extruded
@@ -1671,6 +1727,11 @@ the seed moves. Each cut lands in its own folder with its own maps, 16-bit
 height, readme and geometry, and the parameters are put back afterwards. A mode
 with no variants packs exactly the flat archive it always did. See
 ADDING-A-MODE.md.
+
+The hull's LINKED PANELS are the same machinery with more members: up to six
+window layouts over one quilt, all peers rather than one-with-a-feature-
+removed, so the folder holding the live build is named for the panel it holds
+instead of being the unlabelled one. See the hull mode above.
 
 A single mode exports a single plane. A STRUCTURE — the House, Factory or
 Diner buttons in the top bar — exports the building: four walls off three

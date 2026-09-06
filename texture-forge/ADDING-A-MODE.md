@@ -50,6 +50,7 @@ Forge.register({ id:"mymode", label:"My mode", /* … */ });
 | `chipSource` | `176` | source width the channel chips are rendered at |
 | `height16` | `true` | offer the 16-bit height PNG and include it in the zip |
 | `variants` | none | extra cuts of the same texture to pack beside the main one — see below |
+| `variantRoot` | none | names the folder the live build goes in, when the cuts are peers rather than one-with-a-feature-removed |
 | `preview` | see below | lighting constants for the GGX preview |
 
 ```js
@@ -76,6 +77,25 @@ parameters are put back and the panel rebuilt. Return `[]` — as the example do
 when there are no windows to remove — and the archive is exactly the flat one it
 has always been, no folders. Keep the switch a control the user can see: a mode
 that quietly doubles its export time is a mode nobody trusts.
+
+The live build goes in the bare `<fileBase>/` folder, which is right when there
+is an obvious *the one you asked for* among the cuts. When there is not — the
+hull's linked panels are several window layouts off one quilt, all peers —
+declare `variantRoot(P)` and that folder gets a name too:
+
+```js
+variantRoot:function(P){                    // -> {id,label} or null
+  if(setSize(P)<=1)return null;             // null keeps the bare folder
+  return {id:"p"+shownOf(P),label:"panel "+shownOf(P)};
+}
+```
+
+WHERE THE VARIANTS ARE A SET RATHER THAN A REMOVAL, put the whole description
+in ONE parameter and let `set` move only that. The hull's cuts are
+`{set:{linkShow:3}}` and nothing else; a function inside the mode turns that
+number into the window overrides. Spelling each cut out as its own bundle of
+overrides works until the day one of them reaches something it should not —
+here, anything that would change the plating the panels are supposed to share.
 
 `gain` scales the direct light, `amb` the sky term, `specK` the specular
 horizon rolloff, `skyLo`/`skyHi` the ambient gradient by normal Z.
@@ -207,8 +227,20 @@ size — anything over 1024 waits for the button instead of auto-rebuilding) and
 presets:[{id:"wet",label:"Wet night",set:{tileM:4,wet:0.75,puddles:0.7}}]
 ```
 
-`set` is control id → value; anything not listed keeps its current value, which
-is how the originals behaved.
+`set` is control id → value; anything not listed is reset to the value its
+control declares, so a preset describes a whole design rather than patching
+whatever was last on screen.
+
+```js
+presetKeep:["link","linkShow"]   // ids a preset's reset must not clear
+```
+
+`size`, `seed` and `face` are held back for every mode — they belong to the
+export, or to which face you happen to be looking at, rather than to the thing
+being described. `presetKeep` names more of your own: the hull holds its linked
+panel set, because clicking through twenty presets to find a look should not
+dismantle the export twenty times. A preset that names one of these in its own
+`set` still wins.
 
 ### Parameter hooks
 
@@ -216,12 +248,19 @@ is how the originals behaved.
 derive(P,ui)      // clamp or fix up parameters; ui.set(id,value) writes back to the form
 needs(P)          // -> ["road","kerb"]; drives row and group visibility
 readout(P)        // -> HTML for the {type:"readout"} row
+readouts          // {name:fn} -> HTML for each {type:"readout",id:"name"} row
 tileTag(P)        // -> the note in the bottom right of the stage
 sizeTag(P)        // -> extra status text, e.g. "2 m"
 autonote(P)       // -> override the line under the build button
 ```
 
 All are optional.
+
+A mode may have MORE THAN ONE READOUT. The unnamed `{type:"readout"}` row is
+filled by `readout(P)` and belongs at the top beside the size it describes; any
+`{type:"readout",id:"x"}` row is filled by `readouts.x(P)` and belongs beside
+the controls it is about. A reader who has to scroll back to the first group to
+find out what the fifth one just did will not scroll.
 
 ### Size and build
 
