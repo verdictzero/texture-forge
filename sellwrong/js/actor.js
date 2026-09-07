@@ -386,7 +386,11 @@ export class Actor {
     u.billboardRot.value = billboardRot;
     u.fullbright.value = (this.info.fullbright || this.state.fullbright) ? 1 : 0;
     u.light.value = this.sector ? this.sector.light : 0.7;
-    this.mesh.position.set(this.x, this.z + (entry.lift || 0), this.y);
+    /* A car in the back row of the car park has to diminish the way the
+       tarmac under it does, or it turns into a silhouette while the bay
+       around it stays lit. */
+    if (u.sky) u.sky.value = this.sector ? (this.sector.sky ?? (this.sector.outdoor ? 1 : 0)) : 0;
+    this.mesh.position.set(this.x, this.z + (entry.lift || 0), -this.y);
   }
 }
 
