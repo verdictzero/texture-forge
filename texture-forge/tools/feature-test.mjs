@@ -1344,8 +1344,9 @@ if (want("stage")) {
     const M = window.ForgeModel, out = [];
     for (const s of window.Forge.structures) {
       /* a town is not one building and has no front face to hand this; its own
-         section checks the winding of a whole town instead */
-      if (s.town) continue;
+         section checks the winding of a whole town instead — and a road is a
+         profile, not a box, checked by its own section too */
+      if (s.town || s.road) continue;
       const by = {};
       for (const step of s.steps) {
         const st = window.Forge.state(step.mode);
@@ -1379,7 +1380,7 @@ if (want("stage")) {
      checked by its own section, which asks the questions a town raises
      instead. */
   for (const s of await page.evaluate(() => window.Forge.structures
-        .filter(x => !x.town).map(x => ({ id: x.id, n: x.steps.length })))) {
+        .filter(x => !x.town && !x.road).map(x => ({ id: x.id, n: x.steps.length })))) {
     console.log(`  · ${s.id}`);
     await page.evaluate(n => {
       for (const st of window.Forge.structures.find(x => x.id === n).steps)
@@ -2215,6 +2216,395 @@ if (want("town")) {
   }
 }
 
+/* ============================ the road ============================
+   A road is a PROFILE swept along a PATH, and the claims are about both: that
+   the sweep is sound geometry — wound to its normals, closed down every open
+   edge, under a 16-bit index — and that the decay does what it says: nothing
+   in the middle, everything at the very end, edges before crown, and never a
+   hole in the side of what is left. Then the DESIGNER, driven the way a
+   person drives it: a node dragged with the mouse has to move in metres, a
+   double-click on a segment has to add one, and the mirror has to keep the
+   other side honest. And the archive, read back out of its own blob.
+   ========================================================================== */
+if (want("road")) {
+  console.log("\n— the road —");
+
+  /* ---- the engine on its own ---- */
+  const eng = await page.evaluate(() => {
+    const R = window.ForgeRoad;
+    if (!R) return { missing: true };
+    const wound = G => {
+      let bad = 0, tris = 0, biggest = 0;
+      for (const k in G.parts) for (const m of G.parts[k]) {
+        if (m.pos.length / 3 > biggest) biggest = m.pos.length / 3;
+        for (let i = 0; i < m.idx.length; i += 3) {
+          const a = m.idx[i] * 3, b = m.idx[i + 1] * 3, c = m.idx[i + 2] * 3;
+          const u = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+          const v = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+          const sn = [0, 1, 2].map(q => m.nrm[a + q] + m.nrm[b + q] + m.nrm[c + q]);
+          tris++;
+          if (!(n[0] * sn[0] + n[1] * sn[1] + n[2] * sn[2] > 0)) bad++;
+        }
+      }
+      return { bad, tris, biggest };
+    };
+    /* every open edge of the top skin, less the zero-length ones on the ends
+       of a vertical kerb face, which are not edges */
+    const edges = G => {
+      let e = 0; const nP = G.nP - 1, P = G.profile.pts;
+      const al = (i, j) => (i >= 0 && i < G.nS && j >= 0 && j < nP) ? G.alive[i * nP + j] : 0;
+      for (let i = 0; i < G.nS; i++) for (let j = 0; j < nP; j++) if (al(i, j)) {
+        const flat = Math.abs(P[j + 1].x - P[j].x) > 1e-9;
+        if (!al(i - 1, j) && flat) e++; if (!al(i + 1, j) && flat) e++;
+        if (!al(i, j - 1)) e++; if (!al(i, j + 1)) e++;
+      }
+      return e;
+    };
+    const base = { length: 60, res: 0.5, seed: 7, nodes: R.preset("two_lane") };
+    const sound = R.build(base), ws = wound(sound);
+    const dec = R.build(Object.assign({}, base, { decayB: 20 })), wd = wound(dec);
+    const st = dec.census.stations;
+    const both = R.build(Object.assign({}, base, { decayA: 15, decayB: 15 })).census.stations;
+    /* EDGES BEFORE CROWN: in the half-gone zone the outermost slabs should be
+       gone more often than the middle ones */
+    let edgeGone = 0, edgeN = 0, midGone = 0, midN = 0;
+    const nP = dec.nP - 1, pts = dec.profile.pts, half = Math.max(...pts.map(p => Math.abs(p.x)));
+    for (let i = 0; i < dec.nS; i++) {
+      const t = Math.max(dec.stations[i].d, dec.stations[i + 1].d);
+      if (t < 0.25 || t > 0.75) continue;
+      for (let j = 0; j < nP; j++) {
+        const xc = Math.abs(pts[j].x + pts[j + 1].x) / 2;
+        const g = dec.alive[i * nP + j] ? 0 : 1;
+        if (xc > half * 0.7) { edgeGone += g; edgeN++; } else if (xc < half * 0.3) { midGone += g; midN++; }
+      }
+    }
+    const bent = R.build(Object.assign({}, base, { bend: 90, rise: 3 }));
+    const end = bent.path.at(60);
+    const presets = R.PRESETS.map(p => {
+      const G = R.build(Object.assign({}, base, { nodes: R.preset(p.id), decayA: 6, decayB: 12 }));
+      const w = wound(G);
+      return { id: p.id, ok: w.bad === 0 && G.census.slabs > 0 && G.census.walls === edges(G), slabs: G.census.slabs,
+               width: R.extents(R.preset(p.id)).w };
+    });
+    let vmin = 1, vmax = 0;
+    for (const m of sound.parts.road) for (let i = 1; i < m.uv.length; i += 2) { vmin = Math.min(vmin, m.uv[i]); vmax = Math.max(vmax, m.uv[i]); }
+    /* THE CHUNKS LOSE HEIGHT TOWARD THE END, and the strewn pieces are of both
+       stuffs: measured off the census of every lump the sweep laid */
+    const lumps = dec.census.lumps;
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+    const near = mean(lumps.filter(l => l.t < 0.4).map(l => l.h)), far = mean(lumps.filter(l => l.t > 0.8).map(l => l.h));
+    const kinds = {}; for (const l of lumps) kinds[l.k] = (kinds[l.k] || 0) + 1;
+    return { ws, wd, sound: sound.census, dec: dec.census, edgesSound: edges(sound), edgesDec: edges(dec),
+             first: st[0], last: st[st.length - 1], mid: st[Math.floor(st.length / 2)],
+             soundRun: st.filter(s => s.s < 40).every(s => s.alive === s.of),
+             both: [both[0].alive, both[Math.floor(both.length / 2)].alive, both[both.length - 1].alive, both[0].of],
+             edgeShare: edgeN ? edgeGone / edgeN : 0, midShare: midN ? midGone / midN : 0,
+             endT: end.t, endY: end.p[1], presets, vmin, vmax,
+             lumps: lumps.length, near, far, kinds };
+  });
+  ok("the road engine is loaded", !eng.missing);
+  if (!eng.missing) {
+    ok("a profile sweeps into a road", eng.sound.slabs > 1000 && eng.sound.gone === 0,
+       `${eng.sound.slabs} slabs, ${eng.sound.walls} walls, ${eng.sound.base} of base`);
+    ok("every triangle is wound to its own normal", eng.ws.bad === 0 && eng.wd.bad === 0,
+       `${eng.ws.bad} of ${eng.ws.tris} backwards sound, ${eng.wd.bad} of ${eng.wd.tris} crumbled`);
+    ok("and no mesh can outgrow a 16-bit index", eng.ws.biggest < 65536 && eng.wd.biggest < 65536,
+       `${Math.max(eng.ws.biggest, eng.wd.biggest)} vertices in the biggest`);
+    /* THE ROAD IS SOLID: every edge of the top skin with nothing beside it —
+       the ends, the outside of the verge, and every ragged edge the decay
+       opens — has a wall down to the base, counted edge for edge */
+    ok("a sound road is walled only round its outside", eng.sound.walls === eng.edgesSound,
+       `${eng.sound.walls} walls for ${eng.edgesSound} open edges`);
+    ok("it crumbles to nothing at the end", eng.first.alive === eng.first.of && eng.last.alive === 0 && eng.soundRun,
+       `full for the first 40 m, ${eng.last.alive} of ${eng.last.of} slabs left at the end · ` +
+       `${eng.dec.gone} gone, ${eng.dec.debris} lumps of rubble`);
+    ok("and every ragged edge it opens is walled", eng.dec.walls === eng.edgesDec,
+       `${eng.dec.walls} walls for ${eng.edgesDec} open edges`);
+    ok("edges go before the crown", eng.edgeShare > eng.midShare + 0.15,
+       `in the half-gone zone ${(eng.edgeShare * 100).toFixed(0)}% of edge slabs are gone against ` +
+       `${(eng.midShare * 100).toFixed(0)}% in the middle`);
+    ok("or at both ends", eng.both[0] === 0 && eng.both[2] === 0 && eng.both[1] === eng.both[3],
+       `${eng.both[0]} / ${eng.both[1]} / ${eng.both[2]} of ${eng.both[3]} at start, middle and end`);
+    ok("a bend turns the road and a rise lifts it",
+       Math.abs(eng.endT[0] + 1) < 1e-6 && Math.abs(eng.endY - 3) < 1e-9,
+       `end tangent (${eng.endT.map(v => v.toFixed(2))}) after 90°, ${eng.endY} m up`);
+    ok("every preset profile sweeps clean", eng.presets.every(p => p.ok),
+       eng.presets.map(p => `${p.id} ${p.width.toFixed(1)} m`).join(", "));
+    ok("the surface texture spans the carriageway", Math.abs(eng.vmin) < 1e-6 && Math.abs(eng.vmax - 1) < 1e-6,
+       `v runs ${eng.vmin} to ${eng.vmax} across every run of road`);
+    ok("the shattered chunks lose height toward the end", eng.lumps > 40 && eng.near > eng.far * 1.6,
+       `${eng.lumps} lumps · ${(eng.near * 100).toFixed(0)} cm tall near the sound road, ${(eng.far * 100).toFixed(0)} cm at the far end`);
+    ok("and the rubble is broken asphalt AND concrete", (eng.kinds.road || 0) > 5 && (eng.kinds.kerb || 0) > 5,
+       Object.keys(eng.kinds).map(k => `${eng.kinds[k]} ${k}`).join(", "));
+  }
+
+  /* ---- the network: routes through nodes, junctions where they meet ---- */
+  const netE = await page.evaluate(() => {
+    const R = window.ForgeRoad;
+    const wound = G => {
+      let bad = 0, tris = 0, biggest = 0;
+      for (const k in G.parts) for (const m of G.parts[k]) {
+        if (m.pos.length / 3 > biggest) biggest = m.pos.length / 3;
+        for (let i = 0; i < m.idx.length; i += 3) {
+          const a = m.idx[i] * 3, b = m.idx[i + 1] * 3, c = m.idx[i + 2] * 3;
+          const u = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+          const v = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+          const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+          const sn = [0, 1, 2].map(q => m.nrm[a + q] + m.nrm[b + q] + m.nrm[c + q]);
+          tris++; if (!(n[0] * sn[0] + n[1] * sn[1] + n[2] * sn[2] > 0)) bad++;
+        }
+      }
+      return { bad, tris, biggest };
+    };
+    /* every open edge of every sweep, by that sweep's own flags: a link's
+       junction end and a corner's inner edge are joined to something and
+       carry no wall; everything else does */
+    const edges = G => {
+      let e = 0;
+      for (const sw of G.sweeps) {
+        const nP = sw.nP - 1;
+        const al = (i, j) => { if (j < 0) return sw.wallInner ? 0 : 1; if (j >= nP) return sw.wallOuter ? 0 : 1;
+          if (i < 0) return sw.wallStart ? 0 : 1; if (i >= sw.nS) return sw.wallEnd ? 0 : 1; return sw.alive[i * nP + j]; };
+        for (let i = 0; i < sw.nS; i++) for (let j = 0; j < nP; j++) if (al(i, j)) {
+          const P = sw.ptsOf(i), flat = Math.abs(P[j + 1].x - P[j].x) > 1e-9;
+          if (!al(i - 1, j) && flat) e++; if (!al(i + 1, j) && flat) e++; if (!al(i, j - 1)) e++; if (!al(i, j + 1)) e++;
+        }
+      }
+      return e;
+    };
+    const base = { res: 0.5, seed: 7, decayB: 0, nodes: R.preset("two_lane") };
+    const presets = R.NET_PRESETS.map(p => {
+      const G = R.buildNet(Object.assign({}, base, { net: R.netPreset(p.id) }));
+      const w = wound(G);
+      return { id: p.id, links: G.links.length, junctions: G.junctions.map(j => j.arms), fans: G.census.fans,
+               ok: w.bad === 0 && G.census.slabs > 0 && G.census.walls === edges(G) && w.biggest < 65536,
+               bad: w.bad, walls: G.census.walls, edges: edges(G), L: G.L };
+    });
+    /* the crossroads crumbles at its four free ends and nowhere else */
+    const Gc = R.buildNet(Object.assign({}, base, { net: R.netPreset("cross"), decayB: 15 }));
+    const ends = Gc.links.map(l => ({ a: l.a, b: l.b, first: l.sw.stations[0].alive,
+      last: l.sw.stations[l.sw.stations.length - 1].alive, of: l.sw.stations[0].of }));
+    const freeOnly = ends.every(e => (Gc.net.isFree[e.a] ? e.first === 0 : e.first === e.of) &&
+                                     (Gc.net.isFree[e.b] ? e.last === 0 : e.last === e.of));
+    /* a node's own say over its end */
+    const net = R.netPreset("tee"); net.nodes[3].crumble = 0; net.nodes[0].crumble = 20;
+    const Gt = R.buildNet(Object.assign({}, base, { net, decayB: 10 }));
+    const endOf = (l, n) => l.a === n ? l.sw.stations[0] : l.sw.stations[l.sw.stations.length - 1];
+    const l3 = Gt.links.find(l => l.a === 3 || l.b === 3), l0 = Gt.links.find(l => l.a === 0 || l.b === 0);
+    const say = endOf(l3, 3).alive === endOf(l3, 3).of && endOf(l0, 0).alive === 0;
+    /* the trim: every arm of a crossroads is cut back the same, and the fan is as
+       wide as the arms are apart */
+    const J = Gc.junctions[0];
+    const trims = J.trim;
+    const even = Math.max(...trims) - Math.min(...trims) < 1e-6;
+    return { presets, freeOnly, ends, say, trims, even, loop: J.loop };
+  });
+  ok("every plan preset sweeps clean, walled edge for edge", netE.presets.every(p => p.ok),
+     netE.presets.map(p => `${p.id}: ${p.links} links, ${p.junctions.length} junctions${p.junctions.length ? " (" + p.junctions.join("/") + " arms)" : ""}, ` +
+       `${p.bad} backwards, walls ${p.walls}/${p.edges}`).join(" · "));
+  ok("a crossroads is one junction of four arms with four corners and a fan",
+     netE.presets.find(p => p.id === "cross").junctions.join() === "4" && netE.presets.find(p => p.id === "cross").fans === 1 && netE.loop > 8,
+     `${netE.loop} points round the fan, arms trimmed ${netE.trims.map(t => t.toFixed(1)).join("/")} m`);
+  ok("and its four arms are trimmed alike", netE.even, netE.trims.map(t => t.toFixed(2)).join(" "));
+  ok("the network crumbles at its free ends and nowhere else", netE.freeOnly,
+     netE.ends.map(e => `${e.a}->${e.b}: ${e.first}/${e.last} of ${e.of}`).join("  "));
+  ok("and a node has the last word on its own end", netE.say, "node 3 at 0 m keeps every slab, node 0 at 20 m has none");
+
+  /* ---- the designer, driven by hand ---- */
+  await page.evaluate(() => {
+    for (const st of window.Forge.structures.find(x => x.id === "road").steps)
+      window.Forge.setParam(st.mode, "size", 256);
+  });
+  await page.click('[data-struct="road"]');
+  await settle();
+  await page.waitForTimeout(400);
+  ok("the road opens on its 3D view with its own bar",
+     await page.evaluate(() => !document.getElementById("roadbar").hidden &&
+                                document.getElementById("solid").classList.contains("on") &&
+                                !!window.Forge.road().G));
+  const stage = await page.evaluate(() => window.ForgeStage.debug());
+  ok("and the stage holds the road, its ground and the scale grid",
+     stage.meshes.some(m => m.name === "road") && stage.meshes.some(m => m.name.startsWith("ground")) &&
+     stage.meshes.some(m => m.name === "grid") && stage.faces.includes("grid"),
+     stage.meshes.map(m => m.name + " " + m.tris).join(", "));
+
+  await page.click('[data-roadview="section"]');
+  await page.waitForTimeout(300);
+  const secOn = await page.evaluate(() => ({
+    on: document.getElementById("section").classList.contains("on"),
+    solid: document.getElementById("solid").classList.contains("on") }));
+  ok("the section takes the stage's place", secOn.on && !secOn.solid);
+  /* a node, dragged with the mouse, moves in METRES — through the frame the
+     designer itself uses, so the claim is about the hands and not the maths */
+  const drag = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), nodes = r.nodes();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect();
+    const k = b.width / cv.width;
+    let i = -1;   // a right-side node clear of the centre and its neighbours: the kerb top
+    for (let n = 0; n < nodes.length; n++) if (nodes[n].x > 3 && nodes[n].x < 4 && nodes[n].y > 0.1) { i = n; break; }
+    const p = fr.toPx(nodes[i].x, nodes[i].y);
+    const q = fr.toPx(nodes[i].x + 0.5, nodes[i].y + 0.10);
+    return { i, was: { x: nodes[i].x, y: nodes[i].y }, from: [b.left + p[0] * k, b.top + p[1] * k],
+             to: [b.left + q[0] * k, b.top + q[1] * k], n: nodes.length };
+  });
+  await page.mouse.move(drag.from[0], drag.from[1]);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  /* the target is read off the frame AFTER the pointer is down, because that
+     is the frame the drag is worked through — a bar that re-wrapped on the
+     click would otherwise have moved the picture under a target computed
+     before it */
+  const to = await page.evaluate(([i, dx, dy]) => {
+    const r = window.Forge.road(), fr = r.frame(), n = r.nodes()[i];
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const q = fr.toPx(n.x + dx, n.y + dy);
+    return [b.left + q[0] * k, b.top + q[1] * k];
+  }, [drag.i, 0.5, 0.10]);
+  await page.mouse.move(to[0], to[1], { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(i => {
+    const nodes = window.Forge.road().nodes(), n = nodes.length;
+    return { x: nodes[i].x, y: nodes[i].y, mx: nodes[n - 1 - i].x, my: nodes[n - 1 - i].y, sel: window.Forge.road().R.sel, n };
+  }, drag.i);
+  ok("a node dragged with the mouse moves in metres",
+     Math.abs(after.x - (drag.was.x + 0.5)) < 0.06 && Math.abs(after.y - (drag.was.y + 0.10)) < 0.03,
+     `node ${drag.i} from ${drag.was.x.toFixed(2)}, ${drag.was.y.toFixed(2)} to ${after.x.toFixed(2)}, ${after.y.toFixed(2)} m — asked for +0.50, +0.10`);
+  ok("and the mirror moves its twin", Math.abs(after.mx + after.x) < 1e-6 && Math.abs(after.my - after.y) < 1e-6 && after.n === drag.n,
+     `twin at ${after.mx.toFixed(2)}, ${after.my.toFixed(2)}`);
+  /* a double-click on a segment adds a node, on both sides */
+  const add = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), nodes = r.nodes();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    /* the middle of the right-hand carriageway segment, where nothing else is */
+    let i = -1; for (let n = 0; n < nodes.length - 1; n++) if (nodes[n].k === "road" && nodes[n].x >= 0 && nodes[n + 1].x > 1) { i = n; break; }
+    const p = fr.toPx((nodes[i].x + nodes[i + 1].x) / 2, (nodes[i].y + nodes[i + 1].y) / 2);
+    return { n: nodes.length, at: [b.left + p[0] * k, b.top + p[1] * k] };
+  });
+  await page.mouse.dblclick(add.at[0], add.at[1]);
+  await page.waitForTimeout(300);
+  const added = await page.evaluate(() => window.Forge.road().nodes().length);
+  ok("a double-click on a segment adds a node to both sides", added === add.n + 2, `${add.n} nodes became ${added}`);
+  ok("and the road on the stage followed the edit",
+     await page.evaluate(() => { const r = window.Forge.road(); return !!r.G && r.G.nP > 0; }));
+
+  await page.click('[data-roadview="plan"]');
+  await page.waitForTimeout(300);
+  const plan = await page.evaluate(() => {
+    const cv = document.getElementById("section"), g = cv.getContext("2d");
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0; for (let i = 0; i < d.length; i += 16) if (d[i] + d[i + 1] + d[i + 2] > 120) lit++;
+    return { lit, of: d.length / 16 };
+  });
+  ok("the plan view draws the road", plan.lit > plan.of * 0.02, `${(plan.lit / plan.of * 100).toFixed(0)}% of the canvas lit`);
+  /* A ROUTE DRAWN BY HAND. Three clicks on the ground in draw mode, the last
+     on an existing node of the straight road, and Enter: a new route whose
+     end is a T-junction, built and walled like any other. Through the
+     frame the plan draws with, so the claim is about the hands. */
+  const start = await page.evaluate(() => { const r = window.Forge.road(); return { nodes: r.net().nodes.length, routes: r.net().routes.length, junctions: r.G.junctions.length }; });
+  await page.click('[data-roadtool="draw"]');
+  const clicks = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), net = r.net();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const P = (x, z) => { const p = fr.toPx(x, z); return [b.left + p[0] * k, b.top + p[1] * k]; };
+    /* off to the right of the straight road, then in to its middle node-to-be:
+       the straight road has nodes at z=0 and z=60, so we aim at (0,30) — not a
+       node, so the draw tool lays one there and the road passes through it
+       without a junction; then we join to the existing end node */
+    const end = net.nodes[1];
+    return { a: P(40, 20), b: P(25, 40), c: P(end.x, end.z) };
+  });
+  await page.mouse.click(clicks.a[0], clicks.a[1]);
+  await page.waitForTimeout(120);
+  await page.mouse.click(clicks.b[0], clicks.b[1]);
+  await page.waitForTimeout(120);
+  await page.mouse.click(clicks.c[0], clicks.c[1]);
+  await page.waitForTimeout(120);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  const drawn = await page.evaluate(() => {
+    const r = window.Forge.road(), net = r.net(), G = r.G;
+    return { nodes: net.nodes.length, routes: net.routes.length, last: net.routes[net.routes.length - 1],
+             junctions: G ? G.junctions.map(j => j.arms) : [], links: G ? G.links.length : 0, tool: r.R.tool,
+             isJ: G ? G.net.isJ : [] };
+  });
+  ok("a route drawn by hand joins the road at a junction",
+     drawn.nodes === start.nodes + 2 && drawn.routes === start.routes + 1 && drawn.last.length === 3 &&
+     drawn.junctions.length === start.junctions + 1 && drawn.links === 2,
+     `${start.nodes} nodes became ${drawn.nodes}, ${start.routes} routes ${drawn.routes} · route ${drawn.last.map(x => x + 1).join("-")} ` +
+     `· junctions ${drawn.junctions.join("/")} arms · ${drawn.links} links · tool back to ${drawn.tool}`);
+  /* and a node dragged onto another becomes it: the two free ends of the new
+     route's start and the straight road's start, joined into a bend */
+  const join = await page.evaluate(() => {
+    const r = window.Forge.road(), fr = r.frame(), net = r.net();
+    const cv = document.getElementById("section"), b = cv.getBoundingClientRect(), k = b.width / cv.width;
+    const P = n => { const p = fr.toPx(n.x, n.z); return [b.left + p[0] * k, b.top + p[1] * k]; };
+    /* the new route's START — a free end — onto the straight road's start:
+       two routes then run between the same two nodes, one straight and one
+       round by the third node, a loop with a two-armed junction at each end.
+       (Not the middle node: that would lay the new route along the straight
+       road's own line, two roads on one ground, which is a plan nobody means.) */
+    const from = net.nodes[net.nodes.length - 2], to = net.nodes[0];
+    return { from: P(from), to: P(to), n: net.nodes.length, was: net.routes.map(x => x.slice()) };
+  });
+  await page.mouse.move(join.from[0], join.from[1]);
+  await page.mouse.down();
+  await page.mouse.move(join.to[0], join.to[1], { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const joined = await page.evaluate(() => {
+    const r = window.Forge.road(), net = r.net(), G = r.G;
+    return { n: net.nodes.length, routes: net.routes, junctions: G ? G.junctions.map(j => j.arms) : [], links: G ? G.links.length : 0 };
+  });
+  ok("and a node dropped on another joins them, closing the two routes into a loop",
+     joined.n === join.n - 1 && joined.junctions.slice().sort().join() === "2,2" && joined.links === 2,
+     `${join.n} nodes became ${joined.n} · junctions of ${joined.junctions.join("/")} arms · ${joined.links} links`);
+  await page.click('[data-roadview="3d"]');
+
+  /* ---- the archive, read back ---- */
+  const before = errors.length;
+  await page.click("#wiz-all");
+  for (let i = 0; i < 600; i++) {
+    const t = await page.$eval("#status", n => n.textContent);
+    if (/packed|Could not/.test(t)) break;
+    await page.waitForTimeout(250);
+  }
+  const zip = await page.evaluate(async () => {
+    const a = document.getElementById("zipsave");
+    if (a.hidden) return { names: [] };
+    const buf = new Uint8Array(await (await fetch(a.href)).arrayBuffer());
+    const dv = new DataView(buf.buffer), names = [], sizes = {};
+    for (let i = 0; i + 30 < buf.length; i++) {
+      if (dv.getUint32(i, true) !== 0x04034b50) continue;
+      const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true), size = dv.getUint32(i + 18, true);
+      const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+      names.push(name); sizes[name] = size;
+      if (name === "model.gltf") sizes.gltfText = new TextDecoder().decode(buf.subarray(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size));
+      i += 30 + nLen + xLen + size - 1;
+    }
+    return { names, sizes, name: a.getAttribute("download") };
+  });
+  const gl = zip.sizes && zip.sizes.gltfText ? JSON.parse(zip.sizes.gltfText) : null;
+  ok("the road packs into one archive with the grid",
+     zip.names.includes("model.gltf") && zip.names.includes("grid.png") && zip.names.some(n => n.startsWith("surface/")),
+     `${zip.names.length} entries · ${zip.name}`);
+  ok("and the glTF is the road, its junctions, its ground and the grid, at true scale",
+     !!gl && gl.meshes.some(m => m.name === "road") && gl.meshes.some(m => m.name.startsWith("ground")) &&
+     gl.meshes.some(m => m.name === "junction") &&
+     gl.meshes.some(m => m.name === "grid") && gl.materials.some(m => m.name === "grid") &&
+     gl.images.some(im => im.uri === "grid.png") &&
+     /* tens of metres of it, less what the two junctions trimmed back */
+     (() => { const p = gl.accessors[gl.meshes.find(m => m.name === "road").primitives[0].attributes.POSITION]; return p.max[2] - p.min[2] > 30; })(),
+     gl ? `${gl.meshes.length} meshes (${gl.meshes.map(m => m.name).join(", ")}), ${gl.materials.length} materials, ${gl.images.length} images` +
+          (() => { const rm = gl.meshes.find(m => m.name === "road"); if (!rm) return " · no road mesh";
+                   const p = gl.accessors[rm.primitives[0].attributes.POSITION]; return ` · road z ${p.min[2].toFixed(1)}..${p.max[2].toFixed(1)}`; })()
+        : "no glTF");
+  ok("no errors while packing the road", errors.length === before, errors.slice(before).join(" | "));
+  await page.click("#wiz-exit");
+  await page.waitForTimeout(200);
+}
+
 /* ============================ the hull's windows ============================
    Nothing that holds pressure has square corners — a corner is where the hoop
    stress goes to find something to tear — so every port cut in a real hull is
@@ -2287,7 +2677,7 @@ if (want("hull")) {
     }, [P.winRows, P.winPitch, P.tileM]);
   };
 
-  const V = await panes({ winShape: "vcap", winRound: 0 });
+  const V = await panes({ winShape: "auto", winRound: 0 });
   const found = V.panes.filter(Boolean);
   ok("the hull cuts windows", found.length >= 10,
      `${found.length} panes of ${V.panes.length} cells`);
@@ -2297,18 +2687,38 @@ if (want("hull")) {
      "their own bounding box — a rectangle fills it, a capsule cannot");
   ok("and it stands upright when asked to",
      found.every(p => p.dv > p.du * 1.4),
-     `reach ${found[0].du} across, ${found[0].dv} along`);
+     `${found[0].du} px wide by ${found[0].dv} tall`);
 
-  const H = await panes({ winShape: "hcap", winRound: 0 });
+  /* WIDTH IS ACROSS THE HULL AND HEIGHT IS UP IT, whichever way the pane lies,
+     so the shape falls out of the two numbers and there is nothing left for an
+     orientation control to decide. Swapping them has to swap the pane. */
+  const H = await panes({ winShape: "auto", winRound: 0, winW: 1.8, winH: 0.8 });
   const hFound = H.panes.filter(Boolean);
-  ok("the same shape lies down when asked to",
+  ok("swapping the two numbers lies the same shape down",
      hFound.length > 0 && hFound.every(p => p.du > p.dv * 1.4) && hFound.every(p => !p.corner),
-     `reach ${hFound[0].du} across, ${hFound[0].dv} along — and still no corner`);
+     `${hFound[0].du} px wide by ${hFound[0].dv} tall off 1.8 × 0.8 m — and still no corner`);
+  /* and the orientation control only OVERRIDES: same numbers, forced flat */
+  const F = await panes({ winShape: "hcap", winRound: 0, winW: 0.8, winH: 1.8 });
+  const fFound = F.panes.filter(Boolean);
+  ok("and forcing the lie overrides them",
+     fFound.length > 0 && fFound.every(p => p.du > p.dv * 1.4),
+     `${fFound[0].du} px wide by ${fFound[0].dv} tall off a tall 0.8 × 1.8 m pane`);
+
+  /* HEIGHT IS THE CONTROL FOR HOW TALL A WINDOW IS, always — it used to be
+     "along", meaning along the pane's own straight section, which on a lying
+     capsule is the horizontal one. So raising it has to raise the pane. */
+  const short = await panes({ winShape: "auto", winRound: 0, winH: 1.0 });
+  const tall = await panes({ winShape: "auto", winRound: 0, winH: 2.6 });
+  const mid = a => a.panes.filter(Boolean)[0];
+  ok("height makes a window taller and leaves its width alone",
+     mid(tall).dv > mid(short).dv * 2 && Math.abs(mid(tall).du - mid(short).du) <= 1,
+     `${mid(short).dv} px tall at 1 m, ${mid(tall).dv} at 2.6 — ` +
+     `width ${mid(short).du} and ${mid(tall).du} px throughout`);
 
   /* A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION, which is what lets
      the round ones sit in a row of slots and belong to it: same radius, same
      reveal, same glass. So at one, every pane is as wide as it is tall. */
-  const R = await panes({ winShape: "vcap", winRound: 1 });
+  const R = await panes({ winShape: "auto", winRound: 1 });
   const rFound = R.panes.filter(Boolean);
   const round = p => Math.abs(p.dv - p.du) <= Math.max(1, p.du * 0.25);
   ok("all round when the fraction is one",
@@ -2318,7 +2728,7 @@ if (want("hull")) {
      rFound.length > 0 && found.length > 0 && Math.abs(rFound[0].du - found[0].du) <= 1,
      `circle reaches ${rFound[0].du}, capsule reaches ${found[0].du} — the same radius`);
 
-  const M = await panes({ winShape: "vcap", winRound: 0.5 });
+  const M = await panes({ winShape: "auto", winRound: 0.5 });
   const mFound = M.panes.filter(Boolean);
   const nRound = mFound.filter(round).length;
   ok("and scattered through the rows in between",
@@ -2332,7 +2742,7 @@ if (want("hull")) {
      unlit pane has to be a whole material in the channels that do not care
      whether anything is switched on behind it — which is the claim, and it is
      checked with the emissive turned off completely. */
-  const D = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+  const D = await panes({ winShape: "auto", winRound: 0, winLit: 0, winGlow: 0,
                           winGrime: 0.5, winGrimeW: 0.45 });
   ok("with every window unlit the emissive is empty", D.emiMax === 0,
      `brightest emissive texel ${D.emiMax}`);
@@ -2347,7 +2757,7 @@ if (want("hull")) {
      dirty.length > 0 && dirty.every(p => p.rEdge > p.rMid + 8 && p.mEdge < p.mMid - 8),
      `edge ${dirty[0].rEdge} rough / ${dirty[0].mEdge} metallic against ` +
      `${dirty[0].rMid} / ${dirty[0].mMid} in the middle of the same pane`);
-  const clean = await panes({ winShape: "vcap", winRound: 0, winLit: 0, winGlow: 0,
+  const clean = await panes({ winShape: "auto", winRound: 0, winLit: 0, winGlow: 0,
                               winGrime: 0 });
   const flat = clean.panes.filter(Boolean);
   ok("and turning the grime off takes it away",
@@ -2364,7 +2774,7 @@ if (want("hull")) {
        nearest divisor. Twelve metres at a one-metre pitch is twelve panes,
        which three divides exactly — ask on a pitch it does not and the mode is
        right to give you two and the test would be wrong to complain. */
-    const R2 = await panes({ winShape: "vcap", winRound: 0, winLit: 0.5, winGlow: 1,
+    const R2 = await panes({ winShape: "auto", winRound: 0, winLit: 0.5, winGlow: 1,
                              winGrime: 0, winRoom: n, winPitch: 1.0 });
     const lit = R2.panes.map(p => p ? (p.emi > 0 ? 1 : 0) : null);
     let breaks = 0, runs = 0;
@@ -2484,15 +2894,412 @@ if (want("hull")) {
      `${flush.panes.filter(p => p.lipPx > 0).length} of ${flush.panes.length} panes still ` +
      `stand proud at 0 mm of relief`);
 
+  /* ========================= the preset library =========================
+     A preset that does not build, or that builds the same picture as the one
+     next to it, is worse than no preset — it is a button that lies about what
+     the mode can do. So every one of them is walked: forged, fingerprinted on
+     the pixels it actually made, and checked against its own promise about
+     windows. The fingerprint is deliberately coarse (channel means and a
+     coarse spatial hash) so two presets that differ only in seed noise would
+     still collide — the claim is that they differ in DESIGN. */
+  const presets = await page.evaluate(() =>
+    [...document.querySelectorAll("#panel-hull [data-preset]")].map(b => b.dataset.preset));
+  const seen = [];
+  /* size survives a preset (it is a rig setting, not a design), so the walk is
+     done small — and the build is FORCED rather than waited for: a preset queues
+     its rebuild on a debounce, so settling on the old build's flags reads the
+     previous preset's pixels against this one's parameters, which is exactly
+     the off-by-one this test caught itself making. */
+  await page.evaluate(() => window.Forge.setParam("hull", "size", 512));
+  for (const id of [...new Set(presets)]) {
+    await page.click(`#panel-hull [data-preset="${id}"]`);
+    await page.evaluate(() => { window.Forge.active().built = false; });
+    await page.click("#hull--forge");
+    await settle();
+    seen.push(await page.evaluate(i => {
+      const st = window.Forge.active(), B = st.B, S = B.W;
+      const mean = a => { let t = 0; for (let k = 0; k < a.length; k++) t += a[k]; return t / a.length; };
+      /* a coarse spatial hash: an 8x8 grid of channel means, so two presets
+         with the same average but a different design still separate */
+      let sig = "";
+      for (let gy = 0; gy < 8; gy++) for (let gx = 0; gx < 8; gx++) {
+        let t = 0, n = 0;
+        for (let y = gy * S >> 3; y < (gy + 1) * S >> 3; y += 4)
+          for (let x = gx * S >> 3; x < (gx + 1) * S >> 3; x += 4) { t += B.RGH[y * S + x]; n++; }
+        sig += Math.round(t / n / 4) + ",";
+      }
+      /* A PANE IS METAL THE HULL IS NOT, which is not the same as "a pane is
+         bright": the derelict's glass is deliberately dull, so the pane is
+         counted against THIS preset's own hull metalness rather than against a
+         number that only fits the default. */
+      const hullMet = Math.round(st.P.metalness * 255);
+      let glass = 0;
+      for (let k = 0; k < B.MET.length; k++) if (Math.abs(B.MET[k] - hullMet) > 40) glass++;
+      /* the spread of a channel, so a preset that made a flat grey is caught */
+      const spread = a => { const m = mean(a); let v = 0;
+        for (let k = 0; k < a.length; k += 7) v += (a[k] - m) * (a[k] - m);
+        return Math.sqrt(v / (a.length / 7)); };
+      return { id: i, built: !!st.built, glass, wantGlass: (st.P.winRows | 0) > 0,
+               sig, rgh: spread(B.RGH), alb: spread(B.A), tile: st.P.tileM };
+    }, id));
+  }
+  ok("the preset library is a library", seen.length >= 16,
+     `${seen.length} presets, tiles from ${Math.min(...seen.map(p => p.tile))} to ` +
+     `${Math.max(...seen.map(p => p.tile))} m`);
+  ok("and every one of them builds", seen.every(p => p.built),
+     `${seen.filter(p => !p.built).length} failed to forge`);
+  ok("and none of them is a flat grey",
+     seen.every(p => p.rgh > 4 && p.alb > 1.5),
+     `weakest roughness spread ${Math.min(...seen.map(p => p.rgh)).toFixed(1)}, ` +
+     `weakest albedo ${Math.min(...seen.map(p => p.alb)).toFixed(1)}`);
+  ok("and no two of them make the same picture",
+     new Set(seen.map(p => p.sig)).size === seen.length,
+     `${new Set(seen.map(p => p.sig)).size} distinct designs among ${seen.length} presets`);
+  const liars = seen.filter(p => p.wantGlass ? !(p.glass > 200) : p.glass !== 0);
+  ok("and each one keeps its own word about windows", liars.length === 0,
+     `${seen.filter(p => p.wantGlass).length} with glass, ` +
+     `${seen.filter(p => !p.wantGlass).length} of plain plating` +
+     (liars.length ? " — " + liars.map(p => `${p.id} says ${p.wantGlass} but cut ` +
+       `${p.glass}`).join(", ") : ", none disagreeing"));
+
+  /* ============== the panel and the blank plating, in one archive ==========
+     A hull run needs the plating WITH windows and the plain plating to put
+     between the window bands, off the same seed and the same quilt. Forging
+     one, exporting, dropping the bands to zero, forging again and exporting
+     again is four steps to get two files that differ by one parameter — and
+     four steps every time the seed moves.
+
+     The archive is read back out of its own blob and its entry names listed,
+     because "the export button did not throw" is not the claim. The claim is
+     that two complete cuts came out of one press, that the second one has no
+     windows in it, and that the panel on screen afterwards is the one that was
+     there before — an export that leaves your parameters somewhere else is
+     worse than no export. */
+  const archive = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({ size: 512, tileM: 12, winRows: 2, winPitch: 2.0,
+                                        winW: 0.8, winH: 1.8, winBlank: true, winRound: 0.28,
+                                        winShape: "auto", winMetal: 0.85, metalness: 0.15,
+                                        winGrime: 0, winLit: 0.5, winGlow: 0.8 }, set));
+    await page.click("#hull--forge");
+    await settle();
+    await page.click("#zipall");
+    await page.waitForFunction(() => !document.getElementById("zipsave").hidden,
+                               null, { timeout: 180000 });
+    return await page.evaluate(async () => {
+      const st = window.Forge.active();
+      const buf = new Uint8Array(await (await fetch(st.zipUrl)).arrayBuffer());
+      /* store-only zip, so every entry is a local header we can walk to */
+      const dv = new DataView(buf.buffer), names = [], entries = {};
+      for (let i = 0; i + 30 < buf.length; i++) {
+        if (dv.getUint32(i, true) !== 0x04034b50) continue;
+        const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true);
+        const size = dv.getUint32(i + 18, true);
+        const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+        names.push(name);
+        entries[name] = buf.slice(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size);
+        i += 30 + nLen + xLen + size - 1;
+      }
+      /* AND THE SECOND CUT REALLY HAS NO WINDOWS IN IT. Folder names are not
+         the claim — the pixels are, so the packed metallic map is decoded and
+         its glass counted, the same 0.85-against-0.15 cheat the shape tests
+         read. */
+      const glass = async n => {
+        const bm = await createImageBitmap(new Blob([entries[n]], { type: "image/png" }));
+        const cv = new OffscreenCanvas(bm.width, bm.height), cx = cv.getContext("2d");
+        cx.drawImage(bm, 0, 0);
+        const d = cx.getImageData(0, 0, bm.width, bm.height).data;
+        let k = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200) k++;
+        return k;
+      };
+      const met = {};
+      for (const n of names) if (n.endsWith("_metallic.png")) met[n.split("/")[0]] = await glass(n);
+      return { names, met, winRows: st.P.winRows, built: !!st.built,
+               panes: (() => { let n = 0; for (let k = 0; k < st.B.MET.length; k++)
+                                            if (st.B.MET[k] > 128) n++; return n; })() };
+    });
+  };
+  const AR = await archive({});
+  const dirs = [...new Set(AR.names.map(n => n.split("/")[0]))].filter(d => d.includes("/") === false);
+  const blankDir = dirs.find(d => d.endsWith("_blank"));
+  ok("one press packs the panel and the blank plating",
+     dirs.length === 2 && !!blankDir,
+     `${AR.names.length} entries in ${dirs.length} folders — ${dirs.join(", ")}`);
+  const per = d => AR.names.filter(n => n.startsWith(d + "/")).length;
+  ok("and the second cut really has no windows in it",
+     (() => { const p = AR.met[dirs.find(d => !d.endsWith("_blank"))],
+                    b = AR.met[blankDir];
+              return p > 500 && b === 0; })(),
+     `${AR.met[dirs.find(d => !d.endsWith("_blank"))]} texels of glass in the packed ` +
+     `metallic map of the panel, ${AR.met[blankDir]} in the blank plating`);
+  ok("and each cut is a whole export of its own",
+     dirs.every(d => per(d) === per(dirs[0]) && per(d) >= 12) &&
+     dirs.every(d => AR.names.includes(d + "/model.gltf")) &&
+     dirs.every(d => AR.names.some(n => n.startsWith(d + "/") && n.endsWith("_readme.txt"))),
+     `${per(dirs[0])} files each — maps, 16-bit height, readme and geometry in both`);
+  ok("and the panel is put back exactly as it was",
+     AR.winRows === 2 && AR.built && AR.panes > 500,
+     `bands back at ${AR.winRows} with ${AR.panes} texels of glass on screen`);
+  /* AND THE SWITCH IS A SWITCH: off, and the archive is the one cut it always was */
+  const ONE = await archive({ winBlank: false });
+  ok("and turning it off packs one cut, in no folder at all",
+     ONE.names.every(n => !n.includes("/")) && ONE.names.length >= 12,
+     `${ONE.names.length} entries, none of them in a folder`);
+
   /* A PANE LONGER THAN ITS OWN CELL runs into its neighbour and a row of
      windows becomes one lit stripe, so both axes are clamped to the pitch. */
-  const B2 = await panes({ winShape: "vcap", winRound: 0, winH: 4, winW: 3 });
+  const B2 = await panes({ winShape: "auto", winRound: 0, winH: 4, winW: 3 });
   const bFound = B2.panes.filter(Boolean);
   const cellPx = 512 / B2.nCols;
   ok("a pane too big for its pitch is cut down to fit",
      bFound.length > 0 && bFound.every(p => p.du * 2 < cellPx),
      `asked for 3 m across on a ${(12 / B2.nCols).toFixed(1)} m pitch; ` +
      `reaches ${bFound[0].du} px of a ${cellPx.toFixed(0)} px cell`);
+}
+
+/* ==================== a set of panels off one quilt ====================
+   One tile on a hull is a repeat you can count. The quilt hides its own repeat
+   — it is a specular effect a millimetre deep — but the windows hide nothing,
+   and the same four lit rooms at the same height forty times along a saucer
+   rim is what gives a tiled hull away. So the mode packs SEVERAL panels off
+   one quilt: two or three window layouts and a stretch of plain plating, any
+   of which butts against any other.
+
+   THE CLAIM IS THE BORDER, and it is measured as one. Everything else here —
+   the layouts, the archive, the height scale — is a detail of a set whose
+   panels do not actually meet. The cells divide the tile, a pane is held to
+   90% of its cell and its collar to 96%, so the whole border of every panel is
+   plain plating carved from the one quilt: byte for byte, in every channel,
+   including the ambient occlusion that is blurred across a fortieth of it.
+   ====================================================================== */
+if (want("linked")) {
+  console.log("\n— a set of panels off one quilt —");
+  await page.click('#modebar-tabs [data-mode="hull"]');
+  await settle();
+
+  /* pinned down far enough that the section is hermetic — one of these tests
+     clicks a preset on purpose, and everything after it would otherwise be
+     measuring that preset's plate relief */
+  const BASE = { size: 512, tileM: 12, seed: 1701, rows: 16, colsMin: 4, colsMax: 9,
+                 subdiv: 0.55, subdepth: 2, bays: 3, plateH: 1.5, scribeW: 25, scribeD: 5,
+                 winRows: 2, winPitch: 2.0, winW: 0.8, winH: 1.8, winShape: "auto",
+                 winRound: 0.28, winFrame: 0.35, winLipH: 14,
+                 winLit: 0.6, winRoom: 2, winGlow: 0.8, winGrime: 0.45, winSeed: 0,
+                 winMetal: 0.85, metalness: 0.15, hatch: 0.15,
+                 link: 3, link2: "draw", link3: "blank", linkShow: 1 };
+  const forge = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({}, BASE, set));
+    await page.click("#hull--forge");
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, S = B.W;
+      /* every channel along all four edges of the tile, in one list: this is
+         the whole seamlessness claim and it is one comparison */
+      const edge = [];
+      const at = (x, y) => { const i = y * S + x;
+        edge.push(B.A[i*3], B.A[i*3+1], B.A[i*3+2], B.NRM[i*3], B.NRM[i*3+1], B.NRM[i*3+2],
+                  B.RGH[i], B.MET[i], B.AO[i], B.EMI ? B.EMI[i] : 0); };
+      for (let x = 0; x < S; x++) { at(x, 0); at(x, S - 1); }
+      for (let y = 0; y < S; y++) { at(0, y); at(S - 1, y); }
+      /* the grid this panel actually cut, counted off the glass rather than
+         off the parameters — a layout that says "one band more" and draws two
+         is exactly what this is here to catch */
+      const rowHas = [], glassAt = (x, y) => B.MET[y * S + x] > 128;
+      let glass = 0, emi = 0;
+      for (let y = 0; y < S; y++) { let any = false;
+        for (let x = 0; x < S; x++) if (glassAt(x, y)) { any = true; glass++; }
+        rowHas.push(any); }
+      for (let i = 0; i < S * S; i++) if (B.EMI && B.EMI[i] > 10) emi++;
+      const runs = a => { let n = 0; for (let i = 0; i < a.length; i++)
+        if (a[i] && !a[(i - 1 + a.length) % a.length]) n++; return n; };
+      const bands = runs(rowHas);
+      let across = 0;
+      if (bands) {                       // count the panes across the first band's middle
+        let s0 = rowHas.indexOf(true), e0 = s0;
+        while (e0 + 1 < S && rowHas[e0 + 1]) e0++;
+        const mid = (s0 + e0) >> 1, colHas = [];
+        for (let x = 0; x < S; x++) colHas.push(glassAt(x, mid));
+        across = runs(colHas);
+      }
+      return { edge: edge.join(","), hMin: B.hMin, hMax: B.hMax,
+               glass, emi, bands, across };
+    });
+  };
+
+  const P1 = await forge({ linkShow: 1 });
+  const P2 = await forge({ linkShow: 2 });
+  const P3 = await forge({ linkShow: 3 });
+  ok("every panel of a set has the same border, in every channel",
+     P1.edge === P2.edge && P1.edge === P3.edge,
+     `${P1.edge.split(",").length} samples round all four edges — base colour, normal, ` +
+     "roughness, metallic, AO and emissive — identical across the windowed panel, the " +
+     "re-drawn one and the blank plating");
+  ok("and the windows really did move",
+     P1.glass > 500 && P2.glass > 500 && P1.emi !== P2.emi && P3.glass === 0,
+     `${P1.glass} texels of glass lit in ${P1.emi} on panel 1, ${P2.glass}/${P2.emi} on ` +
+     `panel 2's own draw, ${P3.glass} on the plain plating`);
+  ok("and every cut is on one height scale",
+     Math.abs(P1.hMin - P3.hMin) < 1e-12 && Math.abs(P1.hMax - P3.hMax) < 1e-12 &&
+     Math.abs(P1.hMin - P2.hMin) < 1e-12 && Math.abs(P1.hMax - P2.hMax) < 1e-12,
+     `all three span ${P1.hMin.toFixed(6)}..${P1.hMax.toFixed(6)} — blank plating ` +
+     "normalised to its own shallow range would step against the panel beside it");
+
+  /* THE LAYOUTS DO WHAT THEY SAY, counted off the glass. A vocabulary of names
+     is only worth having if a name means one thing. */
+  const L = {};
+  for (const [id, key] of [["draw", "l2"], ["dark", "l3"], ["round", "l4"],
+                           ["sparse", "l5"], ["dense", "l6"], ["fewer", "l7"], ["more", "l8"]])
+    L[id] = await forge({ link: 2, link2: id, linkShow: 2 });
+  ok("the same-grid layouts leave the grid alone",
+     ["draw", "dark", "round"].every(k => L[k].bands === P1.bands && L[k].across === P1.across),
+     `panel 1 cut ${P1.bands} bands of ${P1.across}; ` +
+     ["draw", "dark", "round"].map(k => `${k} ${L[k].bands}×${L[k].across}`).join(", "));
+  ok("and every pane dark really is dark, and still glass",
+     L.dark.emi === 0 && L.dark.glass > 500,
+     `${L.dark.emi} lit texels over ${L.dark.glass} of glass — an unlit pane is dark ` +
+     "tinted glass, not a hole, so it keeps its metallic");
+  ok("and the round ones are round",
+     L.round.glass > 500 && L.round.glass < P1.glass,
+     `${L.round.glass} texels against the base panel's ${P1.glass} — a circle is the ` +
+     "same capsule with the straight section taken out, so it cannot be bigger");
+  ok("half and twice as many across are half and twice as many",
+     L.sparse.across * 2 === P1.across && L.dense.across === P1.across * 2 &&
+     L.sparse.bands === P1.bands && L.dense.bands === P1.bands,
+     `${L.sparse.across}, ${P1.across}, ${L.dense.across} across — and ${P1.bands} bands ` +
+     "throughout, because the pitch is the only thing that moved");
+  ok("and a band fewer and a band more are one band either way",
+     L.fewer.bands === P1.bands - 1 && L.more.bands === P1.bands + 1,
+     `${L.fewer.bands}, ${P1.bands}, ${L.more.bands} bands`);
+
+  /* THE WINDOW DRAW IS ITS OWN SEED. It used to be the seed that also lays out
+     the plate quilt, so re-rolling the lighting re-rolled the whole hull —
+     which is the one thing a set cannot survive. */
+  const D0 = await forge({ link: 1, winSeed: 0 });
+  const D1 = await forge({ link: 1, winSeed: 7 });
+  ok("the window draw re-rolls the windows and leaves the plating alone",
+     D0.edge === D1.edge && D0.emi !== D1.emi && D0.bands === D1.bands,
+     `a different draw lights ${D1.emi} texels where the first lit ${D0.emi}, ` +
+     "off a border that has not moved a byte");
+
+  /* AND IT SAYS SO WHEN THE ASSEMBLY RUNS OUT OF CELL. All of the above holds
+     while the window assembly stops short of its own cell edge; on a tight
+     enough pitch the machined pad's fairing does not, and then two panels of
+     one set genuinely disagree along a join. Claiming otherwise would be worse
+     than not offering the feature. */
+  const warns = async set => {
+    await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                        Object.assign({}, BASE, set));
+    await page.evaluate(() => document.getElementById("hull--link")
+      .dispatchEvent(new Event("change", { bubbles: true })));
+    await page.waitForTimeout(150);
+    return await page.$eval("#hull--linked", n => n.textContent);
+  };
+  const roomy = await warns({ link: 3, winPitch: 2.0, winW: 0.8 });
+  const tight = await warns({ link: 3, winPitch: 0.6, winW: 0.5 });
+  ok("and the readout says when the assembly runs out of cell",
+     !/reaches the edge of its own cell/.test(roomy) &&
+     /reaches the edge of its own cell/.test(tight),
+     "quiet on a 2.0 m pitch, and warns on a 0.6 m one");
+  const T1 = await forge({ link: 2, link2: "blank", winPitch: 0.6, winW: 0.5, linkShow: 1 });
+  const T2 = await forge({ link: 2, link2: "blank", winPitch: 0.6, winW: 0.5, linkShow: 2 });
+  ok("and it is not crying wolf — that border really does move",
+     T1.edge !== T2.edge,
+     "the same two panels that match byte for byte on a 2.0 m pitch differ along " +
+     "the join once the collar reaches the cell edge");
+
+  /* A PRESET DESCRIBES A LOOK, NOT AN EXPORT. Twenty of them in the library
+     and clicking through to find one should not dismantle the set twenty
+     times — while the window draw, which IS part of the look, resets with
+     everything else. */
+  await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                      Object.assign({}, BASE, { link: 4, link2: "dense", winSeed: 5 }));
+  await page.click('#panel-hull [data-preset="tvera"]');
+  await settle();
+  const kept = await page.evaluate(() => {
+    const P = window.Forge.state("hull").P;
+    return { link: P.link, link2: P.link2, winSeed: P.winSeed, tileM: P.tileM };
+  });
+  ok("a preset changes the look and leaves the set alone",
+     kept.link === 4 && kept.link2 === "dense" && kept.winSeed === 0 && kept.tileM === 16,
+     `set of ${kept.link} still standing with panel 2 on ${kept.link2}, ` +
+     `on the preset's own ${kept.tileM} m tile, window draw back to ${kept.winSeed}`);
+
+  /* ============ the whole set out of one press ============
+     Same claim as the panel and the blank plating before it, with more members
+     and one thing added: the folder holding the live build has to say WHICH
+     panel it is. Among peers off one quilt there is no "the one you asked for"
+     to hold an unlabelled folder. */
+  await page.evaluate(p => { for (const k in p) window.Forge.setParam("hull", k, p[k]); },
+                      Object.assign({}, BASE, { size: 256, link: 3, link2: "draw",
+                                                link3: "blank", linkShow: 2 }));
+  await page.click("#hull--forge");
+  await settle();
+  await page.click("#zipall");
+  await page.waitForFunction(() => !document.getElementById("zipsave").hidden,
+                             null, { timeout: 180000 });
+  const SET = await page.evaluate(async () => {
+    const st = window.Forge.active();
+    const buf = new Uint8Array(await (await fetch(st.zipUrl)).arrayBuffer());
+    const dv = new DataView(buf.buffer), names = [], entries = {};
+    for (let i = 0; i + 30 < buf.length; i++) {
+      if (dv.getUint32(i, true) !== 0x04034b50) continue;
+      const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true);
+      const size = dv.getUint32(i + 18, true);
+      const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+      names.push(name);
+      entries[name] = buf.slice(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size);
+      i += 30 + nLen + xLen + size - 1;
+    }
+    const glass = async n => {
+      const bm = await createImageBitmap(new Blob([entries[n]], { type: "image/png" }));
+      const cv = new OffscreenCanvas(bm.width, bm.height), cx = cv.getContext("2d");
+      cx.drawImage(bm, 0, 0);
+      const d = cx.getImageData(0, 0, bm.width, bm.height).data;
+      let k = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 200) k++;
+      return k;
+    };
+    const met = {}, ranges = {}, says = {};
+    for (const n of names) {
+      if (n.endsWith("_metallic.png")) met[n.split("/")[0]] = await glass(n);
+      if (/hull_[0-9]+_[0-9]+_readme\.txt$/.test(n)) {
+        const txt = new TextDecoder().decode(entries[n]);
+        const mm = txt.match(/spanning ([\d.]+) mm/), who = txt.match(/THIS IS [^\n]*/);
+        ranges[n.split("/")[0]] = mm && mm[1];
+        says[n.split("/")[0]] = who && who[0];
+      }
+    }
+    return { names, met, ranges, says, shown: st.P.linkShow, built: !!st.built,
+             panes: (() => { let n = 0; for (let k = 0; k < st.B.MET.length; k++)
+                                          if (st.B.MET[k] > 128) n++; return n; })() };
+  });
+  const dirs = [...new Set(SET.names.map(n => n.split("/")[0]))];
+  const per = d => SET.names.filter(n => n.startsWith(d + "/")).length;
+  ok("one press packs the whole set, one folder per panel",
+     dirs.length === 3 && ["_p1", "_p2", "_p3"].every(t => dirs.some(d => d.endsWith(t))),
+     `${SET.names.length} entries in ${dirs.join(", ")}`);
+  ok("and each panel is a whole export of its own",
+     dirs.every(d => per(d) === per(dirs[0]) && per(d) >= 12) &&
+     dirs.every(d => SET.names.includes(d + "/model.gltf")) &&
+     dirs.every(d => SET.names.some(n => n.startsWith(d + "/") && n.endsWith("_readme.txt"))),
+     `${per(dirs[0])} files each — maps, 16-bit height, readme and geometry in all three`);
+  ok("and the pixels agree with the folder names",
+     SET.met[dirs.find(d => d.endsWith("_p1"))] > 200 &&
+     SET.met[dirs.find(d => d.endsWith("_p2"))] > 200 &&
+     SET.met[dirs.find(d => d.endsWith("_p3"))] === 0,
+     dirs.map(d => `${d.slice(-2)} ${SET.met[d]}`).join(", ") +
+     " texels of glass in the packed metallic maps");
+  ok("and every readme says which panel it is, on one shared height scale",
+     Object.keys(SET.says).length === 3 &&
+     /PANEL 1 OF A SET OF 3\./.test(SET.says[dirs.find(d => d.endsWith("_p1"))] || "") &&
+     /PANEL 3 OF A SET OF 3 — no windows\./.test(SET.says[dirs.find(d => d.endsWith("_p3"))] || "") &&
+     new Set(Object.values(SET.ranges)).size === 1,
+     `all three quote ${Object.values(SET.ranges)[0]} mm of relief`);
+  ok("and the panel you were looking at is the one still on screen",
+     SET.shown === 2 && SET.built && SET.panes > 200,
+     `back on panel ${SET.shown} with ${SET.panes} texels of glass`);
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }

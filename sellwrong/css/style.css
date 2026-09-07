@@ -1,0 +1,66 @@
+/* SELLWRONG — the page around the game.
+   Everything in the frame is drawn by the renderer; this is only the
+   furniture that surrounds it, and it stays out of the way. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: #05060a;
+  color: #cfcfd6;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  -webkit-font-smoothing: none;
+}
+
+#game { position: fixed; inset: 0; }
+
+/* Nearest-neighbour all the way to the glass. Without this the browser
+   bilinearly smooths the upscale and undoes the entire renderer. */
+#view {
+  display: block; width: 100%; height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#loading, #title {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, #14161e 0%, #05060a 70%);
+  z-index: 10;
+  transition: opacity .35s ease;
+}
+#loading.gone, #title.gone { opacity: 0; pointer-events: none; }
+
+.panel { text-align: center; max-width: 40rem; padding: 2rem; }
+
+h1 {
+  font-size: clamp(2.5rem, 9vw, 5rem);
+  letter-spacing: .12em;
+  color: #d8241a;
+  text-shadow: 0 3px 0 #4a0806, 0 0 30px rgba(216,36,26,.35);
+  margin-bottom: .3rem;
+}
+
+.tag { color: #7a7a84; letter-spacing: .34em; font-size: .8rem; margin-bottom: 2rem; }
+
+#load-status { letter-spacing: .2em; font-size: .8rem; color: #8a8a94; margin-bottom: .7rem; }
+.bar { width: 16rem; height: 6px; margin: 0 auto; background: #1b1d26; }
+#load-bar { height: 100%; width: 0; background: #d8241a; transition: width .2s ease; }
+
+.prompt {
+  color: #e8c34a; letter-spacing: .18em; font-size: .85rem; margin-bottom: 1.6rem;
+  animation: blink 1.4s steps(2) infinite;
+}
+@keyframes blink { 50% { opacity: .25; } }
+
+.keys { margin: 0 auto 1.4rem; border-collapse: collapse; font-size: .72rem; color: #9a9aa4; }
+.keys td { padding: .18rem .7rem; text-align: left; }
+.keys td:nth-child(odd) { color: #d8d8e0; text-align: right; }
+
+.brief { font-size: .74rem; line-height: 1.7; color: #7a7a84; }
+
+#fps {
+  position: fixed; left: 6px; top: 4px; z-index: 5;
+  font-size: 10px; color: rgba(200,200,210,.35);
+  pointer-events: none; text-shadow: 0 1px 0 #000;
+}

@@ -31,6 +31,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
   modes/lib/            generators shared by more than one mode
+  modes/lib/road.js     a cross-section swept into a road, crumbling at either end
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
@@ -348,13 +349,23 @@ Hull — starship aztec plating
   circle. A rectangle painted on the plating reads as a decal rather than a
   hole cut through it, and it read as one here.
 
-  ONE SHAPE, TWO WAYS ROUND. The pane is a stadium: a straight section with a
-  semicircle on each end. The shape control only decides which axis the
-  straight section runs along, up the hull or across it, so the two
-  orientations are the same drawing rather than two drawings that have to be
-  kept in step. ACROSS is its width either way and ALONG is its length; a pane
-  shorter than it is wide is a circle, and it is clamped up rather than turned
-  inside out.
+  WIDTH IS ACROSS THE HULL AND HEIGHT IS UP IT, whichever way the pane lies.
+  They used to be "across" and "along" — across the pane's own straight section
+  and along it — which on a lying capsule are the two texture axes SWAPPED, so
+  making a window taller meant reaching for the control labelled width. That is
+  a fine way to describe a shape and a hopeless way to size one.
+
+  So the two numbers are the two texture axes, full stop, and the SHAPE falls
+  out of them: taller than wide is an upright capsule, wider than tall is a
+  lying one, and equal is a circle. Which leaves nothing for an orientation
+  control to decide, so its only job now is to OVERRIDE — force a row upright
+  or force it flat, and the two numbers get swapped to suit. HEIGHT is the
+  control for how tall a window is, always.
+
+  Both axes are held to their own cell. Width is capped by the window pitch and
+  HEIGHT BY THE BAND SPACING, so a tall window wants fewer bands — the readout
+  names which of the two did the cutting and by how much, rather than leaving
+  you to work out why the slider stopped doing anything.
 
   AND A CIRCLE IS THE SAME CAPSULE WITH NO STRAIGHT SECTION. That is the whole
   reason the round ones can be scattered through a row of slots and still
@@ -441,8 +452,83 @@ Hull — starship aztec plating
   Dimensioned in metres. The readout will tell you when the plates or the
   scribe lines have got smaller than the resolution can hold.
 
-  Presets: refit (fine and cold), TV era (broad and warm), nacelle skin (no
-  windows), battle-scored.
+  TWENTY PRESETS, AND THE FIRST THING EACH ONE SETS IS THE TILE — a preset that
+  forgets it is a picture rather than a piece of hull, since a shuttle door and
+  a station module want the same plate size in metres and nothing else the
+  same. They run from 2.5 m to 32 m and cover the three window habits (bands of
+  slots, single tall glass, scattered circles), the three finishes (cold
+  specular, warm matte, scoured) and the plain plating a run needs between
+  them: refit, TV era, nacelle skin, battle-scored, saucer dorsal, promenade,
+  observation deck, deck nine, shuttlepod, runabout flank, station module,
+  sensor band, carrier flank, hangar door, cargo hull, drydock spar, derelict,
+  ablative armour, late hull, workbee tug.
+
+  THE PANEL AND THE BLANK PLATING COME OUT TOGETHER. A hull run needs the
+  plating with windows in it and the plain plating to put between the window
+  bands, off the same seed and the same quilt — and forging one, exporting,
+  dropping the bands to zero, forging again and exporting again is four steps
+  to get two files that differ by one parameter, every time the seed moves. So
+  the archive carries both cuts, each in its own folder with its own maps, its
+  own readme and its own geometry, and the panel on screen is put back exactly
+  as it was. The switch is in the windows group; turn it off and the archive is
+  the single flat one it has always been. Any mode can do this — see `variants`
+  in ADDING-A-MODE.md.
+
+  LINKED PANELS: SEVERAL WINDOW LAYOUTS OFF ONE QUILT. One tile on a hull is a
+  repeat you can count. The quilt itself hides its repeat rather well — it is a
+  specular effect a millimetre deep and the eye does not track plate corners —
+  but the windows hide nothing, and the same four lit rooms at the same height
+  forty times along a saucer rim is the thing that gives a tiled hull away. A
+  bigger tile does not fix it; it only makes the count longer.
+
+  So PANELS IN THE SET takes the archive from one cut to as many as six, and
+  each panel after the first names a window layout to lay over the quilt: the
+  same grid with a different draw, the same grid with every pane dark, the same
+  grid all in round ports, half or twice as many across, a band fewer, a band
+  more, or no windows at all. Two or three layouts and a stretch of plain
+  plating is usually the whole answer — scatter them along a hull and the
+  rhythm breaks while the surface does not.
+
+  A PANEL MAY MOVE THE WINDOWS AND NOTHING ELSE, and that is the whole feature
+  rather than a caution about it. Every panel of a set is cut from one seed,
+  one plate subdivision, one set of scribe lines and one set of colours; a
+  layout is a NAME rather than a second copy of the sliders precisely so that
+  nothing in it can reach the plating. A pane is held to 90% of its own cell
+  and its collar to 96%, and the cells divide the tile, so the whole border of
+  every panel is plain plating carved from that one quilt — identical byte for
+  byte in every channel, ambient occlusion included. Any of them butts against
+  any other, in any rotation, in any order.
+
+  THE SAME GRID LAYOUTS ALSO BUTT WITH THE WINDOW ROWS RUNNING THROUGH, since
+  they leave every pane in its own cell and change only what is drawn in it. A
+  band fewer and a band more move the band heights: those are for a different
+  stretch of hull rather than for the panel next door, and the readout says
+  which of yours do it. It also says when a tight pitch has left the window
+  assembly reaching the edge of its own cell — that is the one case where two
+  panels of a set genuinely differ along a join, and widening the pitch or
+  narrowing the surround is the fix.
+
+  ON SCREEN steps through the set, so each panel can be looked at before it is
+  committed to; the archive packs the whole set whichever one you are looking
+  at, and puts that one back afterwards. That is one full-size forge per panel
+  on one press, and the readout says how many.
+
+  ALL THE CUTS OF A SET SHARE ONE HEIGHT SCALE. height.png carries no units — it
+  is normalised to the range the build happened to occupy — so plain plating,
+  with no window recess and no collar in it, would otherwise be stretched over a
+  fraction of the range of the panel it is meant to sit beside, and mid-grey
+  would mean a different number of millimetres in each. Displace two cuts of one
+  set with their own height maps and the join would be a step you could measure,
+  on exactly the pair the feature exists to put side by side. So every cut
+  reserves the range the SET can reach, and the readme of each quotes the same
+  figure.
+
+  THE WINDOW DRAW IS ITS OWN SEED, which is what makes all of the above cheap.
+  Which rooms are lit, which panes came out round and how dirty each one is used
+  to hang off the seed that also lays out the plate quilt, so re-rolling the
+  lighting re-rolled the whole hull. It is a separate number now: roll it and
+  the plating does not move a texel. Useful on a single panel too, when the
+  plating is right and the lit rooms are not.
 
 Greeble — machined surface clutter
   The fine mechanical detail that makes a hull, a machine bay or a reactor face
@@ -1240,6 +1326,94 @@ how many texels you want of a given face is a property of the export, not of the
 building, and which face a step is is the one thing that step exists to pin.
 
 
+AND ROAD, WHICH IS A PROFILE
+----------------------------
+A road asset is a CROSS-SECTION swept along a length, and neither half of that
+is a texture. So the Road structure has three texture steps — surface, kerb and
+verge — and everything else lives in the 3D view: a bar for the length, bend,
+rise and decay, and a DRAWING BOARD for the cross-section itself.
+
+THE SECTION is the designer. The profile is a polyline of nodes in metres on a
+scale grid — x across the road, y up, the vertical exaggerated because a real
+road is fourteen metres wide and a hand's width tall, and at 1× a kerb is one
+pixel. Drag a node and it moves; double-click a segment to add one, a node to
+remove it; each node says what the segment to its right is made of — road
+surface, kerb or paving, verge, bare ground — and whether the corner at it is
+ROUNDED, which is what a crown and a ditch bottom are and a kerb's arris is not.
+MIRROR keeps the two sides the same: edit one and the other is thrown away and
+made again from it, because nearly every road is symmetric and the ones that
+are not are edited from a symmetric start. Ten presets to start from, from a
+single track to a dual carriageway, an embankment to a cutting.
+
+THE PLAN is the other drawing board: the road network from above. A ROUTE is
+an ordered list of nodes and the road follows a centripetal Catmull-Rom spline
+through them, so two nodes are a line and three are a curve. DRAW lays nodes
+along a new route with each click — click an existing node to join it — and
+Enter or a double-click finishes; MOVE drags nodes about, and a node dropped on
+another becomes it. Seven plans to start from, from a straight to a grid.
+Under the routes is what the sweep made of them, every slab in its kind's
+colour and every gone one as nothing, so the crumble reads at a glance.
+
+A NODE TWO ROUTES SHARE IS A JUNCTION — or one route passes through and
+another ends on. Every route is cut there into links, each link is trimmed back
+from the node by what the angle to its neighbours needs, the carriageway in
+the middle is one flat fan wearing the junction tile (the four-way, turned to
+the first arm), and the outer part of the profile — kerb, footway, verge — is
+swept round a curve from each arm's edge to the next arm's, which is what a
+kerbed corner is. THE KERB RADIUS IS AT LEAST WHAT THE FOOTWAY NEEDS: the
+footway behind the kerb sweeps round the outside of the corner's curve, and a
+curve tighter than the footway is deep would fold it over itself, so the
+radius on the bar is a minimum and the depth of the profile outside the
+carriageway sets the rest; between arms at an acute angle each corner's curve
+is tried in advance and both arms pushed back until the footway fits round it.
+A big junction is what a wide verge costs.
+
+A node on one route only, at its end, is a FREE END, and free ends are where
+the road crumbles: the bar's "crumble ends" is what every free end does unless
+its node says otherwise — click one on the plan and give it its own length, or
+zero for a clean cut. Junctions never crumble; a junction is where a road is
+held up by another road. Each node also has a HEIGHT, and the road climbs to
+it along the spline.
+
+IT CRUMBLES TO NOTHING AT ANY FREE END, or all of them, or none. A section that
+ends in a clean cut wants another section butted against it; a section that
+ends in broken slabs, bare base and rubble can end in a field, which is the
+difference between a road asset and a road-shaped block. The decay is a
+per-slab draw against a front that advances over the crumble length: RAGGED is how
+noisy the front is, EDGES FIRST is how much the verge and kerbs go before the
+crown, SINK is how far the survivors drop and tilt as the front reaches them,
+and RUBBLE is how many of the dead ones leave a lump behind. The front is shaped
+so the last few metres go fastest — long sound, then quickly rubble — which is
+what a road eroded from its end looks like.
+
+AND IT IS SOLID. Every slab has a base under it (THICK says how far) and a wall
+down every edge that has nothing beside it — the two ends, the outside of the
+verge, and every ragged edge the decay opens up — so the mesh is closed
+wherever the eye can reach and a broken end shows the thickness of the road
+rather than a sheet of nothing. No profile segment is wider than about a metre
+whatever you draw: a seven-metre carriageway drawn as one segment would tip over
+as one seven-metre piece when the decay reached it, which is not what crumbling
+looks like. A slab sinks as one piece, no further than the base, and its tilt
+is held to what its own size allows, so a corner never stands higher than the
+road is thick.
+
+THE TEXTURES ARE LAID BY WHAT THEY ARE. The street tile is stretched across
+each run of carriageway — however wide you draw it, the lanes and lines fit —
+and repeats along the road at its own length; the bar says how far the drawn
+carriageway is from the tile's own width. The kerb is one precast concrete unit
+laid end to end, which is what a kerb is, and the footway is the same concrete
+tiled. The verge is exposed-aggregate concrete at three metres to the panel,
+which reads as gravel and earth, and the same texture worn darker is the bare
+ground: the base you see at a broken end, the retaining wall of a causeway, the
+slope of a cutting.
+
+THE SCALE GRID goes with it. A five-metre tile with the metre and quarter-metre
+lines drawn on it lies under the road in the 3D view and leaves in the archive
+as grid.png on a plane of its own, so what arrives in Blender can be read
+against something. Delete the grid object once the scale is checked. The road
+runs along +Z from the origin, +X to the right of the direction of travel, and
+the archive's readme lists the profile node by node.
+
 TYPEFACES
 ---------
 Some things a texture needs are LETTERS — a tag sprayed on a derelict wall being
@@ -1544,6 +1718,21 @@ Both are written Y-up, which is glTF's own convention and the default Blender's
 OBJ importer expects, so the two land in the same orientation and a wall
 arrives standing up.
 
+MORE THAN ONE CUT OF THE SAME TEXTURE. A mode can declare `variants` — extra
+versions of what it just drew, one parameter apart — and the archive button
+packs them all from one press. The hull uses it for the plating with windows
+and the plain plating between the bands: same seed, same quilt, one slider
+apart, and getting them separately means forging and exporting twice every time
+the seed moves. Each cut lands in its own folder with its own maps, 16-bit
+height, readme and geometry, and the parameters are put back afterwards. A mode
+with no variants packs exactly the flat archive it always did. See
+ADDING-A-MODE.md.
+
+The hull's LINKED PANELS are the same machinery with more members: up to six
+window layouts over one quilt, all peers rather than one-with-a-feature-
+removed, so the folder holding the live build is named for the panel it holds
+instead of being the unlabelled one. See the hull mode above.
+
 A single mode exports a single plane. A STRUCTURE — the House, Factory or
 Diner buttons in the top bar — exports the building: four walls off three
 elevations (the two sides are the same elevation seen from opposite ends,
@@ -1769,7 +1958,57 @@ It also covers the thirteen things that are easy to break silently:
             so the median is the plating whatever the quilt did. Both of its
             dimensions have to RESPOND, or the collar is a constant with a
             control wired to nothing, which is very nearly what the old reveal
-            was: 0 px of collar at every setting
+            was: 0 px of collar at every setting.
+            Then the AXES, because the fix is a rename that has to be a real
+            one: raising the height has to make the pane taller and leave its
+            width alone, swapping the two numbers has to lie the same shape
+            down, and the orientation control has to override them rather than
+            define them. And the ARCHIVE, read back out of its own blob rather
+            than trusted because the button did not throw: two folders from one
+            press, the same file count in each, and the packed metallic map of
+            the second cut DECODED and its glass counted — 29 thousand texels
+            of it in the panel, none in the blank plating. Plus that the panel
+            on screen afterwards is the one that was there before, since an
+            export that leaves your parameters somewhere else is worse than no
+            export. And the PRESET LIBRARY, which is a button per entry that
+            can lie: every one is forged and fingerprinted on the pixels it
+            made — a coarse 8×8 grid of roughness means, coarse on purpose so
+            that two presets differing only in seed noise would still collide —
+            and 20 of 20 come out distinct, none of them a flat grey, and each
+            one keeping its own word about whether it has windows. That last
+            check is measured against each preset's OWN hull metalness rather
+            than a fixed threshold, because the derelict's glass is deliberately
+            dull and a fixed threshold called it plating
+  road      a profile swept into a road is SOUND GEOMETRY before it is
+            anything else, and the NETWORK has to be as sound as the straight
+            road was: every plan preset from the straight to the grid — one,
+            three and four-armed junctions and a closed loop — wound to its
+            normals and walled edge for edge, where "edge" now honours each
+            sweep's own flags, because a link's junction end and a corner's
+            inner edge are joined to something and carry no wall. A crossroads
+            has to come out as one junction of four arms, four corners and one
+            fan, its arms trimmed alike; the crumble has to reach the four free
+            ends and nothing else; and a node's own number has to beat the
+            bar's. Then the PLAN is driven by hand: three clicks in draw mode,
+            the last on an existing node, and Enter, have to leave one more
+            route, two more nodes, one more junction and two links; and a node
+            dragged onto another has to become it, turning two free ends into
+            a bend. The rest of this entry is the single road it grew from —
+            anything else: every triangle wound to its own normal, no mesh
+            past a 16-bit index, and every open edge of the top skin — the
+            ends, the outside of the verge, and every ragged edge the decay
+            opens — with a wall under it, counted edge for edge against the
+            alive grid. Then the DECAY does what the bar says: nothing for
+            the first forty metres, nothing left at the very end, both ends
+            when both are asked for, and in the half-gone zone the edge slabs
+            gone measurably more often than the crown's. The DESIGNER is
+            driven with the mouse through the frame it draws with — a node
+            dragged half a metre lands half a metre over, in metres, with
+            its mirror twin at minus that; a double-click on a segment adds
+            a node to both sides — and the plan view has to put pixels on
+            its canvas. The archive is read back out of its own blob: the
+            glTF has to hold a road mesh over fifty metres long, its ground,
+            and a grid material pointing at grid.png
   raceway   the runs really are axis-aligned, measured against the wandering
             mode next door rather than against a number picked out of the air,
             since "how orthogonal is this picture" has no absolute scale — and

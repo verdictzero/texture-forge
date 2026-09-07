@@ -49,11 +49,53 @@ Forge.register({ id:"mymode", label:"My mode", /* … */ });
 | `previewSize` | none | width in px of the cheap build made while a slider is dragged; omit for no drag preview |
 | `chipSource` | `176` | source width the channel chips are rendered at |
 | `height16` | `true` | offer the 16-bit height PNG and include it in the zip |
+| `variants` | none | extra cuts of the same texture to pack beside the main one — see below |
+| `variantRoot` | none | names the folder the live build goes in, when the cuts are peers rather than one-with-a-feature-removed |
 | `preview` | see below | lighting constants for the GGX preview |
 
 ```js
 preview:{gain:3.2,amb:1.15,specK:0.55,skyLo:[0.13,0.15,0.19],skyHi:[0.30,0.34,0.42]}
 ```
+
+VARIANTS: THE SAME TEXTURE WITH A FEATURE TAKEN OUT. A hull run needs the
+plating with windows in it *and* the plain plating to put between the window
+bands — same seed, same quilt, one parameter apart. Forging one, exporting,
+changing the slider, forging again and exporting again is four steps to get two
+files, every time the seed moves. So a mode can declare the extra cuts it wants
+and the archive button packs them all:
+
+```js
+variants:function(P){                       // or a plain array
+  return ((P.winRows|0)>0&&P.winBlank!==false)
+    ?[{id:"blank",label:"blank plating",set:{winRows:0}}]:[];
+}
+```
+
+Each cut is forged at FULL SIZE with `set` laid over the live parameters, packed
+into `<fileBase>_<id>/` with its own readme and its own geometry, and then the
+parameters are put back and the panel rebuilt. Return `[]` — as the example does
+when there are no windows to remove — and the archive is exactly the flat one it
+has always been, no folders. Keep the switch a control the user can see: a mode
+that quietly doubles its export time is a mode nobody trusts.
+
+The live build goes in the bare `<fileBase>/` folder, which is right when there
+is an obvious *the one you asked for* among the cuts. When there is not — the
+hull's linked panels are several window layouts off one quilt, all peers —
+declare `variantRoot(P)` and that folder gets a name too:
+
+```js
+variantRoot:function(P){                    // -> {id,label} or null
+  if(setSize(P)<=1)return null;             // null keeps the bare folder
+  return {id:"p"+shownOf(P),label:"panel "+shownOf(P)};
+}
+```
+
+WHERE THE VARIANTS ARE A SET RATHER THAN A REMOVAL, put the whole description
+in ONE parameter and let `set` move only that. The hull's cuts are
+`{set:{linkShow:3}}` and nothing else; a function inside the mode turns that
+number into the window overrides. Spelling each cut out as its own bundle of
+overrides works until the day one of them reaches something it should not —
+here, anything that would change the plating the panels are supposed to share.
 
 `gain` scales the direct light, `amb` the sky term, `specK` the specular
 horizon rolloff, `skyLo`/`skyHi` the ambient gradient by normal Z.
@@ -185,8 +227,20 @@ size — anything over 1024 waits for the button instead of auto-rebuilding) and
 presets:[{id:"wet",label:"Wet night",set:{tileM:4,wet:0.75,puddles:0.7}}]
 ```
 
-`set` is control id → value; anything not listed keeps its current value, which
-is how the originals behaved.
+`set` is control id → value; anything not listed is reset to the value its
+control declares, so a preset describes a whole design rather than patching
+whatever was last on screen.
+
+```js
+presetKeep:["link","linkShow"]   // ids a preset's reset must not clear
+```
+
+`size`, `seed` and `face` are held back for every mode — they belong to the
+export, or to which face you happen to be looking at, rather than to the thing
+being described. `presetKeep` names more of your own: the hull holds its linked
+panel set, because clicking through twenty presets to find a look should not
+dismantle the export twenty times. A preset that names one of these in its own
+`set` still wins.
 
 ### Parameter hooks
 
@@ -194,12 +248,19 @@ is how the originals behaved.
 derive(P,ui)      // clamp or fix up parameters; ui.set(id,value) writes back to the form
 needs(P)          // -> ["road","kerb"]; drives row and group visibility
 readout(P)        // -> HTML for the {type:"readout"} row
+readouts          // {name:fn} -> HTML for each {type:"readout",id:"name"} row
 tileTag(P)        // -> the note in the bottom right of the stage
 sizeTag(P)        // -> extra status text, e.g. "2 m"
 autonote(P)       // -> override the line under the build button
 ```
 
 All are optional.
+
+A mode may have MORE THAN ONE READOUT. The unnamed `{type:"readout"}` row is
+filled by `readout(P)` and belongs at the top beside the size it describes; any
+`{type:"readout",id:"x"}` row is filled by `readouts.x(P)` and belongs beside
+the controls it is about. A reader who has to scroll back to the first group to
+find out what the fifth one just did will not scroll.
 
 ### Size and build
 
@@ -614,6 +675,13 @@ put triangles on, and the 3D view reads it to know what to draw — one list of
 what the thing is made of rather than three.
 
 ## Standing one texture up several hundred times
+
+A structure may instead declare `road: {kit: {surface, kerb, verge}}`, which
+names the step each kind of surface wears. That structure gets no building at
+all: `modes/lib/road.js` sweeps a drawn cross-section along a path, the runtime
+puts a drawing board and a bar under the 3D view for it, and
+`ForgeModel.roadScene` dresses the result. It is the worked example of a
+structure whose shape is not a box.
 
 `ForgeModel.townScene` is the worked example, and two things in it are the
 difference between a town and a slideshow.
