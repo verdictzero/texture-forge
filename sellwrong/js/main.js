@@ -89,7 +89,7 @@ async function boot() {
      so the distance falloff has to reach a long way or the far end of
      the shop floor is simply black. */
   world.lightFalloff.value = 3400;
-  world.minLight.value = 0.22;
+  world.minLight.value = 0.22;      // the fire raises this as the store goes
 
   status('READY', 1.0);
   const loading = $('loading');

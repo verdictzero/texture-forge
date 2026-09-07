@@ -247,41 +247,76 @@ section('fire');
   const fire = new FireSystem(fake);
   note('fuel grid', `${fire.cols}x${fire.rows}, ${fire.totalFuel} total fuel, ${Date.now() - t0}ms`);
   check('the store holds fuel', fire.totalFuel > 100000);
-  check('nothing is alight to begin with', fire.burningCells === 0);
+  check('nothing is alight to begin with', fire.liveCells === 0);
   check('burn starts at zero', fire.burnFraction === 0);
 
   /* light one gondola and let it run */
-  /* One match in one gondola. It should eat that gondola and stop. */
+  /* ONE MATCH, AND ENOUGH TIME. The requirement is that the whole shop
+     goes eventually, which is a statement about percolation: every cell
+     must light more than one neighbour on average, or the fire stalls
+     somewhere and that region can never burn because burnt fuel does not
+     come back. So this is the check that matters most in the file. */
   fire.ignite(540, 1000, 200, 40);
-  check('ignition takes', fire.burningCells > 0);
-  for (let i = 0; i < 2400; i++) fire.tic();
-  const alone = fire.burnFraction;
-  note('one gondola, 2400 tics', `${(alone * 100).toFixed(1)}% burned, ${fire.burningCells} still alight`);
-  check('fire spreads within a gondola', alone > 0.01, `${(alone * 100).toFixed(2)}%`);
-  /* THE DESIGN. A single ignition must not take the whole store, or the
-     game is one match and a walk to the car park. */
-  check('fire does not cross the aisles on its own', alone < 0.25, `${(alone * 100).toFixed(1)}% from one match`);
+  /* liveCells, not burningCells: the latter is what the status bar shows
+     and counts only cells that are actually alight, which is zero until
+     the simulation has stepped at least once. */
+  check('ignition takes', fire.liveCells > 0);
 
-  /* But a player walking the aisles with a flamer should get there. */
-  const f2 = new FireSystem(fake);
-  for (const s of level.sectors) {
-    if (s.name !== 'gondola' && s.name !== 'stockroom' && s.name !== 'produce') continue;
-    const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2;
-    f2.ignite(cx, cy, 120, 40);                       // one touch per fixture
+  let stalled = -1;
+  for (let i = 0; i < 40000; i++) {
+    fire.tic();
+    if (i > 20 && fire.liveCells === 0) { stalled = i; break; }
   }
-  for (let i = 0; i < 3000; i++) f2.tic();
-  note('every fixture lit', `${(f2.burnFraction * 100).toFixed(1)}% burned`);
-  check('lighting the fixtures reaches the target', f2.burnFraction * 100 >= level.burnTarget,
-        `${(f2.burnFraction * 100).toFixed(1)}% vs target ${level.burnTarget}%`);
+  const burnt = fire.burnFraction;
+  note('one match, left alone', `${(burnt * 100).toFixed(1)}% burned` +
+    (stalled >= 0 ? `, went out after ${stalled} tics` : ', still going at 40000 tics'));
+  check('one match takes essentially the whole shop', burnt > 0.97,
+        `${(burnt * 100).toFixed(1)}% — the fire stalled somewhere`);
 
-  /* and it must NOT have crossed into the car park, which has no fuel
-     and is the level's safe room */
+  /* and it must still not touch the car park */
   let lotBurnt = 0;
   for (let i = 0; i < fire.heat.length; i++) {
     const s = fire.sectorOf[i] >= 0 ? level.sectors[fire.sectorOf[i]] : null;
-    if (s && s.outdoor && fire.heat[i] > 0) lotBurnt++;
+    if (s && s.outdoor && (fire.heat[i] > 0 || fire.fuel[i] < fire.fuel0[i])) lotBurnt++;
   }
-  check('the car park does not burn', lotBurnt === 0, `${lotBurnt} cells alight outdoors`);
+  check('the car park does not burn', lotBurnt === 0, `${lotBurnt} cells burnt outdoors`);
+
+  /* Every region of the shop must actually be REACHED, not just 97% of
+     the fuel. A stockroom that never catches is a hole in the map. */
+  const reached = {};
+  for (let i = 0; i < fire.heat.length; i++) {
+    const si = fire.sectorOf[i];
+    if (si < 0) continue;
+    const s = level.sectors[si];
+    if (s.outdoor || s.fuel <= 0) continue;
+    const r = reached[s.name] || (reached[s.name] = { cells: 0, burnt: 0 });
+    r.cells++;
+    if (fire.fuel[i] < fire.fuel0[i]) r.burnt++;
+  }
+  const untouched = Object.entries(reached).filter(([, r]) => r.burnt / r.cells < 0.9)
+    .map(([n, r]) => `${n} ${((r.burnt / r.cells) * 100).toFixed(0)}%`);
+  note('regions reached', `${Object.keys(reached).length - untouched.length}/${Object.keys(reached).length}`);
+  check('the fire reaches every part of the shop', untouched.length === 0, untouched.join(', '));
+
+  /* Regions that have burnt should have SAID so — a store that burns down
+     and looks identical afterwards is an animation, not a simulation. */
+  const charred = level.sectors.filter(s => s.charred).length;
+  const burnable = level.sectors.filter(s => !s.outdoor && s.fuel > 0).length;
+  note('sectors charred', `${charred}/${burnable}`);
+  check('burnt regions get charred surfaces', charred >= burnable * 0.9, `${charred} of ${burnable}`);
+  const bank = new Set(Object.keys(tex.TEXTURE_GENERATORS).map(n => n));
+  check('every charrable texture has a burnt twin',
+    tex.CHARRABLE.every(n => bank.has(n)),
+    tex.CHARRABLE.filter(n => !bank.has(n)).join(', '));
+
+  /* And the player's weapon has to be much faster than waiting. */
+  const f2 = new FireSystem(fake);
+  f2.ignite(540, 1000, 150, 26);
+  let ticsAlone = 0;
+  while (f2.burnFraction < 0.20 && ticsAlone < 40000) { f2.tic(); ticsAlone++; }
+  note('20% by spreading alone', `${ticsAlone} tics (${(ticsAlone / 35).toFixed(0)}s)`);
+  check('spreading alone is slow enough to leave room for a player', ticsAlone > 600,
+        `${ticsAlone} tics is too fast to be worth a weapon`);
 }
 
 /* ---------- verdict ---------- */

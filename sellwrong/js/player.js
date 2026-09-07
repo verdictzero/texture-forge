@@ -43,7 +43,33 @@ const WALK_SIDE  = 24 / 32,  RUN_SIDE = 40 / 32;
 const STOP_SPEED = 0.06;
 const MAX_PITCH  = 0.72;          // about 41 degrees, the usual port limit
 
+/* THE FLAMETHROWER IS THE GAME AND IT IS NOT SUBTLE.
+
+   A four-metre cone at forty-five degrees, enough damage to delete a
+   member of staff in a fraction of a second, and it lays down enough
+   accelerant that what it touches goes on burning by itself long after
+   you have walked away. There is no aiming and no ammo management worth
+   the name — the tank is enormous and the store is full of cans.
+
+   The other two are written and finished and are not issued. A boxcutter
+   is a more interesting weapon than a flamethrower in almost every game
+   ever made, and in THIS game it is the wrong verb: the point is not to
+   kill the night crew, it is to burn down the building, and the night
+   crew are simply in the way. Give the player one tool that does the
+   thing the game is about and the game explains itself. */
 export const WEAPONS = {
+  FLAMER: {
+    slot: 1, name: 'FLAMER', sprite: 'FLMG',
+    ready: 'A', fire: ['B', 'C'], fireTics: [2, 2],
+    ammo: 'fuel', ammoPerShot: 1, autofire: true,
+    /* 400 units of reach and a 45-degree cone. An aisle is 160 across
+       and 600 long, so one sweep from the end of it lights most of one
+       side — which is exactly the feeling being aimed for. */
+    range: 400, arc: 0.78,
+    damage: () => (pRandom() % 9) + 8,
+    sound: 'flame',
+  },
+
   BOXCUTTER: {
     slot: 1, name: 'BOXCUTTER', sprite: 'CUTG',
     ready: 'A', fire: ['B', 'B', 'C'], fireTics: [4, 4, 5],
@@ -51,14 +77,6 @@ export const WEAPONS = {
     ammo: null, melee: true, range: 80, arc: 0.9,
     damage: () => ((pRandom() % 8) + 1) * 2,
     sound: 'swing', hitSound: 'cut',
-  },
-  FLAMER: {
-    slot: 2, name: 'FLAMER', sprite: 'FLMG',
-    ready: 'A', fire: ['B', 'C'], fireTics: [2, 2],
-    ammo: 'fuel', ammoPerShot: 1, autofire: true,
-    range: 224, arc: 0.42,
-    damage: () => (pRandom() % 3) + 2,
-    sound: 'flame',
   },
   MOLOTOV: {
     slot: 3, name: 'MOLOTOV', sprite: 'MOLG',
@@ -85,9 +103,11 @@ export class Player {
     this.shootable = true;
     this.monster = false;
 
-    this.ammo = { fuel: 180, bottles: 3 };
-    this.maxAmmo = { fuel: 400, bottles: 12 };
-    this.owned = { BOXCUTTER: true, FLAMER: true, MOLOTOV: true };
+    this.ammo = { fuel: 500, bottles: 0 };
+    this.maxAmmo = { fuel: 999, bottles: 12 };
+    /* One weapon issued. The other two are built and tested and stay
+       switched off until there is a reason for them. */
+    this.owned = { FLAMER: true };
     this.weapon = 'FLAMER';
     this.pendingWeapon = null;
 
@@ -265,20 +285,23 @@ export class Player {
   }
 
   /** The flamer: a cone of ignition, which is a different thing from a
-   *  cone of damage and the reason this weapon is interesting. */
+   *  cone of damage and the reason this weapon is interesting. The cone
+   *  is walked in rings, and each ring stops at the first wall it meets,
+   *  so the flame goes round corners no better than you can see round
+   *  them. */
   flameTic(d) {
-    const step = 28;
+    const step = 32;
     for (let r = 24; r <= d.range; r += step) {
       const spread = (r / d.range) * d.arc * 0.5;
-      for (let k = -1; k <= 1; k++) {
-        const a = this.angle + k * spread;
+      for (let k = -2; k <= 2; k++) {
+        const a = this.angle + k * spread * 0.5;
         const fx = this.x + Math.cos(a) * r;
         const fy = this.y + Math.sin(a) * r;
         /* Stop at the first wall — a flamethrower that reaches through
            the frozen aisle into the stockroom is not a weapon, it is a
            cheat code. */
         if (this.game.level.rayHitWall(this.x, this.y, this.viewZ - 12, fx, fy, this.viewZ - 12)) break;
-        this.game.fire.ignite(fx, fy, 64 - (r / d.range) * 18, 20);
+        this.game.fire.ignite(fx, fy, 150 - (r / d.range) * 40, 26);
       }
     }
     for (const a of this.game.actorsInCone(this, d.range, d.arc, true)) {

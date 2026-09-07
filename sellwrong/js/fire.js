@@ -44,30 +44,105 @@ import { pRandom, pChance, clamp, dist2, TICRATE } from './util.js';
 
 const CELL = 32;
 
-/* Heat runs 0..255. These are the shape of one cell's life. */
-const IGNITE_AT   = 40;      // heat a cell starts at when it catches
+/* --------------------------------------------------------------------
+   The shape of one cell's life
+
+   Heat runs 0..255. A cell that catches climbs toward a peak, holds
+   while it has fuel, and dies back to nothing once the fuel is gone.
+   That curve is why a fire has a visible FRONT — a bright edge advancing
+   into fresh stock, with a dimming trail of embers behind it — instead
+   of being a uniformly glowing region that grows.
+
+   THE WHOLE STORE MUST GO, EVENTUALLY. That is the requirement, and it
+   is a statement about percolation, not about flammability. A fire
+   crossing a region survives only if each burning cell lights, on
+   average, MORE THAN ONE new one before it burns out:
+
+     expected spreads  =  tics alight  x  chance/256  x  neighbours
+
+   Above one, the fire runs away and takes everything connected to it.
+   Below one, it peters out, and no amount of waiting brings it back
+   because a burnt cell has no fuel left to relight. There is no middle
+   setting — it either eventually takes the store or it never does.
+
+   So both terms are tuned per cell from how rich it is, and both point
+   the same way:
+
+     RICH stock  burns HOT and FAST, and throws sparks eagerly. A gondola
+                 is gone in about three seconds and lights everything
+                 touching it.
+     THIN fuel   SMOULDERS. It never gets hot, it burns a unit at a time,
+                 and it stays alight long enough to pass the fire on.
+
+   That gives an aisle of bare lino about 1.9 expected spreads and a
+   gondola about 17. Both are above one, so everything indoors goes
+   eventually — but the aisle takes the better part of a minute to creep
+   across, and the gondola takes three seconds. The player with a
+   flamethrower is simply much faster than waiting.
+
+   The car park is the exception and stays the exception: fuel 0, no
+   burning, ever. It is the safe room and the way out.
+   ------------------------------------------------------------------ */
+/* How often the simulation steps, in game tics. This is the pace
+   control, and it is deliberately separate from every other number here.
+
+   Slowing the CLOCK slows the fire without touching the percolation
+   maths at all — the expected-spreads-per-cell figure below is counted
+   in FIRE tics, so it is identical at any interval. Slowing the fire by
+   lowering the spread chance instead would have pushed the thin fuel
+   back under one and left holes in the burn again.
+
+   At 2, one match took the whole store in 34 seconds and there was
+   nothing for the player to do. At 6 it is a few minutes, which is time
+   to walk in, work, and get out — and the flamethrower is roughly ten
+   times faster than waiting, which is the point of carrying it. */
+const FIRE_INTERVAL = 6;
+
+const IGNITE_AT   = 55;      // heat a cell starts at when it catches
 const PEAK        = 255;
 const RISE        = 14;      // heat gained per fire tic while fuelled
 const FALL        = 9;       // heat lost per fire tic once the fuel is gone
-const BURN_RATE   = 3;       // fuel consumed per fire tic, scaled by heat
-const SPREAD_AT   = 90;      // heat below which a cell cannot light another
+const SPREAD_AT   = 80;      // heat below which a cell cannot light another
 
-/* THE FIREBREAK RULE, and the most important number in the game.
-   Fire will only TRAVEL into a cell with at least this much fuel. Below
-   it a cell still burns perfectly well when something sets light to it
-   directly — a flamethrower, a bottle, a member of staff who is already
-   alight — but it will not catch from the cell next door.
+/* Fraction of a cell's ORIGINAL fuel consumed per fire tic at full heat.
+   Making it a fraction rather than a flat rate is what gives every cell
+   a roughly similar LIFETIME however rich it is — which is what keeps
+   thin fuel alight long enough to matter. */
+const BURN_FRAC   = 0.022;
 
-   That single threshold is what turns the shop's floor plan into the
-   level design. A gondola holds 300 and goes up like a gondola; an aisle
-   holds 26 and is a firebreak. So a fire eats one run of shelving and
-   stops dead at the walkway, and getting it across the walkway is the
-   thing the player is actually doing all game.
+/* What is left afterwards.
 
-   Without this the whole store went from one match in about thirty
-   seconds and there was no game at all — which is what the first version
-   did, and it looked wonderful and played like a screensaver. */
-const SPREAD_MIN_FUEL = 60;
+   A cell whose fuel is spent used to fade to nothing in a couple of
+   seconds, so an aisle you had just burnt out looked exactly like an
+   aisle nobody had touched — which made the fire feel like an animation
+   playing over the level rather than something happening to it. Now it
+   drops to a low glow and sits there for the better part of a minute
+   before going cold, so the ground you have taken stays visibly taken. */
+const EMBER_HEAT = 20;
+const EMBER_TICS = 150;
+
+/* How much of a region has to go before its surfaces are swapped for
+   charred ones. Below about half it still reads as a shop with a fire in
+   it; past that it should read as a shop that HAS burnt. */
+const CHAR_AT = 0.5;
+
+/* How hot a cell can get, from how much there is to burn. Thin fuel
+   smoulders below a hundred and thirty; a full gondola goes to white. */
+const peakHeat = f0 => Math.max(112, Math.min(PEAK, 112 + f0 * 0.5));
+
+/* Chance out of 256, per fire tic, per direction, that a burning cell
+   lights its neighbour. Scales with the NEIGHBOUR's richness — fire
+   moves toward what will take it — and the range is deliberately wide:
+
+     a gondola of stock   75   a front advances a cell every ~0.6s, so a
+                               full run goes up in about ten seconds
+     bare lino            13   a cell every ~3.4s, so crossing an aisle
+                               takes the better part of twenty
+
+   Both are far above the percolation threshold, so both go eventually.
+   The difference between them is entirely PACE, which is what makes
+   watching a fire find its way across a walkway worth watching. */
+const spreadChance = f => Math.max(3, Math.min(110, f >> 2));
 
 export class FireSystem {
   constructor(game) {
@@ -83,6 +158,7 @@ export class FireSystem {
     this.fuel  = new Uint16Array(n);
     this.fuel0 = new Uint16Array(n);
     this.heat  = new Uint8Array(n);
+    this.ember = new Uint16Array(n);
     this.link  = new Uint8Array(n);      // 1 E, 2 N, 4 W, 8 S
     this.sectorOf = new Int32Array(n).fill(-1);
 
@@ -90,7 +166,13 @@ export class FireSystem {
     this._activeSet = new Uint8Array(n);
     this.totalFuel = 0;
     this.burntFuel = 0;
+    this.hotCells = 0;
     this.tics = 0;
+
+    /* per-region progress, so a region can be charred when it has gone */
+    this.sectorFuel = new Float64Array(this.game.level.sectors.length);
+    this.sectorBurnt = new Float64Array(this.game.level.sectors.length);
+    this.newlyCharred = [];
 
     this._seed();
     this._linkCells();
@@ -120,6 +202,7 @@ export class FireSystem {
         const v = Math.max(1, Math.round(f * (0.75 + (pRandom() / 255) * 0.5)));
         this.fuel[i] = v; this.fuel0[i] = v;
         this.totalFuel += v;
+        this.sectorFuel[s.index] += v;
       }
     }
   }
@@ -199,7 +282,7 @@ export class FireSystem {
         }
         if (this.fuel[i] <= 0) continue;
         if (this.heat[i] === 0) lit++;
-        this.heat[i] = Math.max(this.heat[i], Math.min(PEAK, IGNITE_AT + strength));
+        this.heat[i] = Math.max(this.heat[i], Math.min(peakHeat(this.fuel0[i]), IGNITE_AT + strength));
         this._activate(i);
       }
     }
@@ -218,7 +301,10 @@ export class FireSystem {
   }
 
   get burnFraction() { return this.totalFuel > 0 ? this.burntFuel / this.totalFuel : 0; }
-  get burningCells() { return this.active.length; }
+  /* What the status bar shows: cells that are actually alight, not the
+     long tail of embers behind the front. */
+  get burningCells() { return this.hotCells; }
+  get liveCells() { return this.active.length; }
 
   /* ------------------------------------------------------------------
      One step of the simulation
@@ -228,29 +314,51 @@ export class FireSystem {
      ------------------------------------------------------------------ */
   tic() {
     this.tics++;
-    if (this.tics & 1) return;
+    if (this.tics % FIRE_INTERVAL) return;
 
     const { heat, fuel, link, cols } = this;
     const next = [];
     const toIgnite = [];
+    let hot = 0;
 
+    const fuel0 = this.fuel0;
     for (let k = 0; k < this.active.length; k++) {
       const i = this.active[k];
       let h = heat[i];
       const f = fuel[i];
 
       if (f > 0) {
-        /* burning: heat climbs toward the peak and eats the fuel */
-        h = Math.min(PEAK, h + RISE);
-        const eat = Math.min(f, 1 + ((BURN_RATE * h) >> 8));
+        /* burning: heat climbs toward what this much fuel can sustain,
+           and eats a fraction of the original per tic — so a rich cell
+           roars and a thin one smoulders, for about the same length of
+           time either way */
+        const peak = peakHeat(fuel0[i]);
+        h = Math.min(peak, h + RISE);
+        const eat = Math.min(f, Math.max(1, Math.round(fuel0[i] * BURN_FRAC * (h / 255))));
         fuel[i] = f - eat;
         this.burntFuel += eat;
+        const si = this.sectorOf[i];
+        if (si >= 0) {
+          this.sectorBurnt[si] += eat;
+          const sec = this.game.level.sectors[si];
+          if (!sec.charred && this.sectorFuel[si] > 0 &&
+              this.sectorBurnt[si] / this.sectorFuel[si] >= CHAR_AT) {
+            sec.charred = true;
+            this.newlyCharred.push(si);
+          }
+        }
+        if (fuel[i] === 0) this.ember[i] = EMBER_TICS;
+      } else if (h > EMBER_HEAT) {
+        h -= FALL;                                  // falling back to a glow
+        if (h < EMBER_HEAT) h = EMBER_HEAT;
+      } else if (this.ember[i] > 0) {
+        this.ember[i]--;                            // and sitting there a while
+        h = 2 + Math.round((EMBER_HEAT - 2) * this.ember[i] / EMBER_TICS);
       } else {
-        /* spent: dying back to embers and then to nothing */
-        h = h - FALL;
-        if (h <= 0) { heat[i] = 0; this._activeSet[i] = 0; continue; }
+        heat[i] = 0; this._activeSet[i] = 0; continue;
       }
       heat[i] = h;
+      if (h >= SPREAD_AT) hot++;
 
       /* Spread. Only a well-established cell can light another, so a
          fire has to take hold before it travels — which is what gives
@@ -267,6 +375,7 @@ export class FireSystem {
     }
 
     this.active = next;
+    this.hotCells = hot;
     for (const j of toIgnite) {
       if (j < 0 || j >= heat.length) continue;
       if (fuel[j] <= 0 || heat[j] > 0) continue;
@@ -280,17 +389,16 @@ export class FireSystem {
 
   /** Will the fire travel here, and how eagerly?
    *
-   *  Thin fuel is a firebreak, not a slow fuse: below the threshold the
-   *  answer is simply no, however long the fire sits next to it. Above
-   *  it, richer stock catches faster, so a fire runs down a full aisle
-   *  and creeps through a half-empty one. */
+   *  Anything with fuel will take it eventually. Richer stock takes it
+   *  sooner — a fire runs down a full aisle in seconds and creeps across
+   *  a bare walkway over most of a minute — but there is no floor below
+   *  which the answer is simply no. That floor used to exist, and it
+   *  meant most of the shop could never burn at all. */
   _trySpread(j, out) {
     if (j < 0 || j >= this.heat.length) return;
     const f = this.fuel[j];
-    if (f < SPREAD_MIN_FUEL || this.heat[j] > 0) return;
-    /* out of 256: 300 fuel is eager, 70 is reluctant */
-    const chance = Math.min(80, 6 + ((f - SPREAD_MIN_FUEL) >> 2));
-    if (pChance(chance)) out.push(j);
+    if (f <= 0 || this.heat[j] > 0) return;
+    if (pChance(spreadChance(f))) out.push(j);
   }
 
   /** Anything standing in a hot cell catches, and anything alive in one
@@ -318,6 +426,14 @@ export class FireSystem {
     const burn = this.burnFraction;
     world.fogDensity.value = Math.min(0.92, burn * 2.4);
     world.fogColor.value.setRGB(0.16 + burn * 0.12, 0.14 + burn * 0.07, 0.13);
+
+    /* A gutted store lit only by embers is, accurately, almost pitch
+       black — and the player still has to find the way out of it. So the
+       ambient lifts as the place goes: partly the embers themselves,
+       partly the roof no longer being entirely there. Accuracy loses
+       this one on purpose. */
+    world.minLight.value = 0.22 + burn * 0.20;
+    world.globalLight.value = 1.0 + burn * 0.18;
 
     const p = this.game.player;
     if (!p) return;
@@ -393,13 +509,19 @@ export class FireSystem {
        your face. */
     const NEAR2 = 46 * 46;
 
+    /* Embers are drawn, because ground you have already burnt should
+       still look like it — but only nearby, since a cold glow a thousand
+       units off is one pixel and there can be thousands of them. */
+    const EMBER_RANGE2 = 760 * 760;
+
     for (let k = 0; k < this.active.length; k++) {
       const i = this.active[k];
       const h = this.heat[i];
-      if (h < 30) continue;
+      if (h < 6) continue;
       const x = this.worldX(i % this.cols), y = this.worldY((i / this.cols) | 0);
       const d2 = dist2(x, y, camX, camY);
       if (d2 > 2000 * 2000 || d2 < NEAR2) continue;
+      if (h < SPREAD_AT && d2 > EMBER_RANGE2) continue;
       /* Nearest first, but weight by heat so a big fire further off
          still gets drawn ahead of an ember at your feet. */
       cand.push({ i, x, y, h, key: d2 / (0.35 + h / 255) });

@@ -430,8 +430,11 @@ export function bakeSprites() {
   /* --- fire, in three sizes --- */
   fireFrames(32, 48, 8, 7).forEach((p, i) =>
     bank.addFrame('FIRE', 'ABCDEFGH'[i], new Array(8).fill(p), { fullbright: true }));
+  /* Scaled up with the ceiling: a fully involved gondola throws a flame
+     about 160 units, which in a 352 room reads as serious and in the old
+     176 one would have been through the tiles. */
   fireFrames(48, 64, 8, 19, { taper: 0.8 }).forEach((p, i) =>
-    bank.addFrame('BLAZ', 'ABCDEFGH'[i], new Array(8).fill(p), { fullbright: true, scale: 1.6 }));
+    bank.addFrame('BLAZ', 'ABCDEFGH'[i], new Array(8).fill(p), { fullbright: true, scale: 2.5 }));
   fireFrames(24, 24, 6, 31, { taper: 0.9 }).forEach((p, i) =>
     bank.addFrame('EMBR', 'ABCDEF'[i], new Array(8).fill(p), { fullbright: true }));
 

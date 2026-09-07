@@ -119,12 +119,28 @@ export function buildLevelGeometry(level, bank) {
   const dynamicSectors = level.sectors.filter(s => s.dynamic);
   const staticSectors = level.sectors.filter(s => !s.dynamic);
 
-  for (const s of staticSectors) addFlats(statics, level, s, bank);
-  for (const l of staticLines) addLine(statics, level, l, bank);
-
   const group = new THREE.Group();
-  group.name = 'level-static';
-  group.add(statics.toGroup(bank));
+  group.name = 'level';
+  const staticGroup = new THREE.Group();
+  staticGroup.name = 'level-static';
+  group.add(staticGroup);
+
+  /* Rebuilt in full when the store changes its skin — which happens when
+     a region finishes burning and its textures are swapped for charred
+     ones. A whole-level rebuild is a few thousand triangles and about ten
+     milliseconds; it happens perhaps twenty times in a level, debounced,
+     and it is far simpler than tracking which vertices belong to which
+     sector so that a subset could be patched. */
+  function rebuildStatic() {
+    for (const child of staticGroup.children)
+      child.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    staticGroup.clear();
+    const set = new BatchSet();
+    for (const s of staticSectors) addFlats(set, level, s, bank);
+    for (const l of staticLines) addLine(set, level, l, bank);
+    staticGroup.add(set.toGroup(bank));
+  }
+  rebuildStatic();
 
   /* Doors and lifts get their own buffers, thrown away and rebuilt when
      they move. It is a handful of quads — cheaper than any clever
@@ -145,7 +161,7 @@ export function buildLevelGeometry(level, bank) {
   }
   rebuild();
 
-  return { group, rebuild, dynamicSectors, dynamicLines };
+  return { group, rebuild, rebuildStatic, dynamicSectors, dynamicLines };
 }
 
 /* --------------------------------------------------------------------

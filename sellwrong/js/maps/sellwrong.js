@@ -69,15 +69,26 @@ const WALL = 16;                  // the void between two rooms IS the wall
 
 /* heights */
 const FLOOR_OUT = 0, FLOOR_WALK = 12;
-const CEIL_SKY = 320, CEIL_CANOPY = 288;
-const CEIL_SHOP = 176, CEIL_BOH = 208;
+/* Twice what it was. A big-box store is a shed with shelves in it, and
+   at 176 the shop floor read as a corridor with a lid on. At 352 the
+   aisles are canyons, the ceiling grid runs away to a vanishing point,
+   and a fire in a gondola has somewhere to go — which matters, because a
+   flame is drawn as tall as it is hot and had been hitting the ceiling.
+
+   The sign band stays 32 tall, one repeat of the texture, so the canopy
+   and the sky move up with it rather than stretching it. */
+const CEIL_SKY = 400, CEIL_CANOPY = 368;
+const CEIL_SHOP = 352, CEIL_BOH = 416;
 const H_GONDOLA = 56;             // player eye is 41: you cannot see over
 const H_FIXTURE = 40;             // you can
 
 /* how well each kind of place burns, per fire cell */
 const FUEL = {
-  none: 0, walk: 26, front: 34, gondola: 300, produce: 150,
-  chill: 70, deli: 120, stock: 340, dock: 190, office: 200, corridor: 8,
+  /* Everything indoors has SOME fuel, because a cell with none can never
+     catch and would leave a permanent hole in the burn. The car park is
+     the only nothing on the list, and it is nothing on purpose. */
+  none: 0, walk: 55, front: 62, gondola: 300, produce: 150,
+  chill: 90, deli: 120, stock: 340, dock: 190, office: 200, corridor: 62,
 };
 
 export function buildSellWrong() {
@@ -135,10 +146,13 @@ export function buildSellWrong() {
      THE WAY IN — a rectangle bridging the wall void, which is what a
      doorway is
      ================================================================= */
+  /* The glazing carries on above the doors, which is what a big-box
+     entrance actually looks like and avoids thirteen repeats of a door
+     track stacked up a 368-unit wall. */
   rm.add(X[7], 424, X[8], 440, {
-    floor: FLOOR_WALK, ceil: 152, light: 0.70,
+    floor: FLOOR_WALK, ceil: 248, light: 0.70,
     floorTex: 'LINO', ceilTex: 'CEILTILE', wallTex: 'STORGLAS',
-    upperTex: 'DOORTRAK', lowerTex: 'STORBASE', fuel: FUEL.walk, name: 'entrance',
+    upperTex: 'STORGLAS', lowerTex: 'STORBASE', fuel: FUEL.walk, name: 'entrance',
   });
 
   /* =================================================================
@@ -269,6 +283,7 @@ export function buildSellWrong() {
   for (const l of mb.linesBetween(entrance.index, byName('entrance mat')[0].index)) {
     l.upper = 'DOORTRAK'; l.pegUpper = 'bottom'; l.texLocked = true;
   }
+  /* the shutter opening keeps its own header height in a 416 room */
 
   /* =================================================================
      THINGS
@@ -295,11 +310,17 @@ export function buildSellWrong() {
   mb.thing('TROLLEY', 2060, 1700, 0.1);
 
   /* --- what you need, and where it is ------------------------------ */
-  mb.thing('FUELCAN', 250, 2300, 0);        // stockroom
-  mb.thing('FUELCAN', 300, 2200, 0);
-  mb.thing('FUELCAN', 1500, 2320, 0);       // the dock
-  mb.thing('FUELCAN', 2280, 2100, 0);       // the office
-  mb.thing('FUELCAN', 2080, 1000, 0);       // one out on the shop floor
+  /* The only ammunition in the game, so there is a lot of it and it is
+     spread over the whole store — running dry with one weapon is not a
+     challenge, it is a soft lock. */
+  const cans = [
+    [250, 2300], [300, 2200], [700, 2340], [1050, 2080],   // stockroom
+    [1500, 2320], [1700, 2100],                            // the dock
+    [2280, 2100], [2100, 2320],                            // the office
+    [2080, 1000], [2080, 1700], [400, 1000], [400, 1700],  // the shop floor
+    [1240, 1400], [640, 700], [1880, 700],
+  ];
+  for (const [x, y] of cans) mb.thing('FUELCAN', x, y, 0);
 
   /* --- stock, which is fuel that gets in the way ------------------- */
   const crates = [

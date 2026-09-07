@@ -117,8 +117,9 @@ export class Hud {
      ------------------------------------------------------------------ */
   buildBar(p) {
     const w = this.width;
-    const key = [w, p.health | 0, p.armour | 0, p.ammo.fuel | 0, p.ammo.bottles | 0,
-                 p.weapon, Math.round(this.game.burnPercent), p.kills, this.game.totalMonsters].join('|');
+    const key = [w, p.health | 0, p.armour | 0, p.ammo.fuel | 0, p.weapon,
+                 Math.round(this.game.burnPercent), p.kills,
+                 this.game.fire ? this.game.fire.burningCells : 0].join('|');
     if (key === this._barKey) return;
     this._barKey = key;
 
@@ -157,15 +158,17 @@ export class Hud {
     bigText(pix, String(fuel).padStart(3, ' '), cell + 6, 13, 'yellow',
             fuel > 60 ? 0.80 : fuel > 20 ? 0.66 : 0.44, 2);
 
-    /* the weapon you are holding, and the ones you are not */
-    label(cell * 2 + 6, 'ARMS');
-    let ax = cell * 2 + 6;
-    for (const [k, d] of Object.entries(WEAPONS)) {
-      const has = p.owned[k];
-      const on = k === p.weapon;
-      bigText(pix, String(d.slot), Math.round(ax), 13, on ? 'yellow' : 'grey', on ? 0.86 : (has ? 0.34 : 0.14), 2);
-      ax += 12;
-    }
+    /* ALIGHT — how many cells of the store are burning right now.
+
+       This cell used to be Doom's ARMS panel, lighting up the weapon
+       numbers you had collected. With one weapon there is nothing to
+       collect and nothing to switch to, so the space went to the number
+       the player is actually steering: watching it climb after you leave
+       an aisle is how you learn that the fire carries on without you. */
+    label(cell * 2 + 6, 'ALIGHT');
+    const alight = this.game.fire ? this.game.fire.burningCells : 0;
+    bigText(pix, String(alight).padStart(4, ' '), cell * 2 + 6, 13, 'fire',
+            alight > 600 ? 0.90 : alight > 200 ? 0.76 : alight > 0 ? 0.60 : 0.22, 2);
     drawText(pix, WEAPONS[p.weapon].name.slice(0, 9), Math.round(cell * 2 + 6), 26, 'bone', 0.5);
 
     /* HEALTH */
@@ -174,10 +177,10 @@ export class Hud {
     bigText(pix, String(hp).padStart(3, ' ') + '%', cell * 3 + 6, 13, 'red',
             hp > 60 ? 0.72 : hp > 25 ? 0.62 : 0.50, 2);
 
-    /* KILLS, and the bottles, which share the last cell */
+    /* KILLS, and how many there were to begin with */
     label(cell * 4 + 6, 'KILLS');
     bigText(pix, `${p.kills}`, cell * 4 + 6, 13, 'bone', 0.72, 2);
-    drawText(pix, 'BOTTLES ' + (p.ammo.bottles | 0), Math.round(cell * 4 + 6), 26, 'green', 0.62);
+    drawText(pix, 'STAFF ' + this.game.totalMonsters, Math.round(cell * 4 + 6), 26, 'grey', 0.44);
 
     pix.snap(0);
     if (this.barTex) this.barTex.dispose();

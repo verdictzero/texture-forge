@@ -46,6 +46,40 @@ import { pointInPoly, polyArea2, closestOnSeg, segIntersect, dist2, MAX_STEP } f
    drift from a computed polygon. */
 const WELD = 0.25;
 
+/**
+ * Decide every wall's texture from the geometry.
+ *
+ * The rule is that a step's face belongs to the thing that is raised and
+ * a header's face belongs to the thing that is lowered. So the LOWER
+ * texture comes from whichever sector has the higher floor — the shelf,
+ * the counter, the kerb — and the UPPER from whichever has the lower
+ * ceiling.
+ *
+ * Doing this from the heights rather than as each line is created is not
+ * tidying. The first version took the texture from whichever sector
+ * happened to claim the line second, which meant an aisle had shelving
+ * down one side and blank plaster down the other, and which side got
+ * which depended on the order two rectangles appeared in the map file.
+ *
+ * It runs again at RUNTIME whenever a sector changes its skin, which is
+ * what lets a gondola that has burnt out turn charred on both faces
+ * without the map having to know anything about fire.
+ */
+export function assignLineTextures(lines, sectors) {
+  for (const l of lines) {
+    if (l.texLocked) continue;
+    const f = l.front !== null ? sectors[l.front] : null;
+    const b = l.back !== null ? sectors[l.back] : null;
+    if (!f || !b) {
+      const s = f || b;
+      if (s && l.middle !== null) l.middle = s.wallTex;
+      continue;
+    }
+    l.upper = (f.ceil <= b.ceil ? f : b).upperTex;
+    l.lower = (f.floor >= b.floor ? f : b).lowerTex;
+  }
+}
+
 export class MapBuilder {
   constructor(name = 'MAP01') {
     this.name = name;
@@ -175,38 +209,7 @@ export class MapBuilder {
     return this.lines.filter(l => (l.front === s || l.back === s) && (l.front === null || l.back === null));
   }
 
-  /**
-   * Decide every wall's texture, once, from the geometry.
-   *
-   * The rule is that a step's face belongs to the thing that is raised,
-   * and a header's face belongs to the thing that is lowered. So the
-   * LOWER texture comes from whichever sector has the higher floor —
-   * the shelf, the counter, the kerb — and the UPPER from whichever has
-   * the lower ceiling: the door frame, the bulkhead.
-   *
-   * Doing this here rather than as each line is created is not tidying.
-   * The first version took the texture from whichever sector happened to
-   * claim the line second, which meant an aisle had shelving down one
-   * side and blank wall down the other, and which side got which
-   * depended on the order two rectangles appeared in the map file.
-   * Nothing about that is discoverable from looking at the map.
-   */
-  finishTextures() {
-    for (const l of this.lines) {
-      if (l.texLocked) continue;
-      const f = l.front !== null ? this.sectors[l.front] : null;
-      const b = l.back !== null ? this.sectors[l.back] : null;
-      if (!f || !b) {                       // a wall: the sector that owns it
-        const s = f || b;
-        if (s && l.middle !== null) l.middle = s.wallTex;
-        continue;
-      }
-      const upper = f.ceil <= b.ceil ? f : b;
-      const lower = f.floor >= b.floor ? f : b;
-      l.upper = upper.upperTex;
-      l.lower = lower.lowerTex;
-    }
-  }
+  finishTextures() { assignLineTextures(this.lines, this.sectors); }
 
   thing(type, x, y, angle = 0, props = {}) {
     this.things.push({ type, x, y, angle, ...props });
@@ -255,6 +258,11 @@ export class Level {
 
     this._buildBounds();
     this._buildBlockmap();
+  }
+
+  /** Redo every wall's texture after some sectors changed their skins. */
+  refreshTextures() {
+    assignLineTextures(this.lines, this.sectors);
   }
 
   _buildBounds() {

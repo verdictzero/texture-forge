@@ -24,12 +24,18 @@ are open, and the night crew are still inside.
 Burn 60% of it, then get back to the car park.
 
   WASD          move            MOUSE     look
-  SHIFT         run             LMB/CTRL  attack
-  SPACE / F     open, use       1 2 3     boxcutter, flamer, molotov
+  SHIFT         run             LMB/CTRL  flamethrower
+  SPACE / F     open, use       ESC       pause
   [  ]          chunkiness      N         palette on / off
-  ESC           pause
 
 Gamepad works. Mouse look needs a click to grab the pointer.
+
+One weapon, and it is a flamethrower: four metres of reach, a
+forty-five degree cone, and a tank that holds five hundred with cans
+scattered over the whole store. A boxcutter and a molotov are written,
+tested and switched off — a boxcutter is a more interesting weapon than
+a flamethrower in almost every game ever made, and in this one it is the
+wrong verb.
 
 
 THE ONE IDEA
@@ -40,34 +46,76 @@ top of it. There is a grid of FUEL over the whole map, and every cell takes
 its value from the sector it lands in.
 
   a gondola of stock    300      goes up like a gondola of stock
-  a produce bench       150
   the stockroom         340
-  the aisle between     26       a firebreak
-  the car park          0        will not burn at all, ever
+  a produce bench       150
+  the aisle between      55      creeps
+  the car park            0      will not burn at all, ever
 
-Fire spreads between neighbouring cells, but only into a cell holding at
-least 60. Below that a cell burns perfectly well when something sets light
-to it directly — your flamethrower, a bottle, or a member of staff who is
-already alight — but it will not catch from the cell next door.
+Everything indoors goes eventually, from one match, with nobody helping.
+That is a requirement, and it is a statement about percolation rather than
+about flammability: a fire crossing a region survives only if each burning
+cell lights, on average, MORE THAN ONE new one before it burns out.
 
-That one threshold is the game. Light one run of shelving and it will eat
-that run and stop, politely, at the walkway. Getting it across the walkway
-is what you are doing all night:
+  expected spreads  =  tics alight  x  chance/256  x  neighbours
 
-  the FLAMER lays down about 40 units of accelerant. Enough to burn where
-    you are pointing; never enough to spread. The fire goes exactly as far
-    as you walk, and no further.
+Above one and it runs away and takes everything connected to it. Below one
+it peters out, and no amount of waiting brings it back, because a burnt cell
+has no fuel left to relight. There is no middle setting.
 
-  the MOLOTOV lays down over a hundred, which is above the threshold. Its
-    pool WILL reach into whatever is beside it. You get three.
+So both terms are tuned per cell from how rich it is, and both point the
+same way. Rich stock burns HOT and FAST and throws sparks eagerly; thin
+fuel SMOULDERS, never getting hot, burning a unit at a time, staying alight
+long enough to pass the fire on. A bare walkway gets about 1.9 expected
+spreads and a gondola about 25 — both above one, so both go.
 
-  a BURNING ASSOCIATE keeps chasing you, sets light to what it walks over,
-    and dies on its feet somewhere in the frozen goods. Set one alight at
-    the end of an aisle and it will do more damage to the store than you
-    will.
+What differs is PACE, and that is the whole feel of it:
 
-The car park has no fuel, which makes it the safe room: the one place you
-can stand and watch what you have done.
+  a gondola of stock     a cell every 0.6s — a full run is up in ten
+  bare lino              a cell every 3.4s — an aisle takes twenty to cross
+
+Left completely alone, one match takes the entire shop in about a hundred
+seconds. Your flamethrower is roughly ten times faster than that, which is
+the point of carrying it — you are not starting the fire so much as
+deciding where it starts and how long the store has.
+
+A BURNING ASSOCIATE is the third way it travels. It keeps chasing you, sets
+light to what it walks over, and dies on its feet somewhere in the frozen
+goods. Set one alight at the end of an aisle and it will do more damage to
+the store than you will.
+
+The car park has no fuel at all and never burns, which makes it the safe
+room: the one place you can stand and watch what you have done.
+
+
+WHAT IS LEFT AFTERWARDS
+-----------------------
+
+A store that burns down and looks identical afterwards is an animation,
+not a simulation. Two things stop that.
+
+EMBERS. A cell whose fuel is spent drops to a low glow and sits there for
+most of a minute before going cold, rather than fading out in a second.
+Ground you have already taken stays visibly taken, and an aisle you gutted
+five minutes ago is still ticking over in the dark behind you.
+
+CHARRING. Every surface that can burn has a charred twin, generated from
+the original rather than drawn separately — so a shelf that goes up turns
+into a burnt version of ITSELF and stays in register. Three things happen
+to it, and all three are needed or it just looks dim: it goes dark but
+unevenly, with soot in the recesses so the relief is still legible; it
+goes pale and patchy where the ash settles, which is what stops it reading
+as "the lights went out"; and a few embers survive in the cracks as the
+only saturated colour left.
+
+When a region is half gone its surfaces are swapped, all at once, and the
+level geometry is rebuilt. That costs about ten milliseconds and happens
+perhaps twenty times in a level, debounced so that six gondolas passing
+the line in the same second produce one rebuild rather than six.
+
+The ambient light also lifts as the store goes — partly embers, partly the
+roof no longer being entirely there. A gutted store lit only by embers is
+accurately almost pitch black, and you still have to find the way out of
+it, so accuracy loses that one on purpose.
 
 
 HOW IT IS BUILT
@@ -238,8 +286,10 @@ that had already reached a screenshot:
     had shelving down one side and blank plaster down the other
   a move long enough to step clean through a wall with nothing noticing it
     had been there
-  a single match taking the entire store in thirty seconds, which looked
-    wonderful and played like a screensaver
+  a hard fuel threshold that stopped fire crossing a walkway at all, which
+    meant most of the shop could never burn — the check now runs one match
+    for forty thousand tics and demands every region of the store, and
+    demands that every region says so afterwards
 
 
 WHAT IS NOT DONE
@@ -248,6 +298,7 @@ WHAT IS NOT DONE
   the cars are placeholders and are meant to be
   no music
   no second level, and no level-to-level flow
+  the boxcutter and the molotov are built and switched off
   the Stocker's thrown tin has no trail and is easy to miss
   touch controls are wired in input.js but have no on-screen buttons
   no save

@@ -28,6 +28,8 @@ import { ACTORS } from './states.js';
 import { Player } from './player.js';
 import { FireSystem } from './fire.js';
 import { world } from './material.js';
+import { charredName } from './textures.js';
+import { assignLineTextures } from './level.js';
 import { createSpriteMaterial } from './material.js';
 
 const THING_TO_ACTOR = {
@@ -125,6 +127,7 @@ export class Game {
     this.ticProjectiles();
     this.ticDoors();
     this.fire.tic();
+    this.applyChar();
     this.hud.ticMessages();
 
     if (this.bigMessageTics > 0 && --this.bigMessageTics === 0) this.bigMessage = null;
@@ -138,6 +141,36 @@ export class Game {
     if (this.sound) {
       this.sound.listener = this.player;
       this.sound.setAmbience(Math.min(1, this.fire.burningCells / 90));
+    }
+  }
+
+  /**
+   * Swap a burnt-out region's surfaces for their charred twins.
+   *
+   * Debounced, because half a dozen gondolas can pass the threshold in
+   * the same second and each swap costs a full rebuild of the level's
+   * static geometry. Collecting them and rebuilding once every twenty
+   * tics turns six hitches into one that nobody sees.
+   */
+  applyChar() {
+    const f = this.fire;
+    if (f.newlyCharred.length) {
+      for (const si of f.newlyCharred) {
+        const s = this.level.sectors[si];
+        for (const k of ['floorTex', 'ceilTex', 'wallTex', 'upperTex', 'lowerTex']) {
+          const burnt = charredName(s[k]);
+          if (burnt !== s[k] && this.textures.map.has(burnt)) s[k] = burnt;
+        }
+      }
+      f.newlyCharred.length = 0;
+      this._charDirty = true;
+      this._charAt = this.tics + 20;
+    }
+    if (this._charDirty && this.tics >= this._charAt) {
+      this._charDirty = false;
+      assignLineTextures(this.level.lines, this.level.sectors);
+      this.geo.rebuildStatic();
+      this.geo.rebuild();
     }
   }
 

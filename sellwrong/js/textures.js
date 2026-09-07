@@ -913,6 +913,82 @@ T.MISSING = () => {
   return p;
 };
 
+/* --------------------------------------------------------------------
+   After the fire
+
+   A store that burns down and looks exactly the same afterwards is not
+   burning down, it is playing an animation. So every surface that can
+   burn gets a charred twin, generated from the original rather than
+   drawn separately — which keeps the two in register, so a shelf that
+   goes up turns into a burnt version of ITSELF rather than into a
+   different shelf.
+
+   Three things happen to a surface that has been on fire, and all three
+   are needed or it just looks dim:
+
+     it goes DARK, but not uniformly — soot collects in the recesses and
+       the raised edges stay comparatively bare, so the relief that was
+       there before is still legible, only inverted
+     it goes GREY in patches, because ash is pale, and those patches are
+       what stop it reading as "the lights went out"
+     a few EMBERS survive, and they are the only saturated colour left
+   ------------------------------------------------------------------ */
+export function charVariant(src, seed) {
+  const p = new Pix(src.w, src.h, seed, src.wrap);
+  p.data.set(src.data);
+
+  const soot = fbm(src.w, src.h, 8, 3, seed);
+  const ash = fbm(src.w, src.h, 16, 2, seed + 991);
+
+  for (let y = 0; y < src.h; y++) {
+    for (let x = 0; x < src.w; x++) {
+      const i = p.idx(x, y);
+      if (i < 0 || p.data[i + 3] < 8) continue;
+      const d = p.data;
+      const lum = (d[i] * 0.3 + d[i + 1] * 0.6 + d[i + 2] * 0.1) / 255;
+      const s = soot[y * src.w + x];
+
+      /* Soot sticks where the surface was already dark — the recesses.
+         Charring uniformly flattens the relief to a grey rectangle.
+
+         The first pass at this took everything down to about a tenth,
+         which is what a burnt surface really reflects and which made the
+         gutted store literally unreadable — and you have to walk back
+         out through it. So it keeps rather more than it should, and the
+         ash below is doing most of the work of making it legible. */
+      const keep = 0.17 + s * 0.24 + lum * 0.22;
+      d[i] *= keep; d[i + 1] *= keep * 0.95; d[i + 2] *= keep * 0.88;
+
+      /* ash: pale, patchy, and the only thing you can actually see by */
+      const a = ash[y * src.w + x];
+      if (a > 0.52) p.wash(x, y, 'grey', 0.34 + (a - 0.52) * 0.9, (a - 0.52) * 1.5);
+      if (a > 0.78 && s > 0.5) p.wash(x, y, 'grey', 0.52, (a - 0.78) * 1.6);
+    }
+  }
+
+  /* the last of it, still glowing in the cracks */
+  speckle(src.w, src.h, Math.round(src.w * src.h * 0.022), seed + 77, (x, y, a, b) => {
+    if (p.alphaAt(x, y) < 8) return;
+    if (a > 0.80) p.ink(x, y, 'fire', 0.34 + b * 0.34);
+    else if (a > 0.45) p.wash(x, y, 'fire', 0.18, 0.40);
+  });
+  return p.snap(0.4);
+}
+
+/* Everything that can be on fire and is looked at afterwards. Walls and
+   ceilings included: smoke blackens a ceiling long before flame reaches
+   it, and a store where only the shelves changed looks like the shelves
+   were swapped out. */
+export const CHARRABLE = [
+  'SHELFSTK', 'SHELFEMP', 'SHELFBAK', 'SHELFEND', 'CHILLER', 'FREEZDOR',
+  'PRODUCE', 'DELICASE', 'CHECKOUT', 'CARDBOX', 'PALLET', 'TROLLEY',
+  'LINO', 'LINOWORN', 'CEILTILE', 'CEILDECK', 'WALLPANL', 'TILEWALL',
+  'STOCKFLR', 'STOCKWAL', 'DOORSTAF', 'DOCKDOOR', 'HAZARD', 'CONCRETE',
+];
+
+/** The charred name for a texture, or the texture itself if it has none. */
+export const charredName = n => (n && CHARRABLE.includes(n)) ? n + '_B' : n;
+
 /* Textures whose world footprint is not their pixel size. */
 const SIZES = {
   KERB:     { w: 64, h: 16 },
@@ -927,9 +1003,17 @@ const SIZES = {
 export function bakeTextures() {
   const bank = new TextureBank();
   const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const raw = {};
   for (const [name, gen] of Object.entries(T)) {
-    bank.add(name, gen(), SIZES[name] || {});
+    const pix = gen();
+    raw[name] = pix;
+    bank.add(name, pix, SIZES[name] || {});
   }
+  /* and the same surfaces again, after the fire has been through */
+  CHARRABLE.forEach((name, i) => {
+    if (!raw[name]) { console.warn('nothing to char:', name); return; }
+    bank.add(name + '_B', charVariant(raw[name], 3300 + i * 31), SIZES[name] || {});
+  });
   const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
   console.log(`baked ${bank.map.size} textures in ${ms.toFixed(0)}ms`);
   return bank;
