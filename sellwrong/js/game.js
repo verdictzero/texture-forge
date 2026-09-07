@@ -31,6 +31,8 @@ import { world } from './material.js';
 import { charredName } from './textures.js';
 import { assignLineTextures } from './level.js';
 import { createSpriteMaterial } from './material.js';
+import { buildSlideDoors } from './slidedoor.js';
+import { buildSky, followSky } from './sky.js';
 
 const THING_TO_ACTOR = {
   ASSOCIATE: 'ASSOCIATE', STOCKER: 'STOCKER',
@@ -78,6 +80,9 @@ export class Game {
     this.spawnThings();
     this.relight();
     this.geo.rebuildStatic();          // with the lamps' light in it
+    this.slideDoors = buildSlideDoors(this);
+    this.sky = buildSky(textures);
+    scene.add(this.sky);
     this.fire = new FireSystem(this);
 
     /* the flame the player is holding, and everything else that needs a
@@ -161,15 +166,53 @@ export class Game {
     return pts;
   }
 
+  /**
+   * Which lamps can possibly reach a point.
+   *
+   * The naive version — every sector against every lamp — is fine in a
+   * corner shop and quadratic everywhere else. A store with two hundred
+   * and fifty fittings and two hundred and fifty sectors is sixty
+   * thousand sight tests per relight, and a relight happens every time a
+   * fire takes out a run of lights, which is constantly.
+   *
+   * So the lamps go in a uniform grid whose cell is exactly LAMP_RANGE.
+   * Nothing outside the nine cells around a point can be within range of
+   * it, by construction, and the nine cells hold four or five fittings
+   * instead of two hundred and fifty. It is Doom's blockmap applied to
+   * light, which is what a blockmap is for.
+   */
+  _buildLampGrid() {
+    const cell = LAMP_RANGE;
+    const g = new Map();
+    for (const lamp of this.lamps) {
+      if (lamp.dead || lamp.removed) continue;
+      const k = Math.floor(lamp.x / cell) + ',' + Math.floor(lamp.y / cell);
+      let b = g.get(k);
+      if (!b) g.set(k, b = []);
+      b.push(lamp);
+    }
+    this._lampGrid = g;
+    this._lampCell = cell;
+  }
+
   relight() {
     const L = this.level;
+    this._buildLampGrid();
+    const cell = this._lampCell, grid = this._lampGrid;
+    const near = [];
     for (const s of L.sectors) {
       if (s.outdoor) { s.light = s.ambient; continue; }
       const pts = this._sectorSamples(s);
       let total = 0;
       for (const [px, py] of pts) {
-        for (const lamp of this.lamps) {
-          if (lamp.dead || lamp.removed) continue;
+        near.length = 0;
+        const gx = Math.floor(px / cell), gy = Math.floor(py / cell);
+        for (let j = -1; j <= 1; j++)
+          for (let i = -1; i <= 1; i++) {
+            const b = grid.get((gx + i) + ',' + (gy + j));
+            if (b) for (let k = 0; k < b.length; k++) near.push(b[k]);
+          }
+        for (const lamp of near) {
           const d = Math.hypot(px - lamp.x, py - lamp.y);
           if (d >= LAMP_RANGE) continue;
           const tz = Math.min(s.ceil - 8, lamp.z);
@@ -225,6 +268,7 @@ export class Game {
     for (let i = 0; i < this.actors.length; i++) this.actors[i].tic();
     this.ticProjectiles();
     this.ticDoors();
+    for (let i = 0; i < this.slideDoors.length; i++) this.slideDoors[i].tic();
     this.fire.tic();
     this.applyChar();
     this.hud.ticMessages();
@@ -261,6 +305,9 @@ export class Game {
           if (burnt !== s[k] && this.textures.map.has(burnt)) s[k] = burnt;
         }
       }
+      /* A slider whose entrance has burned is not a door any more. */
+      for (const d of this.slideDoors)
+        if (d.spec.sector && f.newlyCharred.includes(d.spec.sector.index)) d.jam();
       f.newlyCharred.length = 0;
       this._geoDirty = true;
       this._geoAt = this.tics + 20;
@@ -284,8 +331,12 @@ export class Game {
       this.setBigMessage('GET TO THE CAR PARK', 210);
     }
     if (this.escapeArmed) {
+      /* Where "out" is, is the map's business. The footway in front of
+         the shops is outdoors too, and standing on the pavement while the
+         parade goes up behind you is not getting clear of it. */
       const s = this.level.sectorAt(this.player.x, this.player.y, this.player.sector);
-      if (s && s.outdoor && this.player.y < 340) this.win();
+      const out = this.level.escapeY ?? 340;
+      if (s && s.outdoor && s.fuel === 0 && this.player.y < out) this.win();
     }
   }
 
@@ -563,13 +614,14 @@ export class Game {
      ------------------------------------------------------------------ */
   render() {
     const p = this.player;
-    this.camera.position.set(p.x, p.viewZ, p.y);
-    this.camera.rotation.set(p.pitch, -Math.PI / 2 - p.angle, 0, 'YXZ');
+    this.camera.position.set(p.x, p.viewZ, -p.y);
+    followSky(this.sky, this.camera);
+    this.camera.rotation.set(p.pitch, p.angle - Math.PI / 2, 0, 'YXZ');
 
     /* Every billboard in the scene is spun to the same yaw — they face
        the camera PLANE, not the camera point, which is what stops
        sprites near the edge of the screen turning to look at you. */
-    const billboardRot = -p.angle - Math.PI / 2;
+    const billboardRot = p.angle - Math.PI / 2;
 
     for (const a of this.actors) a.render(p.x, p.y, billboardRot);
     this.fire.render(p.x, p.y, billboardRot);
@@ -597,7 +649,7 @@ export class Game {
       u.light.value = this.level.sectorAt(p.x, p.y)?.light ?? 0.6;
       /* the quad's foot is its origin, so lift it by half its height to
          put the thing itself where the projectile is */
-      p.mesh.position.set(p.x, p.z - (e.h * e.scale) / 2, p.y);
+      p.mesh.position.set(p.x, p.z - (e.h * e.scale) / 2, -p.y);
     }
   }
 }

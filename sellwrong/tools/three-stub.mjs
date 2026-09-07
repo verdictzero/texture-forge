@@ -15,7 +15,10 @@ export const SRGBColorSpace = 'srgb', FrontSide = 0, BackSide = 1, DoubleSide = 
 export const RGBAFormat = 1023, UnsignedByteType = 1009, GLSL3 = '300 es';
 
 class Stub { constructor(o) { if (o && typeof o === 'object') Object.assign(this, o); } }
-export class CanvasTexture extends Stub { constructor(c) { super(); this.image = c; } }
+export class CanvasTexture extends Stub {
+  constructor(c) { super(); this.image = c; this.repeat = new Vector2(1, 1); this.offset = new Vector2(); }
+  clone() { const t = new CanvasTexture(this.image); Object.assign(t, this); return t; }
+}
 export class DataTexture extends Stub { constructor(d, w, h) { super(); this.image = { data: d, width: w, height: h }; } }
 export class Vector2 { constructor(x = 0, y = 0) { this.x = x; this.y = y; } set(x, y) { this.x = x; this.y = y; return this; } }
 export class Vector3 extends Vector2 { constructor(x = 0, y = 0, z = 0) { super(x, y); this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
@@ -25,6 +28,7 @@ export class Object3D extends Group {}
 export class Mesh extends Stub { constructor(g, m) { super(); this.geometry = g; this.material = m; this.position = new Vector3(); this.scale = new Vector3(1, 1, 1); this.rotation = new Vector3(); } }
 export class BufferGeometry { setAttribute() {} computeBoundingSphere() {} dispose() {} translate() { return this; } }
 export class PlaneGeometry extends BufferGeometry {}
+export class CylinderGeometry extends BufferGeometry {}
 export class Float32BufferAttribute { constructor(a, n) { this.array = a; this.itemSize = n; } }
 export class BufferAttribute extends Float32BufferAttribute {}
 export class ShaderMaterial extends Stub { dispose() {} }

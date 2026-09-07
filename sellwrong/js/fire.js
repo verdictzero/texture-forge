@@ -547,7 +547,7 @@ export class FireSystem {
       u.billboardRot.value = billboardRot;
       u.light.value = 1;
       const sec = this.game.level.sectors[this.sectorOf[c.i]];
-      m.position.set(c.x, sec ? sec.floor : 0, c.y);
+      m.position.set(c.x, sec ? sec.floor : 0, -c.y);
       m.visible = true;
     }
   }

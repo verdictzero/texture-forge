@@ -39,7 +39,8 @@
 import * as THREE from 'three';
 import { Pix, fbm, valueNoise, speckle, drawTextCentred } from './pixel.js';
 import { makeRng, pRandom } from './util.js';
-import { ramp } from './palette.js';
+import { ramp, PALETTE } from './palette.js';
+import { WEAPON_TILE, WEAPON_TOP, CLEAR_INDEX } from './art-data.js';
 import * as F from './figure.js';
 
 export class SpriteBank {
@@ -652,6 +653,39 @@ export function bakeSprites() {
                 cross a walkway.
    ===================================================================== */
 
+/* --------------------------------------------------------------------
+   The one drawing in this game that a person made
+
+   Run-length pairs of palette indices out of js/art-data.js, which
+   tools/bake-art.mjs writes from art/flamer.png. Nine lines of decoder,
+   no image loading, no async, nothing fetched — it is source code by the
+   time it gets here.
+   ------------------------------------------------------------------ */
+const ART_B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const ART_B64R = (() => { const r = new Int16Array(128).fill(-1);
+  for (let i = 0; i < 64; i++) r[ART_B64.charCodeAt(i)] = i; return r; })();
+
+function decodeWeapon() {
+  const bytes = [];
+  let acc = 0, bits = 0;
+  for (let i = 0; i < WEAPON_TILE.length; i++) {
+    const v = ART_B64R[WEAPON_TILE.charCodeAt(i)];
+    if (v < 0) continue;
+    acc = (acc << 6) | v; bits += 6;
+    if (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 255); }
+  }
+  const p = new Pix(64, 64, 1, false);
+  p.clear();
+  let at = 0;
+  for (let i = 0; i + 1 < bytes.length && at < 64 * 64; i += 2)
+    for (let n = bytes[i + 1]; n > 0 && at < 64 * 64; n--, at++) {
+      if (bytes[i] === CLEAR_INDEX) continue;
+      const c = PALETTE[bytes[i]];
+      p.set(at % 64, (at / 64) | 0, c[0], c[1], c[2], 255);
+    }
+  return p;
+}
+
 function weaponPix(w, h, draw, seed) {
   const p = new Pix(w, h, seed, false);   // drawn off the edge on purpose
   draw(p, makeRng(seed));
@@ -719,56 +753,60 @@ export function bakeWeapons() {
   add('CUTGA', cutter(0)); add('CUTGB', cutter(1)); add('CUTGC', cutter(2));
 
   /* ---- the flamer -------------------------------------------------
-     A pressure sprayer with the tank strapped under the grip and a
-     pilot flame on the nozzle. The nozzle sits low and right so the
-     stream has the whole upper left of the frame to throw itself into,
-     which is where the middle of the screen is from here. */
-  const NOZ = [22, 22];
-  const flamer = (fireFrame) => weaponPix(64, 64, (p, rng) => {
-    const kick = fireFrame * 2;
-    const gx = 46 - kick * 0.4, gy = 52 + kick;
-    /* the tank */
-    for (let y = Math.round(gy) - 2; y < 64; y++)
-      for (let x = 48; x < 62; x++) {
-        const edge = (x === 48 || x === 61) ? -0.14 : 0;
-        p.ink(x, y, 'red', 0.30 + (x < 53 ? 0.12 : 0) + edge);
-      }
-    p.hline(48, 61, Math.round(gy) - 2, 'red', 0.56);
-    bar(p, 54, Math.round(gy), 50, 40, 1.6, 1.4, 'grey', 0.34);   // feed hose
-    /* the lance, grip to nozzle */
-    bar(p, gx, gy, NOZ[0] + kick * 0.5, NOZ[1] + kick, 3.4, 2.4, 'grey', 0.32);
-    bar(p, gx, gy, NOZ[0] + kick * 0.5, NOZ[1] + kick, 1.1, 0.8, 'grey', 0.52);
-    /* the hand on the grip, and the forearm behind it */
-    bar(p, 62, 66, gx + 3, gy + 4, 5.6, 4.2, 'flesh', 0.40);
-    fist(p, Math.round(gx), Math.round(gy), 4.8, 'flesh', 0.44);
-    /* the nozzle */
-    bar(p, NOZ[0] + 5 + kick * 0.5, NOZ[1] + 5 + kick, NOZ[0] + kick * 0.5, NOZ[1] + kick, 3.0, 2.2, 'grey', 0.44);
+     This one is a PHOTOGRAPH, cut out of a chroma key, derezzed to 64
+     pixels and snapped to the game's own 256 colours by
+     tools/bake-art.mjs. Everything else in the game is drawn by code and
+     this is not, because there is no set of primitives that gets you to
+     a piece of kit somebody actually built.
 
+     It arrives laid along the bottom of the frame with the top third
+     empty, and that empty third is the whole point: the muzzle flame is
+     drawn over it, in code, per frame — one still weapon and a separate
+     flash, which is how Doom's weapons worked and why they only ever
+     needed one drawing of the gun.
+
+     RECOIL IS A NUDGE, not a redraw. Two pixels down and one right on
+     the hot frame; at this resolution that is the entire language
+     available for "it just went off", and it is enough. */
+  const gunArt = decodeWeapon();
+  const MUZZLE = [5, 31];            // where the bore is, in the derezzed art
+
+  const flamer = (fireFrame) => weaponPix(64, 64, (p, rng) => {
+    const kick = fireFrame === 1 ? 2 : fireFrame === 2 ? 1 : 0;
+    p.blit(gunArt, Math.round(kick * 0.5), kick);
+
+    const ox = MUZZLE[0] + kick * 0.5, oy = MUZZLE[1] + kick;
     if (fireFrame === 0) {
-      p.disc(NOZ[0] - 1, NOZ[1] - 2, 1.5, 'fire', 0.70);
-      p.disc(NOZ[0] - 1, NOZ[1] - 4, 1.0, 'fire', 0.92);
-    } else {
-      /* The stream. Thrown up and to the left along a widening cone,
-         hottest at the nozzle and cooling as it goes, with the far end
-         breaking into separate blobs the way a real one does. */
-      const n = fireFrame, ox = NOZ[0] + kick * 0.5, oy = NOZ[1] + kick;
-      const count = 150 + n * 90;
-      for (let i = 0; i < count; i++) {
-        const t = Math.pow(rng(), 0.65);                 // bunched near the nozzle
-        const reach = (16 + n * 9) * t;
-        const spread = t * (5 + n * 4);
-        const dirx = -0.72, diry = -0.70;
-        const px = ox + dirx * reach + (rng() - 0.5) * spread * 2;
-        const py = oy + diry * reach + (rng() - 0.5) * spread * 1.4;
-        if (px < -3 || py < -3) continue;
-        const heat = Math.max(0.10, 1.0 - t * (0.5 + rng() * 0.55));
-        p.disc(Math.round(px), Math.round(py), 0.7 + (1 - t) * 2.6, 'fire', heat);
-      }
+      /* the pilot light, which is the only reason the thing is dangerous
+         when you are not pulling the trigger */
+      p.disc(ox, oy - 2, 1.4, 'fire', 0.62);
+      p.disc(ox, oy - 4, 0.9, 'fire', 0.88);
+      return;
+    }
+    /* The stream. Thrown up and to the left along a widening cone,
+       hottest at the muzzle and cooling as it goes, with the far end
+       breaking into separate blobs the way a real one does. */
+    const n = fireFrame;
+    const count = 170 + n * 100;
+    for (let i = 0; i < count; i++) {
+      const t = Math.pow(rng(), 0.65);                 // bunched near the muzzle
+      const reach = (20 + n * 10) * t;
+      const spread = t * (5 + n * 4);
+      const dirx = -0.62, diry = -0.78;
+      const px = ox + dirx * reach + (rng() - 0.5) * spread * 2;
+      const py = oy + diry * reach + (rng() - 0.5) * spread * 1.4;
+      if (px < -3 || py < -3) continue;
+      const heat = Math.max(0.10, 1.0 - t * (0.5 + rng() * 0.55));
+      p.disc(Math.round(px), Math.round(py), 0.7 + (1 - t) * 2.6, 'fire', heat);
     }
   }, 810 + fireFrame * 13);
-  add('FLMGA', flamer(0));
-  add('FLMGB', flamer(1), { fullbright: true });
-  add('FLMGC', flamer(2), { fullbright: true });
+  /* `content` is how much of the 64 is gun rather than reserved sky for
+     the flame. The HUD sizes a weapon by that rather than by the canvas,
+     so leaving room for a muzzle flash does not shrink the gun. */
+  const gunOpts = { content: 64 - WEAPON_TOP };
+  add('FLMGA', flamer(0), gunOpts);
+  add('FLMGB', flamer(1), { ...gunOpts, fullbright: true });
+  add('FLMGC', flamer(2), { ...gunOpts, fullbright: true });
 
   /* ---- the molotov ------------------------------------------------ */
   const molly = (stage) => weaponPix(64, 64, (p) => {
@@ -805,7 +843,7 @@ export function bakeWeapons() {
   add('MOLGB', molly(1));
   add('MOLGC', molly(2));
 
-  for (const [, e] of W) { e.texture = null; e.w = e.pix.w; e.h = e.pix.h; }
+  for (const [, e] of W) { e.texture = null; e.w = e.pix.w; e.h = e.pix.h; e.content = e.content || e.h; }
   return W;
 }
 

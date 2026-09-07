@@ -65,11 +65,27 @@ varying vec2  vUv;
 varying float vLight;
 varying float vDepth;
 varying vec3  vWorld;
+varying float vSky;
 
 #ifdef PER_VERTEX_LIGHT
   attribute float light;
+  /* HOW MUCH OF THIS SURFACE'S LIGHT COMES FROM THE SKY.
+
+     Doom diminished everything by distance at one rate, which is right
+     for a corridor lit by fittings and wrong the moment a level has a
+     six-thousand-unit car park in it: the far end of the parade came out
+     as a black mass, because the far end of a CORRIDOR should. Outside,
+     the source is the sky, it is behind you as well as in front of you,
+     and it does not run out at any distance you can walk.
+
+     So this is a property of the surface, not a global: 1 outdoors, 0
+     indoors, and in between under a canopy — which is exactly what a
+     canopy is. It stretches the falloff and lifts its floor, and nothing
+     indoors changes at all. */
+  attribute float sky;
 #else
   uniform float light;
+  uniform float sky;
 #endif
 
 #ifdef BILLBOARD
@@ -81,6 +97,7 @@ varying vec3  vWorld;
 void main() {
   vUv = uv;
   vLight = light;
+  vSky = sky;
 
   vec3 p = position;
 
@@ -127,6 +144,7 @@ varying vec2  vUv;
 varying float vLight;
 varying float vDepth;
 varying vec3  vWorld;
+varying float vSky;
 
 void main() {
   vec4 t = texture2D(map, vUv);
@@ -134,9 +152,15 @@ void main() {
 
   /* Distance diminishing. Linear in depth, because Doom's was too, and
      because an inverse-square falloff in a corridor lit by nothing in
-     particular just looks broken. */
-  float dim = 1.0 - clamp(vDepth / lightFalloff, 0.0, 1.0);
-  float l = vLight * mix(minLight, 1.0, dim) * globalLight;
+     particular just looks broken.
+
+     Under the sky the same curve is stretched and its floor lifted, so
+     the far end of the car park stays a car park. See the sky
+     attribute above. */
+  float fall = lightFalloff * mix(1.0, 3.4, vSky);
+  float mn   = min(0.85, minLight + 0.32 * vSky);
+  float dim = 1.0 - clamp(vDepth / fall, 0.0, 1.0);
+  float l = vLight * mix(mn, 1.0, dim) * globalLight;
 
   /* THE STEP. 32 levels, same as Doom's 32 colormaps. Everything above is
      continuous maths; this is the line that makes it look right. */
@@ -207,6 +231,7 @@ export function createWallMaterial(texture, opts = {}) {
 export function createSpriteMaterial(texture, opts = {}) {
   const u = baseUniforms(texture, opts);
   u.light         = { value: opts.light ?? 1.0 };
+  u.sky           = { value: opts.sky ?? 0.0 };
   u.billboardRot  = { value: 0.0 };
   u.spriteScale   = { value: new THREE.Vector2(opts.width ?? 64, opts.height ?? 64) };
   u.spriteOffset  = { value: new THREE.Vector2(0, 0) };
@@ -229,6 +254,7 @@ export function createSpriteMaterial(texture, opts = {}) {
 export function createHudMaterial(texture) {
   const u = baseUniforms(texture, { alphaTest: 0.5, fullbright: true });
   u.light = { value: 1.0 };
+  u.sky = { value: 0.0 };
   return new THREE.ShaderMaterial({
     uniforms: u,
     vertexShader: COMMON_VERT,

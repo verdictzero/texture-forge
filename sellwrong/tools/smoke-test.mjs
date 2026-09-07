@@ -201,6 +201,63 @@ const level = buildSellWrong();
 
   check('there is a start', level.things.some(t => t.type === 'START'));
 
+  /* CAN YOU ACTUALLY GET THERE.
+
+     A flood fill from the player's start through every line he could walk
+     through, and then a demand that it reached everywhere. This exists
+     because the parade was once laid out with `ANCHOR_X0 - WALL - n *
+     (UNIT_W + WALL)`, which counts the wall beside the anchor twice and
+     leaves a sixteen-unit void between the west wing and the store. A
+     void is a wall, so half the strip mall was sealed off — and nothing
+     complained, because a level with an unreachable half is a perfectly
+     valid level. It surfaced as the fire spreading three thousand units
+     east and refusing to go west at all, which is a long way from the
+     constant that caused it.
+
+     The rule is Doom's own passability, so this is not a second opinion
+     about what a wall is; it is the game's opinion, asked at build time. */
+  {
+    const start = level.things.find(t => t.type === 'START');
+    const from = level.sectorAt(start.x, start.y);
+    const seen = new Set([from.index]);
+    const queue = [from.index];
+    /* which lines touch which sector, once */
+    const byS = new Map();
+    for (const l of level.lines) for (const si of [l.front, l.back]) {
+      if (si === null) continue;
+      if (!byS.has(si)) byS.set(si, []);
+      byS.get(si).push(l);
+    }
+    while (queue.length) {
+      const si = queue.pop();
+      for (const l of byS.get(si) || []) {
+        const other = l.front === si ? l.back : l.front;
+        if (other === null || seen.has(other)) continue;
+        /* stepping from this sector's floor, at player height */
+        if (level.lineBlocks(l, level.sectors[si].floor, 56, false)) continue;
+        seen.add(other); queue.push(other);
+      }
+    }
+    note('rooms you can walk to', `${seen.size}/${level.sectors.length}`);
+
+    /* Asking "is every room reachable" is the wrong question — a checkout
+       is a sector and you are not meant to be on it. The question with an
+       answer is: is everything the level ASKS you to reach, reachable.
+       Every can of fuel, and every member of staff. Both of those are
+       things the map placed deliberately, so one stranded behind a wall
+       is unambiguously a bug and never a fixture. */
+    const mustReach = level.things.filter(t =>
+      t.type === 'FUELCAN' || t.type === 'ASSOCIATE' || t.type === 'STOCKER');
+    const stranded = mustReach.filter(t => {
+      const s = level.sectorAt(t.x, t.y);
+      return !s || !seen.has(s.index);
+    });
+    check('every fuel can and every member of staff can be reached on foot',
+      stranded.length === 0,
+      stranded.slice(0, 6).map(t => `${t.type}@${t.x | 0},${t.y | 0}`).join(' ') +
+      (stranded.length > 6 ? ` (+${stranded.length - 6})` : ''));
+  }
+
   check('no sector is inside out', level.sectors.every(s => {
     let a = 0;
     for (let i = 0, j = s.poly.length - 1; i < s.poly.length; j = i++)
@@ -247,6 +304,26 @@ const level = buildSellWrong();
   note('lamps placed / kept', `${lamps.length} / ${indoors.length}`);
   check('most of the shop gets a fitting', indoors.length > 30, `${indoors.length} kept`);
   check('the ceiling texture spans four tiles', (tex.TEXTURE_SIZES.CEILFIT || {}).w === 256);
+
+  /* THE SIGN HAS TO BE THE SHAPE OF THE LOGO. The four tiles are a
+     square 128x128 cut from artwork that was not square, so the aspect
+     lives in the geometry: get the sign box wrong and the logo is
+     stretched, and nothing else in the game will say so. */
+  {
+    const art = await import('../js/art-data.js');
+    const signAspect = MAP.SIGN_W / MAP.SIGN_H;
+    check('the sign box is the shape of the artwork',
+      Math.abs(signAspect - art.LOGO_ASPECT) < 0.02,
+      `sign ${signAspect.toFixed(3)} vs art ${art.LOGO_ASPECT.toFixed(3)}`);
+    check('each logo tile is half the sign',
+      (tex.TEXTURE_SIZES.LOGO0 || {}).w === MAP.SIGN_W / 2 &&
+      (tex.TEXTURE_SIZES.LOGO0 || {}).h === MAP.SIGN_H / 2);
+    check('the logo is four tiles', art.LOGO_TILES.length === 4);
+    /* The weapon reserves the top of its frame for the muzzle flame; if
+       that ever became zero the flame would be drawn off-frame. */
+    check('the weapon leaves room for its own flame',
+      art.WEAPON_TOP > 8 && art.WEAPON_TOP < 48, `${art.WEAPON_TOP} rows`);
+  }
 
   /* fuel has to be laid out as a shop or the fire has no shape */
   const fuelOf = n => level.sectors.filter(s => s.name === n).reduce((a, s) => a + s.fuel, 0) /
@@ -369,13 +446,23 @@ section('fire');
   check('one match takes essentially the whole shop', burnt > 0.97,
         `${(burnt * 100).toFixed(1)}% — the fire stalled somewhere`);
 
-  /* and it must still not touch the car park */
-  let lotBurnt = 0;
+  /* And it must still not touch anything the map declared as a
+     firebreak. This used to be phrased as "no outdoor sector burns",
+     which stopped being the same statement the moment the store got a
+     footway: the pavement in front of the shops is outdoors AND carries
+     fuel, on purpose, because it is the fuse that takes the fire along
+     the parade to the neighbours. The invariant that actually matters is
+     the one the map is written against — a sector with no fuel never
+     burns, whatever else is true about it — and that is still what makes
+     the car park the safe room. */
+  let dryBurnt = 0;
   for (let i = 0; i < fire.heat.length; i++) {
     const s = fire.sectorOf[i] >= 0 ? level.sectors[fire.sectorOf[i]] : null;
-    if (s && s.outdoor && (fire.heat[i] > 0 || fire.fuel[i] < fire.fuel0[i])) lotBurnt++;
+    if (s && s.fuel === 0 && (fire.heat[i] > 0 || fire.fuel[i] < fire.fuel0[i])) dryBurnt++;
   }
-  check('the car park does not burn', lotBurnt === 0, `${lotBurnt} cells burnt outdoors`);
+  check('a sector with no fuel never burns', dryBurnt === 0, `${dryBurnt} cells burnt in a firebreak`);
+  const lotCells = [...fire.sectorOf].filter(si => si >= 0 && level.sectors[si].name === 'bays').length;
+  check('the car park is still the safe room', lotCells > 200, `${lotCells} cells of bays`);
 
   /* Every region of the shop must actually be REACHED, not just 97% of
      the fuel. A stockroom that never catches is a hole in the map. */
@@ -397,7 +484,7 @@ section('fire');
   /* Regions that have burnt should have SAID so — a store that burns down
      and looks identical afterwards is an animation, not a simulation. */
   const charred = level.sectors.filter(s => s.charred).length;
-  const burnable = level.sectors.filter(s => !s.outdoor && s.fuel > 0).length;
+  const burnable = level.sectors.filter(s => s.fuel > 0).length;
   note('sectors charred', `${charred}/${burnable}`);
   check('burnt regions get charred surfaces', charred >= burnable * 0.9, `${charred} of ${burnable}`);
   const bank = new Set(Object.keys(tex.TEXTURE_GENERATORS).map(n => n));

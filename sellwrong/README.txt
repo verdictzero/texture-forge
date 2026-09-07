@@ -3,6 +3,10 @@ SELLWRONG
 
 A Doom-style shooter in which you invade a supermarket and burn it down.
 
+SellWrong is the anchor of a strip mall — one long shed cut into tenancies,
+with the big one in the middle paying most of the rent and six small ones
+either side hanging on. Two of those you can walk into. All of them burn.
+
 Open index.html in a browser. No install, no build step, no network. Every
 texture, every sprite, every sound and the whole level are generated in the
 page at start-up, in about half a second. The only file it loads is a
@@ -12,16 +16,19 @@ vendored copy of three.js sitting next to it.
   css/style.css         the furniture around the frame
   vendor/three.module.js  three r160, local so the game runs off a memory stick
   js/                   the game
+  art/                  the two things a person drew, as PNGs
+  tools/bake-art.mjs    node tools/bake-art.mjs — turns art/ into source
   tools/smoke-test.mjs  node tools/smoke-test.mjs — no install, no browser
 
 
 WHAT YOU DO
 -----------
 
-You start in the car park at night. The store is in front of you, the doors
-are open, and the night crew are still inside.
+You start at the mouth of the car park at night, under the pylon sign. The
+parade is in front of you, the automatic doors open when you get near them,
+and the night crew are still inside.
 
-Burn 60% of it, then get back to the car park.
+Burn 60% of it, then get back out past the fire lane into the lot.
 
   WASD          move            MOUSE     look
   SHIFT         run             LMB/CTRL  flamethrower
@@ -139,8 +146,19 @@ piece of architecture in the store is one of those two pieces:
 
   a doorway         upper only
   a checkout        lower only, 40 tall, you can see over it
-  a gondola         lower only, 56 tall — the same as you, so you cannot
+  a gondola         lower only, 80 tall — over your head, so an aisle is
+                      a canyon and the next aisle is a different room
   a kerb            lower, 12 tall, walked over without noticing
+  a shop fascia     upper, 96 tall, between the canopy soffit and the
+                      canopy edge — a band across the front of a building
+                      is a ceiling height, because that is the only thing
+                      a sector engine has that draws a band
+  a parapet         upper, from the canopy edge to the sky
+  a pylon sign      a HOLE: a ring of four thin sectors with a void in the
+                      middle, so all four faces of the void are one-sided
+                      walls carrying the sign. A freestanding object built
+                      out of an absence, which is the only kind a sector
+                      engine can make without a new primitive.
   the staff door    a sector whose ceiling is on the floor and rises
 
 WALLS ARE THE GAPS. Two rectangles that touch become an opening between two
@@ -149,6 +167,39 @@ rectangle there: leave sixteen units between two rooms and the void between
 them is the wall. A doorway is a small rectangle bridging that gap, which is
 what a doorway is in a real building. js/maps/sellwrong.js reads as a floor
 plan because of that one rule.
+
+THE FRONT DOORS ARE THE EXCEPTION. Doom had exactly one door — a ceiling
+that goes up — because the renderer could move a sector's height and could
+not move anything sideways. Every door in the original game is that, dressed
+differently. A supermarket entrance is the one thing that cannot fake:
+everybody has walked through ten thousand sliding doors and a rising
+portcullis at the front of a SellWrong would be the first thing anyone
+noticed. So js/slidedoor.js draws the leaves as two quads on a track,
+sitting in the MIDDLE of the sixteen-unit wall void so that opening one
+slides it into the thickness of the wall, where there is nothing to draw and
+nothing to z-fight with. What they share with a Doom door is the only part
+that matters: a shut one sets `blocking` on the lines across the opening and
+the collision system treats them as wall. Nothing else in the engine knows
+they exist. They open for the staff as well as for you, and once the fire
+has been through the entrance they jam part open and stop being a door.
+
+THE MAP'S Y IS THE RENDERER'S MINUS Z. A map with x east and y north laid
+onto a renderer with x east and z north is LEFT-handed, and everything
+still works: movement, collision, the camera, the sprites, all of it
+self-consistent, and the picture a mirror image of the floor plan. Nothing
+in a supermarket is chiral, so nobody notices — until the day a shopfront
+says TO LET and it comes out backwards, and so does the fascia, and so does
+the sign at the mouth of the car park. Negating y reverses the screen
+winding of every polygon, so every winding in mapgeo.js is written reversed
+to match; that is not a style, it is the other half of the sign change.
+
+LIGHT FROM THE SKY IS NOT LIGHT FROM A FITTING. Doom diminished everything
+by distance at one rate, which is right for a corridor and wrong the moment
+a level has a car park seven thousand units across: the far end of the
+parade came out as a black mass, because the far end of a CORRIDOR should.
+So every vertex carries a `sky` term alongside its light — 1 outdoors, 0
+indoors, 0.55 under the canopy — and the shader stretches the falloff and
+lifts its floor by it. Nothing indoors changed at all.
 
 MONSTERS ARE STATE TABLES. Each state says which sprite frame, how many
 tics, one function to call, and which state comes next. Read a run of them
@@ -267,6 +318,26 @@ survives the cut, in every texture: one big shape you can read across the
 store, one lit edge, and dirt at the bottom. Anything finer is gone by the
 second repeat.
 
+TWO THINGS ARE NOT DRAWN BY CODE, and could not be: the LOGO, because a
+procedural approximation of somebody's logo is not their logo, and the
+WEAPON, because it is a photograph of a piece of kit and there is no set
+of primitives that gets you there. They live in art/ as PNGs and
+tools/bake-art.mjs turns them into source — cut out (by brightness for
+the logo, by chroma key for the weapon), resampled, snapped to the game's
+own 256 colours, run-length encoded into js/art-data.js. Nothing is
+fetched at run time and there is still no build step: the build step is
+that file, run by hand, when the art changes.
+
+Neither gets an exemption from the 64-pixel rule; they get GEOMETRY
+instead. The logo is four 64x64 tiles hung as a two-by-two on the
+entrance tower — two ceiling steps for the rows, one vertical split for
+the columns — because a sector engine cannot draw a big picture but it
+can draw four small ones next to each other, which is the same thing and
+is how every large sign in Doom was done. The weapon is one tile with its
+top third left empty, and that empty third is where the muzzle flame is
+drawn, in code, per frame: one still gun and a separate flash, exactly
+how Doom's weapons worked and why they only ever needed one drawing.
+
 THE MONSTERS ARE A SKELETON. Doom's are eight photographs of a clay model,
 which is why they turn convincingly: the rotations agree because they are
 the same object. So js/figure.js poses a small articulated figure in 3D and
@@ -306,7 +377,7 @@ THE TEST
 
 No install and no browser — a stub stands in for three.js, since the
 bakeries, the map builder, the collision and the state tables are all pure.
-115 checks. Every one of them earns its place by having caught something
+190 checks. Every one of them earns its place by having caught something
 that had already reached a screenshot:
 
   a sprite whose art wrapped round the edge of its own canvas, so a forearm
@@ -327,12 +398,26 @@ that had already reached a screenshot:
     now bursts every fitting over one aisle and demands it get darker
   a fixture texture whose declared world height did not match the fixture,
     showing a slice of a second copy of itself cut off at the floor
+  a firebreak check phrased as "no outdoor sector burns", which stopped
+    being the same statement the moment the store got a footway — the
+    pavement is outdoors AND carries fuel, on purpose, because it is the
+    fuse that takes the fire along the parade to the neighbours. The
+    check is now the invariant the map is actually written against: a
+    sector with no fuel never burns, whatever else is true about it
 
 
 WHAT IS NOT DONE
 ----------------
 
-  the cars are placeholders and are meant to be
+  the logo and the weapon are the only art a person made; everything else
+    is still procedural and still provisional
+  the cars are placeholders and are meant to be. They are things with a
+    position, an angle and a variant and nothing else, laid out on the same
+    arithmetic that drew the bays, so every one of them is IN a bay — which
+    is the shape a loader for real models wants. There is deliberately no
+    such loader yet: writing one against no models is guessing.
+  four of the six neighbouring units are a shopfront with nothing behind
+    it, which is one wall each and buys the whole read of the place
   no music
   no second level, and no level-to-level flow
   the boxcutter and the molotov are built and switched off

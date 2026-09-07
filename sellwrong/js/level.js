@@ -142,6 +142,12 @@ export class MapBuilder {
       /* the game's own business, carried along for the ride */
       fuel: props.fuel ?? 0,          // how well this region burns
       outdoor: !!props.outdoor,
+      /* How much of this region's light arrives from the sky rather than
+         from a fitting. Drives the distance falloff, so a car park does
+         not diminish like a corridor. Defaults to the outdoor answer;
+         set it by hand for the in-between cases — under a canopy, or a
+         doorway with daylight coming through it. */
+      sky: props.sky ?? (props.outdoor ? 1 : 0),
       dynamic: !!props.dynamic,       // a door or lift — geometry rebuilt at runtime
       special: props.special ?? null,
       bbox: null,
