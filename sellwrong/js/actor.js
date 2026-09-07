@@ -89,6 +89,10 @@ export class Actor {
 
     this.sector = game.level.sectorAt(x, y);
     this.z = this.sector ? this.sector.floor : 0;
+    /* things that hang measure down from the ceiling, not up from the
+       floor — a light over a shelf is at the same height as one over the
+       aisle beside it, and the shelf's floor is 80 units higher */
+    if (info.hangBelow && this.sector) this.z = this.sector.ceil - info.hangBelow;
 
     this.state = null;
     this.stateTics = 0;
@@ -305,6 +309,7 @@ export class Actor {
     else this.remove();
 
     if (this.monster) this.game.onMonsterKilled(this, source);
+    if (this.type === 'LAMP') this.game.onLampDestroyed(this);
   }
 
   /* ------------------------------------------------------------------
@@ -475,6 +480,12 @@ export const ACTIONS = {
     }
     a.game.sound?.play('stkrThrow', a);
     a.game.spawnMissile(a, a.target, 'TIN');
+  },
+
+  /* Glass, a pop, and a shower of sparks that falls. */
+  A_LampBurst(a) {
+    a.game.sound?.play('lampbreak', a);
+    a.game.spawnSparks(a.x, a.y, a.z + 10, 10 + (pRandom() & 7));
   },
 
   A_Pain(a) { a.game.sound?.play(a.info.painSound, a); },

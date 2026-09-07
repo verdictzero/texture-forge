@@ -381,6 +381,73 @@ T.CEILTILE = () => {
   return p.snap(0.5);
 };
 
+/* --------------------------------------------------------------------
+   A ceiling with fittings in it
+
+   A suspended ceiling is a grid of tiles with a fluorescent fitting every
+   so often — and "every so often" is the whole problem, because a
+   64-pixel texture that tiles every 64 units would put a fitting in
+   every single tile.
+
+   So this one is declared as 256 units square: one texture is a 4x4
+   block of ceiling tiles with a single twin fitting in it, and the
+   fittings land every 256 units instead of every 64. A texel is four
+   units instead of one, which is nothing on a surface three metres over
+   your head that is never seen square on.
+
+   THE TEXTURE ONLY DRAWS THE HOUSING. The light itself is a separate
+   object hanging in that housing — because a light you can shoot out is
+   worth ten you cannot, and a lamp painted into the ceiling can never be
+   anything but painted. The recess here is dark and stays dark; what
+   makes it look lit is the thing hanging in it, and when that thing
+   bursts the recess is what is left.
+
+   The fitting is centred in the texture on purpose. Flats are aligned to
+   the world grid and the vertical axis is flipped on upload, so anything
+   NOT centred lands somewhere different from where it looks like it
+   should, and the lamps hung in world space would miss their holes.
+   ------------------------------------------------------------------ */
+T.CEILFIT = () => {
+  const p = new Pix(64, 64, 44);
+
+  const n = fbm(64, 64, 16, 2, 44);
+  for (let y = 0; y < 64; y++)
+    for (let x = 0; x < 64; x++)
+      p.ink(x, y, 'bone', 0.58 + n[y * 64 + x] * 0.10);
+  speckle(64, 64, 500, 45, (x, y, a) => { if (a > 0.45) p.ink(x, y, 'bone', 0.48); });
+
+  /* the tee grid: a line every 16 texels, which is every 64 world units,
+     which is one ceiling tile */
+  for (let g = 0; g < 64; g += 16) {
+    p.hline(0, 63, g, 'grey', 0.40); p.vline(g, 0, 63, 'grey', 0.40);
+    p.hline(0, 63, g + 1, 'grey', 0.26); p.vline(g + 1, 0, 63, 'grey', 0.26);
+  }
+
+  /* water damage, which there always is */
+  const st = valueNoise(64, 64, 3, 46);
+  for (let y = 0; y < 64; y++)
+    for (let x = 0; x < 64; x++) {
+      const v = st[y * 64 + x];
+      if (v > 0.62) p.wash(x, y, 'olive', 0.32, (v - 0.62) * 2.0);
+    }
+
+  /* the housing: a dark recess with the reflector visible in it, dead
+     centre of the texture so the hung lamps line up with it */
+  const x0 = 18, y0 = 26, w = 28, h = 12;
+  for (let y = y0; y < y0 + h; y++)
+    for (let x = x0; x < x0 + w; x++) {
+      const edge = (y === y0 || y === y0 + h - 1) ? 0.10 : 0;
+      p.ink(x, y, 'grey', 0.13 + edge);
+    }
+  /* the specular strip off the reflector, so the recess reads as metal
+     rather than as a hole */
+  p.hline(x0 + 2, x0 + w - 3, y0 + 2, 'grey', 0.30);
+  p.hline(x0 + 2, x0 + w - 3, y0 + h - 3, 'grey', 0.24);
+  p.frame(x0 - 1, y0 - 1, w + 2, h + 2, 'grey', 0.46);
+  p.frame(x0 - 2, y0 - 2, w + 4, h + 4, 'grey', 0.22);
+  return p.snap(0.5);
+};
+
 T.CEILDECK = () => {
   /* Back of house has no ceiling tiles. You look straight up at profiled
      metal deck with the purlins crossing under it, and everything up
@@ -982,14 +1049,29 @@ export function charVariant(src, seed) {
 export const CHARRABLE = [
   'SHELFSTK', 'SHELFEMP', 'SHELFBAK', 'SHELFEND', 'CHILLER', 'FREEZDOR',
   'PRODUCE', 'DELICASE', 'CHECKOUT', 'CARDBOX', 'PALLET', 'TROLLEY',
-  'LINO', 'LINOWORN', 'CEILTILE', 'CEILDECK', 'WALLPANL', 'TILEWALL',
+  'LINO', 'LINOWORN', 'CEILTILE', 'CEILFIT', 'CEILDECK', 'WALLPANL', 'TILEWALL',
   'STOCKFLR', 'STOCKWAL', 'DOORSTAF', 'DOCKDOOR', 'HAZARD', 'CONCRETE',
 ];
 
 /** The charred name for a texture, or the texture itself if it has none. */
 export const charredName = n => (n && CHARRABLE.includes(n)) ? n + '_B' : n;
 
-/* Textures whose world footprint is not their pixel size. */
+/* --------------------------------------------------------------------
+   Textures whose world footprint is not their pixel size
+
+   Two different reasons appear here and they are worth separating.
+
+   FIXTURES are sized so that one repeat of the texture is exactly the
+   height of the thing it is on. A shelf texture 64 tall on an 80-tall
+   gondola would show a quarter of a second copy of itself cut off at the
+   floor; declared as 80 it simply stretches by a quarter, which on a
+   picture of tins nobody will ever notice. These numbers MUST match the
+   fixture heights in the map, and the smoke test checks that they do.
+
+   CEILINGS go the other way, covering four times the world they have
+   pixels for, so that a light fitting lands every four tiles instead of
+   in every one.
+   ------------------------------------------------------------------ */
 const SIZES = {
   KERB:     { w: 64, h: 16 },
   STORBASE: { w: 64, h: 32 },
@@ -998,6 +1080,18 @@ const SIZES = {
   EXITSIGN: { w: 64, h: 32 },
   PALLET:   { w: 64, h: 16, masked: true },
   TROLLEY:  { w: 64, h: 48, masked: true },
+
+  /* fixtures — one repeat is the whole fixture */
+  SHELFSTK: { w: 64, h: 80 },      // H_GONDOLA
+  SHELFEMP: { w: 64, h: 80 },
+  FREEZDOR: { w: 64, h: 80 },
+  CHECKOUT: { w: 64, h: 40 },      // H_FIXTURE
+  CHILLER:  { w: 64, h: 40 },
+  PRODUCE:  { w: 64, h: 40 },
+  DELICASE: { w: 64, h: 40 },
+
+  /* ceilings — four tiles to a texture, so the fittings are spaced out */
+  CEILFIT:  { w: 256, h: 256 },
 };
 
 export function bakeTextures() {
@@ -1020,4 +1114,5 @@ export function bakeTextures() {
 }
 
 export const TEXTURE_NAMES = Object.keys(T);
+export { SIZES as TEXTURE_SIZES };
 export { T as TEXTURE_GENERATORS };

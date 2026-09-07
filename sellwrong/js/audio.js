@@ -54,6 +54,8 @@ const DEFS = {
   dooropen:  { kind: 'sweep', dur: 0.60, f0: 90,   f1: 190,  gain: 0.24, wave: 'sawtooth' },
   doorclose: { kind: 'sweep', dur: 0.55, f0: 190,  f1: 80,   gain: 0.24, wave: 'sawtooth' },
   switch:    { kind: 'click', dur: 0.07, f0: 900,  f1: 400,  gain: 0.24 },
+  lampbreak: { kind: 'noise', dur: 0.34, f0: 5200, f1: 900,  gain: 0.34 },
+  spark:     { kind: 'click', dur: 0.04, f0: 2600, f1: 1400, gain: 0.10 },
   alarm:     { kind: 'sweep', dur: 0.70, f0: 880,  f1: 660,  gain: 0.22, wave: 'square' },
 };
 

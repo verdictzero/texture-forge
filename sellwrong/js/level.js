@@ -124,7 +124,12 @@ export class MapBuilder {
       index: idx,
       floor: props.floor ?? 0,
       ceil: props.ceil ?? 128,
-      light: props.light ?? 0.75,
+      light: props.light ?? props.ambient ?? 0.75,
+      /* What this region is lit to with every fitting in it broken —
+         emergency lighting, daylight through the front, the glow off a
+         chiller. Game.relight() adds the working lamps back on top, so
+         shooting one out actually takes light away. */
+      ambient: props.ambient ?? props.light ?? 0.75,
       floorTex: props.floorTex ?? 'FLAT',
       ceilTex: props.ceilTex ?? 'FLAT',
       poly: pts,

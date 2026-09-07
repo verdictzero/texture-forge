@@ -28,6 +28,22 @@
 import { register } from 'node:module';
 register('./loader.mjs', import.meta.url);
 
+/* Enough of a canvas for Pix.toCanvas to succeed, which is the only DOM
+   call anywhere in the bakeries. With this the test can build a real
+   TextureBank, a real SpriteBank and a real Game, and exercise the
+   game's OWN lighting code rather than a copy of it kept in step by
+   hand — which is the kind of copy that drifts and then passes while the
+   game is broken. */
+globalThis.document = {
+  createElement: () => ({
+    width: 0, height: 0,
+    getContext: () => ({
+      createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
+      putImageData() {},
+    }),
+  }),
+};
+
 let pass = 0, fail = 0;
 const problems = [];
 function check(name, cond, detail = '') {
@@ -168,15 +184,20 @@ const st = await import('../js/states.js');
 
 /* ---------- the map ---------- */
 section('the map');
-const { buildSellWrong } = await import('../js/maps/sellwrong.js');
+const MAP = await import('../js/maps/sellwrong.js');
+const { buildSellWrong } = MAP;
 const level = buildSellWrong();
 {
   note('sectors / lines / vertices', `${level.sectors.length} / ${level.lines.length} / ${level.verts.length}`);
   note('things', level.things.length);
 
+  /* Lamps are laid on a grid over the whole map and the ones that miss
+     the building are dropped when the level is populated, so they are
+     the one thing allowed to start outside a sector. */
+  const placed = level.things.filter(t => t.type !== 'LAMP');
   check('every thing stands in a sector',
-    level.things.every(t => level.sectorAt(t.x, t.y)),
-    level.things.filter(t => !level.sectorAt(t.x, t.y)).map(t => `${t.type}@${t.x},${t.y}`).join(' '));
+    placed.every(t => level.sectorAt(t.x, t.y)),
+    placed.filter(t => !level.sectorAt(t.x, t.y)).map(t => `${t.type}@${t.x},${t.y}`).join(' '));
 
   check('there is a start', level.things.some(t => t.type === 'START'));
 
@@ -200,12 +221,87 @@ const level = buildSellWrong();
   const glass = level.lines.filter(l => l.middle === 'STORGLAS').length;
   check('the shopfront is glazed', glass >= 2, `${glass} segments`);
 
+  /* A gondola you can see over is not an aisle, it is a low wall. The
+     player is 56 with an eye at 41; anything at 56 exactly is the least
+     useful height there is. */
+  check('gondolas are taller than the player', MAP.H_GONDOLA > 56, `${MAP.H_GONDOLA}`);
+  check('front fixtures are below eye level', MAP.H_FIXTURE < 41, `${MAP.H_FIXTURE}`);
+  const gond = level.sectors.find(s => s.name === 'gondola');
+  check('gondola sectors are at that height', gond && gond.floor === MAP.H_GONDOLA);
+
+  /* A fixture texture whose declared world height does not match the
+     fixture shows a slice of a second copy of itself, cut off wherever
+     the fixture happens to end. */
+  const declared = { SHELFSTK: MAP.H_GONDOLA, SHELFEMP: MAP.H_GONDOLA, FREEZDOR: MAP.H_GONDOLA,
+                     CHECKOUT: MAP.H_FIXTURE, CHILLER: MAP.H_FIXTURE,
+                     PRODUCE: MAP.H_FIXTURE, DELICASE: MAP.H_FIXTURE };
+  const mismatched = Object.entries(declared)
+    .filter(([n, h]) => (tex.TEXTURE_SIZES[n] || {}).h !== h)
+    .map(([n, h]) => `${n} declared ${(tex.TEXTURE_SIZES[n] || {}).h} wants ${h}`);
+  check('fixture textures are sized to their fixtures', mismatched.length === 0, mismatched.join(', '));
+
+  /* the lights */
+  const lamps = level.things.filter(t => t.type === 'LAMP');
+  check('the ceiling has fittings in it', lamps.length > 30, `${lamps.length} placed`);
+  const indoors = lamps.filter(t => { const s = level.sectorAt(t.x, t.y); return s && !s.outdoor && s.ceil >= 200; });
+  note('lamps placed / kept', `${lamps.length} / ${indoors.length}`);
+  check('most of the shop gets a fitting', indoors.length > 30, `${indoors.length} kept`);
+  check('the ceiling texture spans four tiles', (tex.TEXTURE_SIZES.CEILFIT || {}).w === 256);
+
   /* fuel has to be laid out as a shop or the fire has no shape */
   const fuelOf = n => level.sectors.filter(s => s.name === n).reduce((a, s) => a + s.fuel, 0) /
                       Math.max(1, level.sectors.filter(s => s.name === n).length);
   note('fuel: gondola / aisle / car park', `${fuelOf('gondola')} / ${fuelOf('aisle')} / ${fuelOf('car park')}`);
   check('gondolas hold far more fuel than the aisles', fuelOf('gondola') > fuelOf('aisle') * 4);
   check('the car park will not burn', fuelOf('car park') === 0);
+}
+
+/* ---------- lighting ---------- */
+section('lighting');
+{
+  /* A REAL Game, with the real lamps and the real relight(). */
+  const { Game } = await import('../js/game.js');
+  const bank = tex.bakeTextures();
+  const sprBank = spr.bakeSprites();
+  const fakeHud = { message() {}, ticMessages() {} };
+  const g = new Game({
+    level, scene: new (await import('three')).Scene(), camera: {},
+    textures: bank, sprites: sprBank, hud: fakeHud, audio: null,
+    input: { sample() {} },
+  });
+  note('lamps kept', g.lamps.length);
+  check('the ceiling has working fittings', g.lamps.length > 30, `${g.lamps.length}`);
+
+  const shop = level.sectors.filter(s => !s.outdoor && s.ceil >= 200);
+  const avg = shop.reduce((a, s) => a + s.light, 0) / shop.length;
+  const lo = Math.min(...shop.map(s => s.light));
+  note('shop light: average / darkest', `${avg.toFixed(2)} / ${lo.toFixed(2)}`);
+  check('the shop is lit by its fittings', avg > 0.55 && avg < 0.98, `average ${avg.toFixed(2)}`);
+  check('nothing indoors is left pitch dark', lo > 0.30, `darkest ${lo.toFixed(2)}`);
+  check('the light is not all clamped to full',
+    shop.filter(s => s.light >= 0.999).length < shop.length * 0.5,
+    `${shop.filter(s => s.light >= 0.999).length} of ${shop.length} at full`);
+
+  /* Shoot out everything over one aisle and it must actually go dark. */
+  const aisle = shop.find(s => s.name === 'aisle');
+  const cx = (aisle.bbox[0] + aisle.bbox[2]) / 2, cy = (aisle.bbox[1] + aisle.bbox[3]) / 2;
+  const before = aisle.light;
+  let killed = 0;
+  for (const l of g.lamps) {
+    if (Math.hypot(l.x - cx, l.y - cy) > 380) continue;
+    l.damage(50, null);
+    killed++;
+  }
+  g.relight();
+  note('one aisle, fittings shot out', `${killed} lamps, ${before.toFixed(2)} -> ${aisle.light.toFixed(2)}`);
+  check('shooting the lights out makes it darker', aisle.light < before - 0.15,
+        `${before.toFixed(2)} -> ${aisle.light.toFixed(2)}`);
+  check('the ambient survives, so it is dark and not blind',
+        aisle.light >= aisle.ambient - 1e-6 && aisle.light > 0.1,
+        `${aisle.light.toFixed(2)} vs ambient ${aisle.ambient}`);
+  check('a burst lamp is dead and shows its broken frame',
+        g.lamps.some(l => l.dead && l.state && l.state.sprite === 'LAMP'));
+  check('bursting a lamp throws sparks', g.projectiles.some(p => p.kind === 'SPARK'));
 }
 
 /* ---------- collision ---------- */

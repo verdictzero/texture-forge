@@ -132,6 +132,16 @@ S('GCAN_STAND',  'GCAN', 'A', -1, null, null);
 S('CRAT_STAND',  'CRAT', 'A', -1, null, null);
 S('BLUD_REST',   'BLUD', 'A', -1, null, null);
 
+/* The lights. Lit until something breaks them, then dark for ever — the
+   burst itself is three tics of nothing, long enough for A_Burst to
+   throw the sparks and for the room to notice it has got darker. */
+S('LAMP_LIT',   'LAMP', 'A', -1, null, null, { fullbright: true });
+S('LAMP_BURST', 'LAMP', 'B', 3, 'A_LampBurst', 'LAMP_DEAD');
+S('LAMP_DEAD',  'LAMP', 'B', -1, null, null);
+S('SPARK1', 'SPRK', 'A', 3, null, 'SPARK2');
+S('SPARK2', 'SPRK', 'B', 3, null, 'SPARK3');
+S('SPARK3', 'SPRK', 'C', 4, null, null);
+
 /* The flame that sits on something burning. Loops for ever; the fire
    system removes it when the fuel runs out. */
 ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].forEach((L, i, arr) =>
@@ -187,6 +197,14 @@ export const ACTORS = {
              shootable: true, health: 1, flammable: true, fuel: 400, explodes: true, pickup: 'fuel' },
   CRATE:   { name: 'Stock',   spawn: 'CRAT_STAND', radius: 20, height: 58, solid: true,
              shootable: true, health: 40, flammable: true, fuel: 300 },
+
+  /* A fitting. Not solid — you walk under it — but shootable, and the
+     fire reaches it too: the burn check is two-dimensional, so anything
+     alight on the floor below will eventually take out the light above
+     it, which is exactly right. It does not itself burn. */
+  LAMP:    { name: 'Light', spawn: 'LAMP_LIT', death: 'LAMP_BURST',
+             radius: 26, height: 14, health: 10, shootable: true, solid: false,
+             flammable: false, hangBelow: 34, fullbright: true },
 
   FIRE:    { name: 'Fire',    spawn: 'FIRE1', radius: 12, height: 48, noclip: true, fullbright: true },
   BLAZE:   { name: 'Blaze',   spawn: 'BLAZ1', radius: 20, height: 80, noclip: true, fullbright: true },

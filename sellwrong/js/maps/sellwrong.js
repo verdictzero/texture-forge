@@ -78,9 +78,16 @@ const FLOOR_OUT = 0, FLOOR_WALK = 12;
    The sign band stays 32 tall, one repeat of the texture, so the canopy
    and the sky move up with it rather than stretching it. */
 const CEIL_SKY = 400, CEIL_CANOPY = 368;
-const CEIL_SHOP = 352, CEIL_BOH = 416;
-const H_GONDOLA = 56;             // player eye is 41: you cannot see over
-const H_FIXTURE = 40;             // you can
+export const CEIL_SHOP = 352, CEIL_BOH = 416;
+/* Taller than the player, and that is the point. At 56 a gondola was
+   exactly the player's own height, which is the least useful height it
+   could possibly be — over eye level but not over the head, so it read
+   as an arbitrary wall rather than as shelving you are walking between.
+   At 80 an aisle is unambiguously a canyon: you cannot see over, the
+   monster two aisles away cannot see you, and the tops of the runs make
+   a horizon across the shop floor. */
+export const H_GONDOLA = 80;
+export const H_FIXTURE = 40;             // below eye level: the front stays open
 
 /* how well each kind of place burns, per fire cell */
 const FUEL = {
@@ -160,42 +167,42 @@ export function buildSellWrong() {
      ================================================================= */
   const shop = (name, light, fuel, extra = {}) => ({
     floor: FLOOR_WALK, ceil: CEIL_SHOP, light,
-    floorTex: 'LINO', ceilTex: 'CEILTILE', wallTex: 'WALLPANL',
+    floorTex: 'LINO', ceilTex: 'CEILFIT', wallTex: 'WALLPANL',
     upperTex: 'WALLPANL', lowerTex: 'WALLPANL', fuel, name, ...extra,
   });
 
   /* --- front end: entrance strip, checkouts, and the cross-aisle --- */
-  rm.add(X[0], Y[0], X[15], Y[1], shop('entrance mat', 0.86, FUEL.front, { floorTex: 'LINOWORN' }));
+  rm.add(X[0], Y[0], X[15], Y[1], shop('entrance mat', 0.34, FUEL.front, { floorTex: 'LINOWORN' }));
 
   /* checkouts: four blocks you can see over, and the lanes between */
   {
     const tills = [[3, 4], [5, 6], [7, 8], [9, 10]];
     let cur = 0;
     for (const [a, b] of tills) {
-      if (X[a] > X[cur]) rm.add(X[cur], Y[1], X[a], Y[2], shop('checkout lane', 0.82, FUEL.front));
-      rm.add(X[a], Y[1], X[b], Y[2], shop('checkout', 0.74, FUEL.front, {
+      if (X[a] > X[cur]) rm.add(X[cur], Y[1], X[a], Y[2], shop('checkout lane', 0.30, FUEL.front));
+      rm.add(X[a], Y[1], X[b], Y[2], shop('checkout', 0.28, FUEL.front, {
         floor: H_FIXTURE, floorTex: 'CHECKOUT', lowerTex: 'CHECKOUT',
       }));
       cur = b;
     }
-    rm.add(X[cur], Y[1], X[15], Y[2], shop('checkout lane', 0.82, FUEL.front));
+    rm.add(X[cur], Y[1], X[15], Y[2], shop('checkout lane', 0.30, FUEL.front));
   }
-  rm.add(X[0], Y[2], X[15], Y[3], shop('front cross-aisle', 0.84, FUEL.walk));
+  rm.add(X[0], Y[2], X[15], Y[3], shop('front cross-aisle', 0.30, FUEL.walk));
 
   /* --- the aisles ------------------------------------------------- */
   for (const [ra, rb] of SHELF_ROWS) {
     let cur = 0;
     for (const [a, b] of SHELF_COLS) {
-      if (X[a] > X[cur]) rm.add(X[cur], Y[ra], X[a], Y[rb], shop('aisle', 0.70, FUEL.walk));
-      rm.add(X[a], Y[ra], X[b], Y[rb], shop('gondola', 0.66, FUEL.gondola, {
+      if (X[a] > X[cur]) rm.add(X[cur], Y[ra], X[a], Y[rb], shop('aisle', 0.24, FUEL.walk));
+      rm.add(X[a], Y[ra], X[b], Y[rb], shop('gondola', 0.24, FUEL.gondola, {
         floor: H_GONDOLA, floorTex: 'SHELFBAK',
         lowerTex: ra === 3 ? 'SHELFSTK' : 'SHELFEMP',
       }));
       cur = b;
     }
-    rm.add(X[cur], Y[ra], X[15], Y[rb], shop('aisle', 0.72, FUEL.walk));
+    rm.add(X[cur], Y[ra], X[15], Y[rb], shop('aisle', 0.25, FUEL.walk));
   }
-  rm.add(X[0], Y[4], X[15], Y[5], shop('mid cross-aisle', 0.80, FUEL.walk));
+  rm.add(X[0], Y[4], X[15], Y[5], shop('mid cross-aisle', 0.28, FUEL.walk));
 
   /* --- perimeter departments, replacing the outer aisle columns ---- */
   /* west: produce, at bench height so the west side stays open */
@@ -207,7 +214,7 @@ export function buildSellWrong() {
   for (const [ra, rb] of SHELF_ROWS) {
     const walk = rm.rects.find(r => r.x0 === X[0] && r.y0 === Y[ra] && r.x1 === X[2]);
     if (walk) walk.x0 = X[1];
-    rm.add(X[0], Y[ra], X[1], Y[rb], shop('produce', 0.76, FUEL.produce, {
+    rm.add(X[0], Y[ra], X[1], Y[rb], shop('produce', 0.28, FUEL.produce, {
       floor: H_FIXTURE, floorTex: 'PRODUCE', lowerTex: 'PRODUCE',
     }));
   }
@@ -216,18 +223,18 @@ export function buildSellWrong() {
     const [ra, rb] = SHELF_ROWS[i];
     const walk = rm.rects.find(r => r.x0 === X[13] && r.y0 === Y[ra] && r.x1 === X[15]);
     if (walk) walk.x1 = X[14];
-    rm.add(X[14], Y[ra], X[15], Y[rb], shop(i ? 'freezer' : 'chiller', i ? 0.82 : 0.76, FUEL.chill, {
+    rm.add(X[14], Y[ra], X[15], Y[rb], shop(i ? 'freezer' : 'chiller', i ? 0.40 : 0.36, FUEL.chill, {
       floor: i ? H_GONDOLA : H_FIXTURE,
       floorTex: 'SHELFBAK', lowerTex: i ? 'FREEZDOR' : 'CHILLER',
     }));
   }
 
   /* --- back cross-aisle, with the deli counter in it ---------------- */
-  rm.add(X[0], Y[6], X[5], Y[7], shop('back cross-aisle', 0.62, FUEL.walk));
-  rm.add(X[5], Y[6], X[8], Y[7], shop('deli', 0.72, FUEL.deli, {
+  rm.add(X[0], Y[6], X[5], Y[7], shop('back cross-aisle', 0.22, FUEL.walk));
+  rm.add(X[5], Y[6], X[8], Y[7], shop('deli', 0.30, FUEL.deli, {
     floor: H_FIXTURE, floorTex: 'SHELFBAK', lowerTex: 'DELICASE',
   }));
-  rm.add(X[8], Y[6], X[15], Y[7], shop('back cross-aisle', 0.58, FUEL.walk));
+  rm.add(X[8], Y[6], X[15], Y[7], shop('back cross-aisle', 0.20, FUEL.walk));
 
   /* =================================================================
      BACK OF HOUSE
@@ -243,9 +250,9 @@ export function buildSellWrong() {
     upperTex: 'STOCKWAL', lowerTex: 'STOCKWAL', fuel, name, ...extra,
   });
 
-  rm.add(200, BOH_Y0, 1200, BOH_Y1, boh('stockroom', 0.40, FUEL.stock));
-  rm.add(1216, BOH_Y0, 1800, BOH_Y1, boh('loading dock', 0.46, FUEL.dock, { wallTex: 'DOCKDOOR' }));
-  rm.add(1816, BOH_Y0, 2400, BOH_Y1, boh('office', 0.52, FUEL.office, {
+  rm.add(200, BOH_Y0, 1200, BOH_Y1, boh('stockroom', 0.16, FUEL.stock));
+  rm.add(1216, BOH_Y0, 1800, BOH_Y1, boh('loading dock', 0.18, FUEL.dock, { wallTex: 'DOCKDOOR' }));
+  rm.add(1816, BOH_Y0, 2400, BOH_Y1, boh('office', 0.22, FUEL.office, {
     floorTex: 'LINOWORN', wallTex: 'TILEWALL', upperTex: 'TILEWALL', lowerTex: 'TILEWALL',
   }));
 
@@ -257,12 +264,12 @@ export function buildSellWrong() {
     fuel: FUEL.corridor, dynamic: true, name: 'staff door',
     special: { kind: 'door', openTo: 152, speed: 4, wait: 140 },
   });
-  rm.add(1200, 2120, 1216, 2280, boh('stock to dock', 0.42, FUEL.corridor));
-  rm.add(1800, 2120, 1816, 2240, boh('dock to office', 0.44, FUEL.corridor));
+  rm.add(1200, 2120, 1216, 2280, boh('stock to dock', 0.18, FUEL.corridor));
+  rm.add(1800, 2120, 1816, 2240, boh('dock to office', 0.18, FUEL.corridor));
 
   /* a second way back in, from the dock to the shop floor: the roller
      shutter the night crew leave open */
-  rm.add(X[10], Y[7], X[11], BOH_Y0, boh('shutter opening', 0.44, FUEL.corridor, {
+  rm.add(X[10], Y[7], X[11], BOH_Y0, boh('shutter opening', 0.18, FUEL.corridor, {
     ceil: 136, wallTex: 'DOCKDOOR', upperTex: 'DOCKDOOR', lowerTex: 'DOCKDOOR',
   }));
 
@@ -329,6 +336,20 @@ export function buildSellWrong() {
     [X[3] + 60, 1400], [X[9] + 70, 1400], [2080, 780],
   ];
   for (const [x, y] of crates) mb.thing('CRATE', x, y, 0);
+
+  /* --- the lights --------------------------------------------------
+     One fitting every 256 units, on the same grid and at the same offset
+     as the housings drawn into the ceiling texture, so each lamp hangs in
+     a hole rather than beside one. Anything that lands outdoors, in a
+     doorway, or under a low ceiling is dropped when the level is
+     populated — it is much easier to cover the whole map and filter than
+     to describe the shape of the shop twice. */
+  {
+    const PITCH = 256, OFF = 126;
+    for (let gx = 0; gx * PITCH + OFF < 2600; gx++)
+      for (let gy = 1; gy * PITCH + OFF < 2500; gy++)
+        mb.thing('LAMP', gx * PITCH + OFF, gy * PITCH + OFF, 0);
+  }
 
   /* --- the staff ---------------------------------------------------
      Spread so the front of the store is nearly empty and the back is

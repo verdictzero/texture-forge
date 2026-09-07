@@ -35,8 +35,15 @@ import { createSpriteMaterial } from './material.js';
 const THING_TO_ACTOR = {
   ASSOCIATE: 'ASSOCIATE', STOCKER: 'STOCKER',
   CAR: 'CAR', TROLLEY: 'TROLLEY', BOLLARD: 'BOLLARD',
-  FUELCAN: 'FUELCAN', CRATE: 'CRATE',
+  FUELCAN: 'FUELCAN', CRATE: 'CRATE', LAMP: 'LAMP',
 };
+
+/* How far a fitting throws light and how much it is worth at the source.
+   340 is a little over one grid step, so every point on the shop floor is
+   reached by two or three of them and losing one is a noticeable dent
+   rather than a blackout — until you shoot out the neighbours too. */
+const LAMP_RANGE = 340;
+const LAMP_GAIN = 0.30;
 
 export class Game {
   constructor({ level, scene, camera, textures, sprites, hud, audio, input }) {
@@ -51,6 +58,7 @@ export class Game {
 
     this.actors = [];
     this.projectiles = [];
+    this.lamps = [];
     this.doors = [];
     this.tics = 0;
     this.accum = 0;
@@ -66,7 +74,10 @@ export class Game {
     this.geo = geo;
     scene.add(geo.group);
 
+    this.lamps = [];
     this.spawnThings();
+    this.relight();
+    this.geo.rebuildStatic();          // with the lamps' light in it
     this.fire = new FireSystem(this);
 
     /* the flame the player is holding, and everything else that needs a
@@ -88,9 +99,17 @@ export class Game {
       }
       const type = THING_TO_ACTOR[t.type];
       if (!type) { console.warn('unknown thing type', t.type); continue; }
+      /* Lights are laid on a grid over the whole map; the ones that fell
+         outdoors, into a doorway, or under a low ceiling are dropped
+         here rather than described twice in the map file. */
+      if (type === 'LAMP') {
+        const sec = this.level.sectorAt(t.x, t.y);
+        if (!sec || sec.outdoor || sec.ceil < 200) continue;
+      }
       const a = new Actor(this, type, t.x, t.y, t.angle, { variant: t.variant });
       this.actors.push(a);
       if (a.monster) this.totalMonsters++;
+      if (type === 'LAMP') this.lamps.push(a);
     }
     if (!this.player) throw new Error('map has no START');
   }
@@ -103,6 +122,86 @@ export class Game {
   }
 
   spawnPuff(x, y, z) { this.spawn('PUFF', x, y, z); }
+
+  /* ------------------------------------------------------------------
+     Light that comes from somewhere
+
+     A sector's brightness is its own ambient — emergency lighting,
+     whatever comes through the front — plus every working fitting that
+     can see it. Which means shooting one out genuinely takes light away,
+     and a fire working its way along a run of them puts an aisle out
+     one section at a time.
+
+     The reach test is done NEAR THE CEILING on purpose. Walls run floor
+     to ceiling and stop it, so light does not pass between rooms; but a
+     gondola is only 80 tall and the ceiling is 352, so light passes over
+     the shelves into the next aisle, which is what light does.
+     ------------------------------------------------------------------ */
+  /**
+   * Sample points across a sector, so its brightness is an AVERAGE over
+   * its area rather than the value at one arbitrary place in it.
+   *
+   * The first version measured each lamp against the nearest point of
+   * the sector's bounding box, which for a 600-unit aisle is distance
+   * zero from every fitting along its length — so every sector summed
+   * four or five lamps at full strength, clamped to 1.0, and shooting
+   * them out changed nothing anywhere. A long room is not close to a
+   * lamp; parts of it are.
+   */
+  _sectorSamples(s) {
+    if (s._samples) return s._samples;
+    const [x0, y0, x1, y1] = s.bbox;
+    const nx = Math.min(3, Math.max(1, Math.round((x1 - x0) / 220)));
+    const ny = Math.min(3, Math.max(1, Math.round((y1 - y0) / 220)));
+    const pts = [];
+    for (let i = 0; i < nx; i++)
+      for (let j = 0; j < ny; j++)
+        pts.push([x0 + (x1 - x0) * ((i + 0.5) / nx), y0 + (y1 - y0) * ((j + 0.5) / ny)]);
+    s._samples = pts;
+    return pts;
+  }
+
+  relight() {
+    const L = this.level;
+    for (const s of L.sectors) {
+      if (s.outdoor) { s.light = s.ambient; continue; }
+      const pts = this._sectorSamples(s);
+      let total = 0;
+      for (const [px, py] of pts) {
+        for (const lamp of this.lamps) {
+          if (lamp.dead || lamp.removed) continue;
+          const d = Math.hypot(px - lamp.x, py - lamp.y);
+          if (d >= LAMP_RANGE) continue;
+          const tz = Math.min(s.ceil - 8, lamp.z);
+          if (d > 1 && L.sightBlocked(lamp.x, lamp.y, lamp.z, px, py, tz)) continue;
+          total += LAMP_GAIN * Math.pow(1 - d / LAMP_RANGE, 1.2);
+        }
+      }
+      s.light = Math.min(1, s.ambient + total / pts.length);
+    }
+  }
+
+  onLampDestroyed(lamp) {
+    /* Relighting walks every lamp against every sector, so it is not done
+       per lamp — a fire takes out a whole run of them within a second or
+       two and one rebuild covers the lot. */
+    this._geoDirty = true;
+    this._geoAt = this.tics + 10;
+  }
+
+  /** What comes out of a light when it goes: bright, brief, and it falls. */
+  spawnSparks(x, y, z, n) {
+    for (let i = 0; i < n; i++) {
+      const a = (pRandom() / 255) * Math.PI * 2;
+      const sp = 0.8 + (pRandom() / 255) * 4.2;
+      this.projectiles.push({
+        kind: 'SPARK', x, y, z,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: -(0.4 + (pRandom() / 255) * 1.8),
+        gravity: -0.85, owner: null, life: 16 + (pRandom() & 15),
+        sprite: 'SPRK', frame: 'A', mesh: null, damage: 0,
+      });
+    }
+  }
 
   /* ------------------------------------------------------------------
      One tic of the world
@@ -163,11 +262,12 @@ export class Game {
         }
       }
       f.newlyCharred.length = 0;
-      this._charDirty = true;
-      this._charAt = this.tics + 20;
+      this._geoDirty = true;
+      this._geoAt = this.tics + 20;
     }
-    if (this._charDirty && this.tics >= this._charAt) {
-      this._charDirty = false;
+    if (this._geoDirty && this.tics >= this._geoAt) {
+      this._geoDirty = false;
+      this.relight();
       assignLineTextures(this.level.lines, this.level.sectors);
       this.geo.rebuildStatic();
       this.geo.rebuild();
@@ -298,6 +398,7 @@ export class Game {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.vz += p.gravity;
+      if (p.kind === 'SPARK') p.frame = p.life > 11 ? 'A' : p.life > 5 ? 'B' : 'C';
       const nx = p.x + p.vx, ny = p.y + p.vy, nz = p.z + p.vz;
 
       let hit = null;
@@ -330,6 +431,7 @@ export class Game {
   }
 
   projectileHit(p, at) {
+    if (p.kind === 'SPARK') return;          // it just goes out
     if (p.kind === 'MOLO') {
       this.sound?.play('glass', at);
       this.sound?.play('ignite', at);
@@ -486,12 +588,12 @@ export class Game {
         p.mesh.frustumCulled = false;
         this.scene.add(p.mesh);
       }
-      const e = this.sprites.get(p.sprite, 'A');
+      const e = this.sprites.get(p.sprite, p.frame || 'A');
       const u = p.mesh.material.uniforms;
       u.map.value = this.sprites.texture(e, 0);
       u.spriteScale.value.set(e.w * e.scale, e.h * e.scale);
       u.billboardRot.value = billboardRot;
-      u.fullbright.value = p.kind === 'MOLO' ? 1 : 0;
+      u.fullbright.value = (p.kind === 'MOLO' || p.kind === 'SPARK') ? 1 : 0;
       u.light.value = this.level.sectorAt(p.x, p.y)?.light ?? 0.6;
       /* the quad's foot is its origin, so lift it by half its height to
          put the thing itself where the projectile is */

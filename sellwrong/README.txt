@@ -213,7 +213,39 @@ it uses it. Doom's fake contrast comes with the same idea: walls running
 east-west read a notch brighter and north-south a notch darker, so a corner
 is visible in a renderer that does no shading at all.
 
-ONE LIGHT, for the fire. Everything else is unlit, but a store that is
+THE LIGHTS ARE OBJECTS, NOT PAINT. A suspended ceiling is a grid of tiles
+with a fluorescent fitting every so often, and "every so often" is the
+problem: a 64-pixel texture tiling every 64 units puts a fitting in every
+tile. So the ceiling texture is declared as 256 units square — one texture
+is a 4x4 block of tiles with a single housing in it — and the fittings land
+every 256 units. A texel is four units instead of one, which is nothing on
+a surface three metres over your head.
+
+The texture only draws the HOUSING. The light itself hangs in it as a
+separate object, because a light you can shoot out is worth ten you cannot,
+and a lamp painted into the ceiling can never be anything but painted. Each
+one has ten health. Shoot it, or let a fire get under it — the burn check
+is two-dimensional, so anything alight on the floor below will eventually
+take out the light above it — and it bursts, showers sparks that fall, and
+goes dark for the rest of the level.
+
+A sector's brightness is its own AMBIENT — emergency lighting, whatever
+comes through the front — plus every working fitting that can see it. So
+shooting one out genuinely takes light away, and a fire working its way
+along a run of them puts an aisle out a section at a time. The reach test
+is done near the ceiling on purpose: walls run floor to ceiling and stop
+it, but a gondola is only 80 tall under a 352 ceiling, so light passes over
+the shelves into the next aisle, which is what light does.
+
+A sector is lit by the AVERAGE over sample points across its area, not by
+the value at one place in it. The first version measured each lamp against
+the nearest point of the sector's bounding box, which for a 600-unit aisle
+is distance zero from every fitting along its length — so every sector
+summed four or five lamps at full strength, clamped, and shooting them out
+changed nothing anywhere. A long room is not close to a lamp; parts of it
+are.
+
+ONE MORE LIGHT, for the fire. Everything else is unlit, but a store that is
 burning down and does not get brighter as it burns is not really burning. It
 parks itself at the centre of mass of whatever is alight nearest you, and it
 is added after the light is quantised, so the glow slides smoothly over the
@@ -290,6 +322,11 @@ that had already reached a screenshot:
     meant most of the shop could never burn — the check now runs one match
     for forty thousand tics and demands every region of the store, and
     demands that every region says so afterwards
+  sector light measured to a bounding box, which pinned the whole shop at
+    full brightness and made the lights unshootable in effect — the check
+    now bursts every fitting over one aisle and demands it get darker
+  a fixture texture whose declared world height did not match the fixture,
+    showing a slice of a second copy of itself cut off at the floor
 
 
 WHAT IS NOT DONE

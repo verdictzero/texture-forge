@@ -505,6 +505,69 @@ export function bakeSprites() {
     }
   }, 32, 32, 605));
 
+  /* --- the lights, which are objects and not paint -----------------
+     Hung below the ceiling rather than flush in it, because a Y-billboard
+     seen from directly underneath is edge-on and invisible. A suspended
+     fitting is what a shed this tall would really have anyway, and it
+     reads from across the shop floor, which flush troffers never would. */
+  const fitting = (lit) => {
+    const p = new Pix(64, 34, 620 + (lit ? 0 : 1), false);
+    /* the drop rods it hangs on */
+    for (const rx of [16, 47]) { p.vline(rx, 0, 9, 'grey', 0.34); p.ink(rx + 1, 0, 'grey', 0.16); }
+    /* the housing */
+    for (let y = 9; y < 17; y++)
+      for (let x = 5; x < 59; x++)
+        p.ink(x, y, 'grey', y < 11 ? 0.44 : y < 15 ? 0.32 : 0.18);
+    p.hline(5, 58, 9, 'grey', 0.56);
+    p.hline(5, 58, 16, 'grey', 0.10);
+    for (const ex of [5, 58]) p.vline(ex, 9, 16, 'grey', 0.40);
+
+    if (lit) {
+      /* the tubes, and the light spilling off them */
+      for (let y = 17; y < 23; y++)
+        for (let x = 7; x < 57; x++) {
+          const t = Math.abs(y - 19.5) / 3;
+          p.ink(x, y, 'bone', 0.99 - t * 0.10);
+        }
+      p.hline(7, 56, 20, 'grey', 0.62);            // the gap between the pair
+      for (let r = 1; r <= 6; r++) {
+        const k = (1 - r / 7) * 0.42;
+        for (let x = 7 - r; x < 57 + r; x++) p.wash(x, 22 + r, 'bone', 0.94, k);
+        for (let y = 17; y < 23; y++) { p.wash(6 - r, y, 'bone', 0.94, k); p.wash(57 + r, y, 'bone', 0.94, k); }
+      }
+      /* the end caps */
+      for (const ex of [6, 57]) for (let y = 16; y < 24; y++) p.ink(ex, y, 'grey', 0.36);
+    } else {
+      /* burst: the tubes are gone, the caps and a few shards are not */
+      for (let y = 17; y < 21; y++)
+        for (let x = 7; x < 57; x++)
+          if (((x * 7 + y * 13) & 7) < 3) p.ink(x, y, 'grey', 0.14);
+      for (const ex of [6, 57]) for (let y = 16; y < 22; y++) p.ink(ex, y, 'grey', 0.24);
+      const rng = makeRng(631);
+      for (let i = 0; i < 9; i++) {
+        const x = 8 + Math.floor(rng() * 48), y = 17 + Math.floor(rng() * 3);
+        p.ink(x, y, 'cyan', 0.34); p.ink(x, y + 1, 'cyan', 0.20);
+      }
+    }
+    p.snap(0.3);
+    return new Array(8).fill(p);
+  };
+  bank.addFrame('LAMP', 'A', fitting(true), { fullbright: true });
+  bank.addFrame('LAMP', 'B', fitting(false));
+
+  /* what comes out of one when it goes */
+  ['A', 'B', 'C'].forEach((L, i) => {
+    bank.addFrame('SPRK', L, radial(p => {
+      const rng = makeRng(640 + i);
+      const heat = [0.98, 0.74, 0.44][i];
+      for (let k = 0; k < 4 - i; k++) {
+        const x = 6 + Math.floor(rng() * 4), y = 6 + Math.floor(rng() * 4);
+        p.ink(x, y, 'fire', heat);
+        if (i === 0) { p.ink(x + 1, y, 'fire', heat - 0.2); p.ink(x, y + 1, 'fire', heat - 0.3); }
+      }
+    }, 16, 16, 640 + i), { fullbright: true });
+  });
+
   /* --- things thrown at you, and things you throw --- */
   bank.addFrame('TINS', 'A', radial(p => {
     for (let y = 8; y < 22; y++) for (let x = 9; x < 19; x++)
