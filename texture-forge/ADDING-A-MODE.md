@@ -13,7 +13,11 @@ Adding one is two steps:
 2. Add `<script src="modes/<yourmode>.js"></script>` to `index.html`, after
    `forge-core.js`.
 
-Nothing else in the app changes. Tab order follows script order.
+Nothing else in the app changes. Tab order follows script order — and the mode
+is in the programmatic API (`API.md`) at the same moment, because that reads the
+registry rather than a list of its own. `node tools/forge.mjs describe <yourmode>`
+prints the controls you just declared, which is a quick way to catch a control
+you meant to name differently.
 
 `modes/_template.js` is a complete working mode (a plaster wall) rather than a
 stub — read it alongside this file. To see it running, uncomment its script tag
@@ -784,7 +788,8 @@ node tools/smoke-test.mjs mymode     # just yours
 
 `tools/feature-test.mjs` covers the things that are not per-mode — the
 resolution ladder, the palette, the wizard, typefaces, the chrome, worker
-threads, the GPU packer, the geometry export and the unlit bake:
+threads, the GPU packer, the geometry export, the programmatic API and the
+unlit bake:
 
 ```
 node tools/feature-test.mjs          # all of it

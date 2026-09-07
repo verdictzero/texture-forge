@@ -34,9 +34,12 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/lib/road.js     a cross-section swept into a road, crumbling at either end
   modes/_template.js    a worked example mode, off by default
   ADDING-A-MODE.md      how to write another one
+  forge-api.js          the programmatic API — window.ForgeAPI
+  tools/forge.mjs       the same API from a shell or another Node program
+  API.md                how to drive it
   tools/smoke-test.mjs  builds every mode and checks it, seams included
   tools/feature-test.mjs  the resolution ladder, the palette, the wizard,
-                          the 3D building and the grocery fixtures
+                          the API, the 3D building and the grocery fixtures
   .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
@@ -1813,6 +1816,58 @@ USING IT
   set the backdrop behind a cut-out — house only.
 
 
+THE API
+-------
+Everything the panel does is also callable — every mode, every control, every
+preset, the whole channel set, the 16-bit height, the readme and the geometry.
+It is for the case where the textures are not the project: you are building
+something else, you need a road, a wall and a roof at the right scale, and you
+would rather write down what you want than click nineteen sliders.
+
+  node tools/forge.mjs modes
+  node tools/forge.mjs describe street
+  node tools/forge.mjs forge street --out assets/road --size 1024 --set tileM=6
+
+That leaves assets/road/ holding a full PBR set, a model.gltf at the size the
+road really is, and a manifest.json saying which file is which channel and how
+big the thing is in metres. There is a batch file format for doing forty of
+them off one browser launch, a structure command that packs a whole building,
+and an importable Node module underneath both.
+
+IT IS ONE CODE PATH, NOT A SECOND IMPLEMENTATION. Every call writes the mode's
+own controls, runs the runtime's own build and packs with the runtime's own
+packer, so a texture forged from a script is byte-identical to one forged by
+hand — and a mode added tomorrow is in the API the moment its script tag is in
+index.html. There is no list of supported modes to keep up to date, which is
+the only version of this that survives contact with a seventeenth mode.
+
+Which is also why the Node side drives a BROWSER rather than importing the
+generators. Five of them rasterise shapes through a 2D canvas and the channel
+packer is a WebGL2 shader; a pure-Node port would be a second answer to the
+same question, and the two would disagree the first time anybody touched a
+mode. So tools/forge.mjs launches headless Chromium, loads index.html off disk
+and talks to window.ForgeAPI. It needs playwright and a Chromium — the same
+dependency the tests already have, and nothing the app itself depends on.
+
+Two things it adds on top of the panel, because a script needs them and a
+person does not:
+
+  reproducibility   every forge resets the mode to its declared defaults
+                    first, then the preset, then your values. The spec is the
+                    WHOLE description of a texture: the same spec gives the
+                    same pixels in the same session, after twenty other
+                    builds, or in a fresh browser tomorrow. Nothing survives
+                    from last time unless you ask for it.
+  what landed       a slider clamps, a step snaps, and derive() rewrites
+                    parameters behind both. A person watches that happen; a
+                    caller gets it back — the parameters the generator was
+                    really handed, what moved, and any control id the mode
+                    does not have, which is the shape a typo takes.
+
+API.md is the reference: the command line, the Node module, window.ForgeAPI,
+what lands in the output directory and what the manifest says about it.
+
+
 ON THE WEB
 ----------
 Every push to main publishes this directory at
@@ -2084,6 +2139,19 @@ It also covers the thirteen things that are easy to break silently:
             material and "which one did I click" cannot be answered by it. And
             DESIGN MODE swaps a type, resizes it the way the layout would have,
             and refuses a works on a house lot
+  api       the two promises forge-api.js makes on top of the panel, both of
+            which fail silently and both of which fail as a texture that will
+            not rebuild six months later: that a spec is the whole description
+            (the same one forged twice, with another mode and a preset in
+            between, has to give the same pixels), and that clamping, an
+            unknown control id and a bad option all come back rather than being
+            swallowed. Plus that describe() names every control the panel
+            actually has and no others — a schema that lies is worse than no
+            schema, since a caller reads it and nothing else — that a packed
+            set holds one PNG per DECLARED channel, which is where a channel
+            with no view tab would go missing, that the plan is still in
+            metres, and that a structure leaves one building rather than four
+            planes and hands the app back afterwards
   grocery   every fixture builds and survives 128 px; the box is the
             millimetres it claims, bays times bay width, in metres; stock
             follows the stock control; SHORT STOCK SURVIVES, which is the

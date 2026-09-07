@@ -1,6 +1,6 @@
 /* Checks over the things the smoke test does not touch: the resolution ladder,
-   the palette and dither pipeline, the structure wizard, and both halves of the
-   graffiti typeface path.
+   the palette and dither pipeline, the structure wizard, the programmatic API
+   and both halves of the graffiti typeface path.
 
      node tools/feature-test.mjs            # all of them
      node tools/feature-test.mjs palette    # one of them
@@ -3300,6 +3300,125 @@ if (want("linked")) {
   ok("and the panel you were looking at is the one still on screen",
      SET.shown === 2 && SET.built && SET.panes > 200,
      `back on panel ${SET.shown} with ${SET.panes} texels of glass`);
+}
+
+/* ============================ the programmatic API ============================
+   forge-api.js drives the same panel a person does, which is the whole point of
+   it — so what needs checking is not that a build happens but that the two
+   promises it makes on top hold: that a spec is the WHOLE description of a
+   texture (nobody's leftovers in it), and that anything the panel quietly did
+   to your numbers comes back rather than being swallowed. Both fail silently,
+   and both fail as a texture that will not rebuild six months later. */
+if (want("api")) {
+  console.log("\n— the programmatic API —");
+  const A = (fn, arg) => page.evaluate(fn, arg === undefined ? null : arg);
+  /* a channel's pixels, as one number. Through ForgeAPI.png so it reads a mode
+     whether or not it is the one on screen — which is most of them, since the
+     API forges without activating. */
+  const hash = async (mode, key) => {
+    const b64 = await page.evaluate(a => window.ForgeAPI.png(a[0], a[1], 128), [mode, key]);
+    let h = 5381;
+    for (let i = 0; i < b64.length; i++) h = ((h * 33) ^ b64.charCodeAt(i)) >>> 0;
+    return h;
+  };
+
+  const cat = await A(() => window.ForgeAPI.catalog());
+  const reg = await page.evaluate(() => ({
+    modes: window.Forge.modes.map(m => m.id),
+    structures: window.Forge.structures.map(s => s.id)
+  }));
+  ok("the catalogue is the registry",
+     cat.modes.map(m => m.id).join() === reg.modes.join() &&
+     cat.structures.map(s => s.id).join() === reg.structures.join(),
+     `${cat.modes.length} modes, ${cat.structures.length} structures`);
+
+  /* A SCHEMA THAT LIES IS WORSE THAN NO SCHEMA: a caller reads describe() and
+     nothing else, so a control missing from it is a control nobody can set,
+     and one invented in it is a --set that silently does nothing. */
+  const missing = [];
+  for (const m of reg.modes) {
+    const d = await A(x => window.ForgeAPI.describe(x), m);
+    const real = await page.evaluate(x => window.Forge.state(x).params.map(p => p.id), m);
+    const said = d.controls.map(c => c.id);
+    const gone = real.filter(x => said.indexOf(x) < 0);
+    const made = said.filter(x => real.indexOf(x) < 0);
+    if (gone.length || made.length) missing.push(`${m}: -[${gone}] +[${made}]`);
+  }
+  ok("describe() names every control the panel has, and no others",
+     !missing.length, missing.join(" | ") || `${reg.modes.length} modes agree`);
+
+  /* THE REPRODUCIBILITY PROMISE, tested the only way that means anything: the
+     same spec twice with something else in between, and a preset in between,
+     because both are what would leave state behind. */
+  await A(() => window.ForgeAPI.forge({ mode: "street", size: 256, seed: 11 }));
+  const first = await hash("street", "basecolor");
+  await A(() => window.ForgeAPI.forge({ mode: "hazard", size: 256, seed: 99 }));
+  await A(() => window.ForgeAPI.forge({ mode: "street", size: 256, seed: 11, preset: "wet" }));
+  await A(() => window.ForgeAPI.forge({ mode: "street", size: 256, seed: 11 }));
+  const again = await hash("street", "basecolor");
+  ok("the same spec forges the same texture", first === again,
+     `${first} then ${again}, with another mode and a preset in between`);
+
+  const presetOn = await A(() => window.ForgeAPI.forge({ mode: "plating", size: 256, seed: 3, preset: "hulk" }))
+    .then(() => hash("plating", "basecolor"));
+  const presetOff = await A(() => window.ForgeAPI.forge({ mode: "plating", size: 256, seed: 3 }))
+    .then(() => hash("plating", "basecolor"));
+  ok("a preset changes the pixels and does not stick", presetOn !== presetOff,
+     `hulk ${presetOn}, defaults ${presetOff}`);
+
+  /* WHAT THE PANEL DID TO YOUR NUMBERS. A range clamps, a select refuses, and
+     an id a mode does not have is the shape a typo takes — all three are
+     invisible from outside unless the API says so. */
+  const took = await A(() => window.ForgeAPI.forge(
+    { mode: "street", size: 256, set: { tileM: 9999, nosuchcontrol: 1 } }));
+  ok("a clamped value is reported",
+     !!took.adjusted && took.adjusted.some(a => a.id === "tileM" && a.got < 9999),
+     JSON.stringify(took.adjusted));
+  ok("an unknown control is reported",
+     !!took.unknown && took.unknown.indexOf("nosuchcontrol") >= 0,
+     JSON.stringify(took.unknown));
+  const refused = await A(() => window.ForgeAPI.forge({ mode: "plating", set: { rivStyle: "sideways" } })
+    .then(() => null, e => e.message));
+  ok("a bad option is an error that names the good ones",
+     !!refused && /dome/.test(refused) && /flush/.test(refused), refused || "not thrown");
+
+  /* THE PACKED SET IS THE EXPORT, so it has to hold everything the download
+     button holds — including the channels the mode declares but does not show
+     a tab for, which are exactly the ones an eye check would miss. */
+  const man = await A(() => window.ForgeAPI.pack({ mode: "plating", size: 128, seed: 4 }));
+  const want2 = await page.evaluate(() => window.Forge.byId.plating.channels.map(c => c.key));
+  const got = man.maps[""] || {};
+  ok("a packed set holds one PNG per declared channel",
+     want2.every(k => !!got[k]), `${want2.filter(k => !got[k]).join(",") || "all of"} ${want2.length}`);
+  ok("and the readme, the 16-bit height and the geometry with them",
+     !!got.height16 && !!got.model &&
+     man.files.some(f => /_readme\.txt$/.test(f.name)) &&
+     man.files.some(f => f.name === "model.obj") &&
+     man.files.some(f => f.name === "model.mtl"),
+     man.files.length + " files");
+
+  /* metres, always — the one thing the geometry export is checked by value
+     rather than by shape, and the API is a second place it could be lost */
+  const plan = await page.evaluate(() =>
+    window.ForgeModel.planOf(window.Forge.byId.plating, window.Forge.state("plating").P));
+  ok("the plan comes back in metres, unconverted",
+     !!man.plan && man.plan.w === plan.w && man.plan.h === plan.h,
+     `${man.plan && man.plan.w} × ${man.plan && man.plan.h} m`);
+
+  /* A STRUCTURE IS THE BUILDING, not four planes: the wizard walk has to leave
+     one glTF that knows about all of them, and has to hand the app back. */
+  const built = await A(() => window.ForgeAPI.structure({ structure: "house", size: 128 }));
+  const dirs = new Set(built.files.map(f => f.name.split("/")[0]));
+  ok("a structure packs a folder per step",
+     ["front", "side", "back", "roof"].every(d => dirs.has(d)), [...dirs].join(", "));
+  ok("and one building rather than four planes",
+     built.files.some(f => f.name === "model.gltf") &&
+     built.faces.length === 4 && built.faces.every(f => f.maps && f.maps.basecolor),
+     built.faces.map(f => f.id + "=" + f.mode).join(" "));
+  ok("and gives the mode tabs back afterwards",
+     await page.evaluate(() => document.body.dataset.wizard !== "on" &&
+                               !document.getElementById("modebar-tabs").hidden),
+     "wizard closed");
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }

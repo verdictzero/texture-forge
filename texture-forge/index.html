@@ -623,6 +623,10 @@ body[data-nearest=on] .chip canvas{image-rendering:pixelated;image-rendering:cri
 <script src="forge-model.js"></script>
 <script src="forge-stage.js"></script>
 <script src="forge-core.js"></script>
+<!-- the programmatic front door: everything the panel does, callable.
+     After the runtime, because it is built on it; before the modes is
+     fine either way, since it only reads the registry when asked. -->
+<script src="forge-api.js"></script>
 <script src="modes/street.js"></script>
 <script src="modes/plating.js"></script>
 <script src="modes/lib/micro.js"></script>

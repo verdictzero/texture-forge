@@ -2946,10 +2946,10 @@ function runAsync(st,preview){
     run(st,!!preview,res);
   });
 }
-async function wizBuildAll(){
-  if(!wiz)return;
-  const btn=el("wiz-all"),save=el("zipsave");
-  btn.disabled=true;save.hidden=true;
+/* COLLECTING AND SAVING ARE TWO JOBS. The download button below wants a Blob
+   and a link; the programmatic API (forge-api.js) wants the same files as bytes
+   and no link at all. So the walk lives here and hands back what it made. */
+async function wizCollect(){
   const steps=wizSteps(),start=wiz.i;
   try{
     wizRecord();
@@ -3078,23 +3078,35 @@ async function wizBuildAll(){
       for(const f of model)files.push(f);
     }
     files.push({name:"readme.txt",data:new TextEncoder().encode(wizReadme())});
-    const zip=makeZip(files),
-          name=wiz.s.id+"_"+((wiz.s.town?TOWN.seed:wiz.s.road?ROAD.seed:wiz.vals.seed)|0)+"_all.zip";
+    const name=wiz.s.id+"_"+((wiz.s.town?TOWN.seed:wiz.s.road?ROAD.seed:wiz.vals.seed)|0)+"_all";
     /* back to the step we were on FIRST, and let it finish rebuilding: both
        activate() and the end of a build clear the save link as stale, so a link
        put up before that lands is taken straight back down again */
     wizEnter(start);
     await runAsync(STATE[steps[start].mode]);
+    setBar(0);
+    return {files:files,name:name,steps:steps.map(x=>x.id)};
+  }catch(err){
+    setBar(0);
+    if(wiz)wizEnter(start);
+    throw err;
+  }
+}
+async function wizBuildAll(){
+  if(!wiz)return;
+  const btn=el("wiz-all"),save=el("zipsave");
+  btn.disabled=true;save.hidden=true;
+  try{
+    const got=await wizCollect(),zip=makeZip(got.files),name=got.name+".zip";
     if(wiz.zipUrl)URL.revokeObjectURL(wiz.zipUrl);
     wiz.zipUrl=saveBlob(zip,name);
     save.href=wiz.zipUrl;save.download=name;
     save.textContent="Save "+name+" ("+(zip.size/1048576).toFixed(1)+" MB)";
     save.hidden=false;
     setBar(0);
-    setStatus(steps.length+" faces packed · click save if nothing downloaded");
+    setStatus(got.steps.length+" faces packed · click save if nothing downloaded");
   }catch(err){
     setBar(0);
-    if(wiz)wizEnter(start);
     setStatus("Could not pack the structure: "+(err&&err.message||err));
   }finally{
     btn.disabled=false;
@@ -3944,6 +3956,39 @@ Forge.setParam=function(modeId,id,value){
   showVal(el(pid(st,id)+"-val"),(d.kind==="range")?(+n.value).toFixed(d.dp):n.value);
   st.built=false;                       // its last build no longer matches its parameters
   return true;
+};
+
+/* ============================ the programmatic seam ============================
+   THE PANEL IS THE APP'S INTERFACE, NOT THE RUNTIME'S. Everything above works
+   in terms of a state object, a parameter bag and a build — none of which a
+   caller can reach, because the only way in is a person moving a slider. That
+   is the right shape for a page and the wrong one for anything driving this
+   from outside: a script in the console, the test harness, or a headless
+   browser being told to forge forty textures into somebody else's project.
+
+   So the private half of the runtime is published here in ONE place, and
+   forge-api.js builds the actual API on top of it. Two consequences worth
+   being deliberate about:
+
+   - It is a seam, not a contract. These are the runtime's own functions with
+     the runtime's own signatures; forge-api.js is the only supported caller
+     and is where the argument checking, the JSON shapes and the reproducibility
+     rules live. A mode has no business in here.
+   - Everything a caller could want already exists. The point of the split is
+     that the API drives the SAME panel, the SAME build path and the SAME
+     packer a person does, so a texture forged from a script is byte-identical
+     to one forged by hand. Anything reimplemented out here would drift. */
+/* Exactly what forge-api.js reaches for, and nothing on the off-chance: the
+   readme, the 16-bit height and the file naming are all reached THROUGH
+   packBuild, and a seam listing them separately would be three more functions
+   to keep working for no caller. */
+Forge.internals={
+  STATE:STATE,activate:activate,node:node,
+  readParams:readParams,applyPreset:applyPreset,runAsync:runAsync,
+  makeMap:makeMap,packBuild:packBuild,makeZip:makeZip,fileBase:fileBase,
+  variantsOf:variantsOf,rootCutOf:rootCutOf,
+  wiz:{start:wizStart,enter:wizEnter,record:wizRecord,exit:wizExit,
+       collect:wizCollect,steps:wizSteps,live:()=>!!wiz}
 };
 
 /* exposed for modes and for the headless parity harness */
