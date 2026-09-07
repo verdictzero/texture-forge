@@ -16,6 +16,8 @@ vendored copy of three.js sitting next to it.
   css/style.css         the furniture around the frame
   vendor/three.module.js  three r160, local so the game runs off a memory stick
   js/                   the game
+  art/                  the two things a person drew, as PNGs
+  tools/bake-art.mjs    node tools/bake-art.mjs — turns art/ into source
   tools/smoke-test.mjs  node tools/smoke-test.mjs — no install, no browser
 
 
@@ -316,6 +318,26 @@ survives the cut, in every texture: one big shape you can read across the
 store, one lit edge, and dirt at the bottom. Anything finer is gone by the
 second repeat.
 
+TWO THINGS ARE NOT DRAWN BY CODE, and could not be: the LOGO, because a
+procedural approximation of somebody's logo is not their logo, and the
+WEAPON, because it is a photograph of a piece of kit and there is no set
+of primitives that gets you there. They live in art/ as PNGs and
+tools/bake-art.mjs turns them into source — cut out (by brightness for
+the logo, by chroma key for the weapon), resampled, snapped to the game's
+own 256 colours, run-length encoded into js/art-data.js. Nothing is
+fetched at run time and there is still no build step: the build step is
+that file, run by hand, when the art changes.
+
+Neither gets an exemption from the 64-pixel rule; they get GEOMETRY
+instead. The logo is four 64x64 tiles hung as a two-by-two on the
+entrance tower — two ceiling steps for the rows, one vertical split for
+the columns — because a sector engine cannot draw a big picture but it
+can draw four small ones next to each other, which is the same thing and
+is how every large sign in Doom was done. The weapon is one tile with its
+top third left empty, and that empty third is where the muzzle flame is
+drawn, in code, per frame: one still gun and a separate flash, exactly
+how Doom's weapons worked and why they only ever needed one drawing.
+
 THE MONSTERS ARE A SKELETON. Doom's are eight photographs of a clay model,
 which is why they turn convincingly: the rotations agree because they are
 the same object. So js/figure.js poses a small articulated figure in 3D and
@@ -355,7 +377,7 @@ THE TEST
 
 No install and no browser — a stub stands in for three.js, since the
 bakeries, the map builder, the collision and the state tables are all pure.
-178 checks. Every one of them earns its place by having caught something
+190 checks. Every one of them earns its place by having caught something
 that had already reached a screenshot:
 
   a sprite whose art wrapped round the edge of its own canvas, so a forearm
@@ -387,6 +409,8 @@ that had already reached a screenshot:
 WHAT IS NOT DONE
 ----------------
 
+  the logo and the weapon are the only art a person made; everything else
+    is still procedural and still provisional
   the cars are placeholders and are meant to be. They are things with a
     position, an angle and a variant and nothing else, laid out on the same
     arithmetic that drew the bays, so every one of them is IN a bay — which

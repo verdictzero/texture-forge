@@ -305,6 +305,26 @@ const level = buildSellWrong();
   check('most of the shop gets a fitting', indoors.length > 30, `${indoors.length} kept`);
   check('the ceiling texture spans four tiles', (tex.TEXTURE_SIZES.CEILFIT || {}).w === 256);
 
+  /* THE SIGN HAS TO BE THE SHAPE OF THE LOGO. The four tiles are a
+     square 128x128 cut from artwork that was not square, so the aspect
+     lives in the geometry: get the sign box wrong and the logo is
+     stretched, and nothing else in the game will say so. */
+  {
+    const art = await import('../js/art-data.js');
+    const signAspect = MAP.SIGN_W / MAP.SIGN_H;
+    check('the sign box is the shape of the artwork',
+      Math.abs(signAspect - art.LOGO_ASPECT) < 0.02,
+      `sign ${signAspect.toFixed(3)} vs art ${art.LOGO_ASPECT.toFixed(3)}`);
+    check('each logo tile is half the sign',
+      (tex.TEXTURE_SIZES.LOGO0 || {}).w === MAP.SIGN_W / 2 &&
+      (tex.TEXTURE_SIZES.LOGO0 || {}).h === MAP.SIGN_H / 2);
+    check('the logo is four tiles', art.LOGO_TILES.length === 4);
+    /* The weapon reserves the top of its frame for the muzzle flame; if
+       that ever became zero the flame would be drawn off-frame. */
+    check('the weapon leaves room for its own flame',
+      art.WEAPON_TOP > 8 && art.WEAPON_TOP < 48, `${art.WEAPON_TOP} rows`);
+  }
+
   /* fuel has to be laid out as a shop or the fire has no shape */
   const fuelOf = n => level.sectors.filter(s => s.name === n).reduce((a, s) => a + s.fuel, 0) /
                       Math.max(1, level.sectors.filter(s => s.name === n).length);

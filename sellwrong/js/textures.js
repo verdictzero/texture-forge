@@ -31,6 +31,8 @@
 import * as THREE from 'three';
 import { Pix, fbm, valueNoise, speckle, drawText, drawTextCentred, textWidth } from './pixel.js';
 import { makeRng } from './util.js';
+import { LOGO_TILES } from './art-data.js';
+import { PALETTE } from './palette.js';
 
 export class TextureBank {
   constructor() { this.map = new Map(); this.missing = new Set(); }
@@ -1003,6 +1005,58 @@ T.EXITSIGN = () => {
    ARE the story of the place. Trading, gone, and never let.
    ------------------------------------------------------------------ */
 
+/* --------------------------------------------------------------------
+   THE LOGO
+
+   The one piece of art in this game that is not drawn by code, because a
+   procedural approximation of somebody's logo is not their logo. It
+   arrives as run-length pairs of palette indices — see
+   tools/bake-logo.mjs, which is the build step, run by hand, when the
+   logo changes — and it is already in the game's 256 colours, so there
+   is nothing to snap and nothing to dither.
+
+   Sixty-four pixels is the rule and the logo does not get an exemption.
+   It gets GEOMETRY instead: four tiles hung as a two-by-two on the
+   entrance tower, which is two ceiling steps and one vertical split. A
+   sector engine cannot draw a big picture; it can draw four small ones
+   next to each other, which is the same thing and is how every large
+   sign in Doom was done.
+   ------------------------------------------------------------------ */
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64R = (() => { const r = new Int16Array(128).fill(-1);
+  for (let i = 0; i < 64; i++) r[B64.charCodeAt(i)] = i; return r; })();
+
+/** Base64 run-length pairs back to 64x64 palette indices. */
+function decodeTile(str) {
+  const bytes = [];
+  let acc = 0, bits = 0;
+  for (let i = 0; i < str.length; i++) {
+    const v = B64R[str.charCodeAt(i)];
+    if (v < 0) continue;                       // padding
+    acc = (acc << 6) | v; bits += 6;
+    if (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 255); }
+  }
+  const px = new Uint8Array(64 * 64);
+  let p = 0;
+  for (let i = 0; i + 1 < bytes.length && p < px.length; i += 2)
+    for (let n = bytes[i + 1]; n > 0 && p < px.length; n--) px[p++] = bytes[i];
+  return px;
+}
+
+const logoTile = i => () => {
+  const px = decodeTile(LOGO_TILES[i]);
+  const p = new Pix(64, 64, 200 + i, false);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const c = PALETTE[px[y * 64 + x]];
+    p.set(x, y, c[0], c[1], c[2], 255);
+  }
+  return p;                                    // already in the palette
+};
+T.LOGO0 = logoTile(0);   // top left
+T.LOGO1 = logoTile(1);   // top right
+T.LOGO2 = logoTile(2);   // bottom left
+T.LOGO3 = logoTile(3);   // bottom right
+
 T.NIGHTSKY = () => {
   /* The sky, wrapped round a cylinder. Doom's sky was a cylinder too, and
      for the same reason: it is the only projection that costs nothing and
@@ -1498,6 +1552,8 @@ export const CHARRABLE = [
      out of the anchor and along the footway */
   'SHELFMIX', 'BAKECASE', 'UNITGLAS', 'UNITSHUT', 'UNITVOID', 'SOFFIT',
   'FASCHEM', 'FASPHON', 'FASFOOD', 'FASWASH', 'FASVOID', 'PILASTER',
+  /* and the sign goes with it, which is the shot worth having */
+  'LOGO0', 'LOGO1', 'LOGO2', 'LOGO3',
 ];
 
 /** The charred name for a texture, or the texture itself if it has none. */
@@ -1538,6 +1594,15 @@ const SIZES = {
   DELICASE: { w: 64, h: 40 },
   SHELFMIX: { w: 64, h: 80 },      // H_GONDOLA
   BAKECASE: { w: 64, h: 40 },      // H_FIXTURE
+
+  /* THE LOGO. One repeat is one quarter of the sign, and these numbers
+     are the sign box in the map divided by two — SIGN_W / 2 across and
+     SIGN_H / 2 up. Change one and you must change the other or the logo
+     stretches; the smoke test checks that they still agree. */
+  LOGO0:    { w: 140, h: 112 },
+  LOGO1:    { w: 140, h: 112 },
+  LOGO2:    { w: 140, h: 112 },
+  LOGO3:    { w: 140, h: 112 },
 
   /* the strip */
   BAYROW:   { w: 186, h: 180 },    // one repeat is one parking bay

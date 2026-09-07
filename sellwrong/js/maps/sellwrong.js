@@ -126,6 +126,36 @@ const CEIL_SOFF = 232;            // the soffit over the footway
    the parade that breaks the line. */
 const PORCH_D = 80;
 
+/* =====================================================================
+   THE SIGN BOX
+
+   The logo is a picture, and a picture cannot be a texture here because
+   every texture in the game is 64 pixels and the logo does not get an
+   exemption. It gets geometry instead: four 64-pixel tiles hung as a
+   two-by-two, which in a sector engine means TWO CEILING STEPS for the
+   rows and ONE VERTICAL SPLIT for the columns.
+
+   Going south from the tower face, each strip is taller than the one
+   behind it, because an upper texture is only visible from the side with
+   the higher ceiling:
+
+     the porch     ceil 328    its upper is the BOTTOM row
+     strip 1       ceil 440    its upper is the TOP row
+     strip 2       ceil 552    its upper is the parapet cap above the sign
+     the lot       ceil 640    sky, so the step in it draws nothing
+
+   The strips are six units deep, so the top row stands six units proud
+   of the bottom one — about a degree and a half of rake across a
+   224-tall sign, and the price of having rows at all. It lands on the
+   black band between the roundel and the lettering, where the logo has
+   a seam of its own anyway. */
+export const SIGN_ROW = 112;                // one tile tall
+export const SIGN_H = SIGN_ROW * 2;         // 224
+/* The artwork's own aspect, from tools/bake-logo.mjs. Get this wrong and
+   the logo is stretched; the smoke test checks it against LOGO_ASPECT. */
+export const SIGN_W = 280;                  // 1.25 : 1, and 140 to a tile
+const SIGN_STEP = 6;                        // how deep each strip is
+
 /* inside */
 export const CEIL_SHOP = 352, CEIL_BOH = 416, CEIL_UNIT = 240;
 export const H_GONDOLA = 80;      // taller than you: an aisle is a canyon
@@ -252,9 +282,47 @@ export function buildSellWrong() {
      pushed out into it. Three pieces, because the porch is a rectangle
      that has to not be fire lane. */
   const PORCH_X0 = 1756, PORCH_X1 = 2524;
-  rm.add(LOT_X0, FIRELANE_Y, PORCH_X0, CANOPY_Y, lot('fire lane', { floorTex: 'HATCHKEEP' }));
-  rm.add(PORCH_X1, FIRELANE_Y, LOT_X1, CANOPY_Y, lot('fire lane', { floorTex: 'HATCHKEEP' }));
-  rm.add(PORCH_X0, FIRELANE_Y, PORCH_X1, CANOPY_Y - PORCH_D, lot('fire lane', { floorTex: 'HATCHKEEP' }));
+  const PORCH_Y = CANOPY_Y - PORCH_D;                  // the tower face
+  const SIGN_X0 = (PORCH_X0 + PORCH_X1 - SIGN_W) / 2;  // centred on the doors
+  const SIGN_XM = SIGN_X0 + SIGN_W / 2, SIGN_X1 = SIGN_X0 + SIGN_W;
+  const S1_Y = PORCH_Y - SIGN_STEP, S2_Y = S1_Y - SIGN_STEP;
+  const TALL_X0 = SIGN_X0 - 60, TALL_X1 = SIGN_X1 + 60, TALL_Y = S2_Y - 48;
+  const lane = (extra = {}) => lot('fire lane', { floorTex: 'HATCHKEEP', ...extra });
+
+  rm.add(LOT_X0, FIRELANE_Y, PORCH_X0, CANOPY_Y, lane());
+  rm.add(PORCH_X1, FIRELANE_Y, LOT_X1, CANOPY_Y, lane());
+  /* the lane in front of the tower, carved round the sign box */
+  rm.add(PORCH_X0, FIRELANE_Y, TALL_X0, PORCH_Y, lane());
+  rm.add(TALL_X1, FIRELANE_Y, PORCH_X1, PORCH_Y, lane());
+  rm.add(TALL_X0, FIRELANE_Y, TALL_X1, TALL_Y, lane());
+  /* A taller piece of sky in front of the sign, so the top of the box has
+     somewhere to be. Both this and its neighbours have a sky ceiling, so
+     the step between them draws nothing at all. */
+  rm.add(TALL_X0, TALL_Y, TALL_X1, S2_Y, lane({ ceil: 640 }));
+  rm.add(TALL_X0, S2_Y, SIGN_X0, PORCH_Y, lane());
+  rm.add(SIGN_X1, S2_Y, TALL_X1, PORCH_Y, lane());
+
+  /* the two strips: the top row of the logo, then the cap above it */
+  /* NOT A SKY CEILING, and that is the whole trick. A line between two
+     sectors that both have sky overhead draws no upper at all — which is
+     right everywhere else (it is how a step in the sky stays invisible)
+     and is exactly wrong here, because the upper IS the sign. Both
+     strips inherit from `lot`, so both were sky, so both rows of the
+     logo were silently not built. */
+  const signStrip = (name, ceil, upper) => ({
+    ...lot(name), ceil, upperTex: upper,
+    floorTex: 'CONCRETE', ceilTex: 'SOFFIT',
+  });
+  /* NEAREST THE TOWER IS THE TOP ROW, and it has to be: each strip's
+     upper texture is the band between ITS ceiling and the ceiling of the
+     thing behind it, so the order is porch, then the row above it, then
+     the cap. Putting the cap next to the porch instead makes the gap
+     between porch and cap 224 units tall, which is two repeats of a
+     112-tall tile — and the sign renders the bottom half of the logo
+     twice, once squashed, which is exactly what it did. */
+  rm.add(SIGN_X0, S1_Y, SIGN_XM, PORCH_Y, signStrip('sign box', 328 + SIGN_ROW, 'LOGO0'));
+  rm.add(SIGN_XM, S1_Y, SIGN_X1, PORCH_Y, signStrip('sign box', 328 + SIGN_ROW, 'LOGO1'));
+  rm.add(SIGN_X0, S2_Y, SIGN_X1, S1_Y, signStrip('sign cap', 328 + SIGN_H, 'PARAPET'));
 
   /* and then the rows, walking south */
   let y = FIRELANE_Y;
@@ -353,10 +421,18 @@ export function buildSellWrong() {
     const light = b.front === 'UNITGLAS' ? 0.62 : b.anchor ? 0.68 : 0.46;
     rm.add(b.x0, -96, b.x1, -WALL, walkProps(`footway ${b.name}`, b.front, b.fascia, light));
     if (b.anchor) {
-      /* three pieces, and the middle one comes forward over the doors */
+      /* Three pieces, and the middle one comes forward over the doors —
+         except the middle one is itself four, because the two under the
+         sign carry the bottom row of the logo as their upper texture and
+         a sector has exactly one of those. */
       rm.add(b.x0, CANOPY_Y, PORCH_X0, -96, edgeProps(`canopy ${b.name}`));
       rm.add(PORCH_X1, CANOPY_Y, b.x1, -96, edgeProps(`canopy ${b.name}`));
-      rm.add(PORCH_X0, CANOPY_Y - PORCH_D, PORCH_X1, -96, edgeProps('entrance porch'));
+      rm.add(PORCH_X0, PORCH_Y, SIGN_X0, -96, edgeProps('entrance porch'));
+      rm.add(SIGN_X1, PORCH_Y, PORCH_X1, -96, edgeProps('entrance porch'));
+      rm.add(SIGN_X0, PORCH_Y, SIGN_XM, -96,
+        { ...edgeProps('entrance porch'), upperTex: 'LOGO2' });
+      rm.add(SIGN_XM, PORCH_Y, SIGN_X1, -96,
+        { ...edgeProps('entrance porch'), upperTex: 'LOGO3' });
     } else {
       rm.add(b.x0, CANOPY_Y, b.x1, -96, edgeProps(`canopy ${b.name}`));
     }

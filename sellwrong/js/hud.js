@@ -243,10 +243,22 @@ export class Hud {
     const entry = weaponBank.get(d.sprite + letter) || weaponBank.get(d.sprite + d.ready);
     if (entry) {
       this.weaponMesh.material.uniforms.map.value = weaponTexture(entry);
-      /* Scaled so the weapon is about two-thirds of the frame height,
+      /* Scaled so the WEAPON is about two-thirds of the frame height,
          whatever the chunkiness setting is — the weapon should not get
-         smaller because somebody chose a sharper picture. */
-      const s = (H * 0.62) / entry.h;
+         smaller because somebody chose a sharper picture. Two details:
+
+         MEASURED AGAINST THE DRAWN PART, not the frame, so the
+         flamethrower reserving its top third for a muzzle flame does not
+         cost it a third of its size.
+
+         AND CAPPED BY WIDTH, because sizing a weapon purely by height
+         works only while every weapon is roughly square. The flamer is
+         half again as wide as it is tall, and at two-thirds of the frame
+         height it came out eighty-five per cent of the frame WIDTH — a
+         gun you cannot see the shop past. Whichever dimension runs out
+         first wins. */
+      const s = Math.min((H * 0.62) / (entry.content || entry.h),
+                         (W * 0.50) / entry.w);
       this.weaponMesh.scale.set(entry.w * s, entry.h * s, 1);
       const bobX = Math.cos(player.bobPhase) * player.bob * 0.55;
       const bobY = Math.abs(Math.sin(player.bobPhase)) * player.bob * 0.5;
