@@ -225,10 +225,39 @@ function stockerDecor(pix, ctx) {
   }
 }
 
+/* SellWrong issues its staff a mask, and nobody has taken one off. See
+   drawFace in figure.js for what makes an eleven-pixel smile unpleasant.
+
+   The two differ by about six numbers, and it is enough. The Associate's
+   is the corporate one: level eyes, an even smile, exactly as printed on
+   the carrier bags. The Stocker's has been out the back for a while — a
+   duller yellow, eyes set wider and lower, and a smile that goes further
+   round the head than the Associate's does. Same mask, worse. */
+export const ASSOCIATE_FACE = {
+  shell: 'yellow', shellT: 0.80,
+  ink: 'grey', inkT: 0.04,
+  rim: 'yellow', rimT: 0.44,
+  strap: 'grey', strapT: 0.12, strapBeta: 0.05,
+  eyeLam: 0.46, eyeBeta: 0.20,
+  mouthLam: 0.76, mouthBeta: -0.40, mouthLift: 0.24,
+  bigEyes: false,
+};
+
+export const STOCKER_FACE = {
+  shell: 'yellow', shellT: 0.60,
+  ink: 'grey', inkT: 0.03,
+  rim: 'olive', rimT: 0.30,
+  strap: 'grey', strapT: 0.10, strapBeta: 0.02,
+  eyeLam: 0.56, eyeBeta: 0.12,
+  mouthLam: 0.92, mouthBeta: -0.34, mouthLift: 0.30,
+  bigEyes: true,
+};
+
 export const ASSOCIATE_SKIN = {
   legs: 'grey', legsT: 0.20, shoes: 'grey', shoesT: 0.09,
   body: 'red', bodyT: 0.42, sleeve: 'red', sleeveT: 0.48,
   skin: 'flesh', skinT: 0.42, eye: 'yellow', eyeT: 0.95,
+  face: ASSOCIATE_FACE,
   decorate: associateDecor,
 };
 
@@ -236,6 +265,7 @@ export const STOCKER_SKIN = {
   legs: 'olive', legsT: 0.22, shoes: 'grey', shoesT: 0.08,
   body: 'brown', bodyT: 0.34, sleeve: 'olive', sleeveT: 0.30,
   skin: 'flesh', skinT: 0.30, eye: 'red', eyeT: 0.90,
+  face: STOCKER_FACE,
   decorate: stockerDecor,
 };
 

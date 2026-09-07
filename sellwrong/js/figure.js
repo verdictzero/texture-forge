@@ -186,6 +186,106 @@ function ball(pix, x, y, r, key, t, roundness = 0.34) {
 }
 
 /* --------------------------------------------------------------------
+   The face
+
+   SellWrong issues its staff a mask. It is a yellow smiling face, it
+   covers the whole head, and nobody has taken one off.
+
+   The features are placed on a SPHERE, by longitude and latitude, and
+   projected the same way every joint is. That matters more than it
+   sounds: it means the far eye slides behind the edge of the head as the
+   thing turns, the mouth foreshortens into the cheek, and at the side
+   view you get a genuine profile with one eye near the leading edge —
+   all of it falling out of the geometry rather than being drawn eight
+   times and hoped over. A feature is drawn when its own depth is
+   positive, which is exactly the condition for being on the near half of
+   a sphere.
+
+   WHAT MAKES IT WRONG at eleven pixels across, which is all there is:
+
+     the mouth is TOO WIDE. Nearly ear to ear — past where a mouth can
+       go — so it reads as a printed graphic rather than an expression.
+     the eyes are DOTS. No brow, no lid, no direction. A face that
+       cannot look at you but is pointed at you anyway.
+     it never changes. The pain frame, the attack frame and the corpse
+       all wear the same smile, and the corpse is the worst of them.
+     the STRAP. Turn one around and there is a band across the back of
+       its head. Whatever the smile is, it is not the face.
+   ------------------------------------------------------------------ */
+
+/* A point on the head, by longitude (0 = straight ahead, positive is the
+   figure's own left) and latitude, projected to screen. */
+function faceProject(lam, beta, r, phi) {
+  const cb = Math.cos(beta);
+  const x = Math.sin(lam) * cb * r;
+  const y = Math.sin(beta) * r;
+  const z = Math.cos(lam) * cb * r;
+  return [
+    -(x * Math.cos(phi) + z * Math.sin(phi)),
+    -y,
+    -x * Math.sin(phi) + z * Math.cos(phi),
+  ];
+}
+
+/**
+ * Draw the mask onto a finished head.
+ *
+ * @param cx,cy  where the head is on screen
+ * @param r      its radius
+ * @param phi    the view angle this figure is being drawn at
+ * @param f      the face spec from the skin
+ */
+export function drawFace(pix, cx, cy, r, phi, f) {
+  const LIMB = r * 0.16;          // features nearer the edge than this are gone
+  const put = (lam, beta, key, t, fat) => {
+    const [sx, sy, d] = faceProject(lam, beta, r, phi);
+    if (d < LIMB) return false;
+    pix.ink(Math.round(cx + sx), Math.round(cy + sy), key, t);
+    if (fat) {
+      pix.ink(Math.round(cx + sx + 1), Math.round(cy + sy), key, t);
+      pix.ink(Math.round(cx + sx), Math.round(cy + sy + 1), key, t);
+    }
+    return true;
+  };
+
+  /* the strap, round the back, drawn first so the face covers it if both
+     somehow show */
+  for (let i = 0; i <= 14; i++) {
+    const lam = Math.PI * (0.62 + (i / 14) * 0.76);   // the far side of the head
+    put(lam, f.strapBeta ?? 0.06, f.strap ?? 'grey', f.strapT ?? 0.10, false);
+  }
+
+  /* the eyes: two dots, level, and slightly too high on the head */
+  const eyeL = f.eyeLam ?? 0.46, eyeB = f.eyeBeta ?? 0.20;
+  put(-eyeL, eyeB, f.ink, f.inkT, f.bigEyes);
+  put(eyeL, eyeB, f.ink, f.inkT, f.bigEyes);
+
+  /* the mouth. The ends ride UP, which is what makes it a smile, and it
+     reaches further round the head than a mouth can — which is what makes
+     it not one. */
+  const wide = f.mouthLam ?? 0.78;
+  const drop = f.mouthBeta ?? -0.40;
+  const lift = f.mouthLift ?? 0.22;
+  const steps = Math.max(7, Math.round(wide * 14));
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * 2 - 1;                    // -1 .. 1
+    const lam = u * wide;
+    const beta = drop + lift * u * u;
+    put(lam, beta, f.ink, f.inkT, false);
+  }
+
+  /* the rim of the mask, so it reads as a thing put ON rather than as a
+     head that happens to be yellow */
+  if (f.rim) {
+    const ri = Math.ceil(r);
+    for (let a = 0; a < 40; a++) {
+      const th = (a / 40) * Math.PI * 2;
+      pix.ink(Math.round(cx + Math.cos(th) * r), Math.round(cy + Math.sin(th) * r), f.rim, f.rimT ?? 0.30);
+    }
+  }
+}
+
+/* --------------------------------------------------------------------
    One view
 
    Bones are collected with a depth, sorted, and drawn far to near. That
@@ -242,9 +342,12 @@ export function renderFigure(pose, rot, skin, opts = {}) {
   blob(sk.lHand, rig.armR - 0.2, skin.skin, skin.skinT);
   blob(sk.rHand, rig.armR - 0.2, skin.skin, skin.skinT);
 
-  /* neck and head */
+  /* Neck stays flesh; the head is the mask. Keeping the neck in skin is
+     the whole reason the head reads as an object sitting on a person
+     rather than as somebody with a yellow head. */
   bone(sk.neck, sk.head, 2.2, 2.6, skin.skin, skin.skinT);
-  blob(sk.head, rig.headR, skin.skin, skin.skinT, 0.40);
+  blob(sk.head, rig.headR, skin.face ? skin.face.shell : skin.skin,
+       skin.face ? skin.face.shellT : skin.skinT, 0.40);
 
   parts.sort((a, b) => a.z - b.z);
   for (const p of parts) p.draw();
@@ -256,10 +359,11 @@ export function renderFigure(pose, rot, skin, opts = {}) {
 
   if (skin.decorate) skin.decorate(pix, { P, sk, rot, phi, facingUs, profile, H2, skin });
 
-  /* Eyes. Only when there is a face pointed anywhere near us, and always
-     the brightest thing on the sprite — in a dark aisle the eyes are how
-     you find out something is there. */
-  if (facingUs || profile) {
+  /* The mask. Drawn last, over everything, because at this size a single
+     pixel of arm in front of an eye ruins it. */
+  if (skin.face) {
+    drawFace(pix, H2[0], H2[1], rig.headR, phi, skin.face);
+  } else if (facingUs || profile) {
     const ex = H2[0], ey = H2[1] - 1;
     const spread = facingUs ? 2 : 1;
     const off = profile ? (Math.sin(phi) > 0 ? 2 : -2) : 0;
