@@ -1,0 +1,939 @@
+/* =====================================================================
+   SELLWRONG — every surface in the store, at 64 pixels
+   =====================================================================
+
+   Sixty-four pixels is not a limitation here, it is the brief. At one
+   texel to one world unit a 64-pixel texture is a 64-unit wall, the
+   player is 32 across and can see about eight texels of detail on a wall
+   he is standing next to, and every decision about what to draw is
+   really a decision about what to LEAVE OUT.
+
+   What survives that cut, in every texture below:
+
+     one big shape      the thing you read from across the store — the
+                        shelf bands, the door panel, the corrugations
+     one edge           a highlight on the top-left of it, shadow on the
+                        bottom-right, always that way round
+     dirt at the bottom  because that is where dirt is
+
+   Anything finer than that is gone by the second repeat. A 64-pixel
+   texture with six levels of detail in it reads, from two metres, as
+   grey.
+
+   THE STORE IS THE PALETTE'S ARGUMENT. Everything out front is bone,
+   grey and that corporate red. Everything behind the swing doors is
+   rust, brown and bare concrete — no branding, no paint, no pretence.
+   The moment the player crosses from one to the other should be legible
+   without a single sign, and it is done entirely by which ramps the
+   textures on either side were allowed to draw from.
+   ===================================================================== */
+
+import * as THREE from 'three';
+import { Pix, fbm, valueNoise, speckle, drawText, drawTextCentred, textWidth } from './pixel.js';
+import { makeRng } from './util.js';
+
+export class TextureBank {
+  constructor() { this.map = new Map(); this.missing = new Set(); }
+
+  add(name, pix, opts = {}) {
+    const tex = new THREE.CanvasTexture(pix.toCanvas());
+    tex.magFilter = THREE.NearestFilter;
+    /* Chunky mipmaps: nearest WITHIN a level and nearest BETWEEN levels,
+       so a floor seen edge-on stops boiling without ever going soft. A
+       linear filter anywhere in that chain and the whole thing starts
+       looking like a remaster. */
+    tex.minFilter = THREE.NearestMipmapNearestFilter;
+    tex.generateMipmaps = true;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    this.map.set(name, {
+      name, texture: tex, pix,
+      w: opts.w ?? pix.w,        // world units the texture spans
+      h: opts.h ?? pix.h,
+      masked: !!opts.masked,
+    });
+    return this.map.get(name);
+  }
+
+  get(name) {
+    const e = this.map.get(name);
+    if (e) return e;
+    /* A missing texture should be loud, not invisible — a wall you can
+       see through is a bug you will chase for an hour, and a magenta
+       wall is a bug you fix in ten seconds. */
+    if (!this.missing.has(name)) { this.missing.add(name); console.warn('missing texture:', name); }
+    return this.map.get('MISSING');
+  }
+}
+
+/* ====================================================================
+   Shared moves
+
+   The three or four things that go into nearly every texture, written
+   once. Consistency in a generated set does not come from discipline, it
+   comes from there being only one function that draws grime.
+   ==================================================================== */
+
+/** Aggregate: crushed stone of two or three grades sitting in a binder.
+ *  Asphalt, concrete and terrazzo are all this with different numbers. */
+function aggregate(p, seed, opts) {
+  const { baseKey, baseLo, baseHi, grades } = opts;
+  const n = fbm(p.w, p.h, 8, 3, seed);
+  for (let y = 0; y < p.h; y++)
+    for (let x = 0; x < p.w; x++)
+      p.ink(x, y, baseKey, baseLo + n[y * p.w + x] * (baseHi - baseLo));
+
+  for (const g of grades) {
+    speckle(p.w, p.h, g.count, seed + g.count, (x, y, a, b) => {
+      const r = g.min + a * (g.max - g.min);
+      const t = g.lo + b * (g.hi - g.lo);
+      if (r <= 0.75) { p.ink(x, y, g.key, t); return; }
+      /* Stones bigger than a texel get a lit top-left and a shadowed
+         bottom-right, because that is where the light is. */
+      p.disc(x, y, r, g.key, t);
+      p.ink(x - 1, y - 1, g.key, Math.min(1, t + 0.22));
+      p.ink(x + 1, y + 1, g.key, Math.max(0, t - 0.25));
+    });
+  }
+}
+
+/** A crack that wanders. Wraps, because a crack that stops at the edge of
+ *  the texture becomes a dotted line eight repeats later. */
+function crack(p, x, y, len, key, t, seed, wander = 0.9) {
+  const rng = makeRng(seed);
+  let a = rng() * Math.PI * 2;
+  for (let i = 0; i < len; i++) {
+    p.ink(x, y, key, t);
+    /* A branch now and then — real cracks fork, straight ones read as
+       drawn-on scratches. */
+    if (rng() < 0.05 && len > 12) crack(p, x, y, (len - i) >> 1, key, t, seed + i * 31, wander);
+    a += (rng() - 0.5) * wander;
+    x = Math.round(x + Math.cos(a));
+    y = Math.round(y + Math.sin(a));
+  }
+}
+
+/** Something wet ran down this wall and dried. */
+function streaks(p, count, seed, key, t, strength = 0.4) {
+  const rng = makeRng(seed);
+  for (let i = 0; i < count; i++) {
+    const x = Math.floor(rng() * p.w);
+    const top = Math.floor(rng() * p.h * 0.5);
+    const len = Math.floor(p.h * (0.3 + rng() * 0.7));
+    const wide = rng() < 0.3 ? 2 : 1;
+    for (let d = 0; d < len; d++) {
+      const y = top + d;
+      const fade = (1 - d / len) * strength * (0.5 + rng() * 0.5);
+      for (let k = 0; k < wide; k++) p.wash(x + k, y, key, t, fade);
+    }
+  }
+}
+
+/* Diagonal hazard striping, tiling at 45 degrees. Wraps only when the
+   stripe pitch divides the width, which for 64 and a pitch of 8 it does. */
+function hazardStripes(p, pitch, keyA, tA, keyB, tB) {
+  for (let y = 0; y < p.h; y++)
+    for (let x = 0; x < p.w; x++) {
+      const band = Math.floor(((x + y) % (pitch * 2)) / pitch);
+      p.ink(x, y, band ? keyA : keyB, band ? tA : tB);
+    }
+}
+
+/* ====================================================================
+   The textures
+   ==================================================================== */
+
+const T = {};
+
+/* ---------- outside: the car park ---------- */
+
+T.ASPHALT = () => {
+  const p = new Pix(64, 64, 11);
+  aggregate(p, 11, {
+    baseKey: 'grey', baseLo: 0.10, baseHi: 0.20,
+    grades: [
+      { count: 260, min: 0.4, max: 1.4, key: 'grey',  lo: 0.22, hi: 0.40 },
+      { count: 90,  min: 0.6, max: 1.8, key: 'grey',  lo: 0.30, hi: 0.52 },
+      { count: 40,  min: 0.4, max: 1.2, key: 'brown', lo: 0.18, hi: 0.34 },
+    ],
+  });
+  crack(p, 12, 4, 70, 'grey', 0.04, 5);
+  crack(p, 48, 40, 46, 'grey', 0.05, 9);
+  /* Bitumen bleed — the shiny black patches where the binder came up */
+  const n = valueNoise(64, 64, 4, 17);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    if (n[y * 64 + x] > 0.72) p.wash(x, y, 'grey', 0.06, 0.5);
+  return p.snap(0.6);
+};
+
+T.PARKLINE = () => {
+  /* A whole flat of bay line, painted on thin sectors so the map decides
+     where the bays go rather than the texture grid deciding for it.
+
+     Paint does not wear off in continents, it wears off in GRAIN — the
+     high spots of the asphalt polish through first and the line goes
+     speckly long before it goes patchy. So the wear here is fine noise
+     over a solid coat, with only a couple of genuinely bald patches, and
+     a faint drag along the direction the tyres cross it. */
+  const p = new Pix(64, 64, 12);
+  const grain = fbm(64, 64, 32, 2, 31);     // per-texel, not per-region
+  const patch = fbm(64, 64, 4, 2, 34);      // the few places it has gone
+
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const g = grain[y * 64 + x];
+      /* Bald only where the coarse field is really low AND the grain
+         agrees — one condition alone gives blobs, both together gives
+         ragged holes with speckled edges. */
+      const bald = patch[y * 64 + x] < 0.34 && g < 0.56;
+      if (bald) {
+        p.ink(x, y, 'grey', 0.11 + g * 0.14);
+      } else if (g < 0.40) {
+        p.ink(x, y, 'bone', 0.40 + g * 0.5);     // polished through to the grit
+      } else {
+        p.ink(x, y, 'bone', 0.74 + g * 0.20);    // the paint itself
+      }
+    }
+  }
+  /* the asphalt showing through the pinholes */
+  speckle(64, 64, 420, 35, (x, y, a2, b2) => {
+    if (a2 > 0.42) p.wash(x, y, 'grey', 0.13, 0.30 + b2 * 0.45);
+  });
+  /* scuffing across the line, the way everyone drives over it */
+  const rng = makeRng(36);
+  for (let i = 0; i < 7; i++) {
+    const y = Math.floor(rng() * 64);
+    for (let x = 0; x < 64; x++) if (rng() < 0.55) p.wash(x, y, 'grey', 0.16, 0.35);
+  }
+  return p.snap(0.55);
+};
+
+T.KERB = () => {
+  /* 64 wide, 16 tall — the lower texture on the kerb line. Precast units
+     with a joint every 32, chipped where cars have kissed it. */
+  const p = new Pix(64, 16, 13);
+  aggregate(p, 13, { baseKey: 'bone', baseLo: 0.34, baseHi: 0.48,
+    grades: [{ count: 90, min: 0.4, max: 1.1, key: 'bone', lo: 0.24, hi: 0.58 },
+             { count: 30, min: 0.4, max: 0.9, key: 'grey', lo: 0.28, hi: 0.42 }] });
+  for (const jx of [0, 32]) { p.vline(jx, 0, 15, 'bone', 0.16); p.vline(jx + 1, 0, 15, 'bone', 0.52); }
+  p.hline(0, 63, 0, 'bone', 0.66);            // the lit top arris
+  p.hline(0, 63, 15, 'grey', 0.10);
+  const rng = makeRng(77);
+  for (let i = 0; i < 5; i++) {               // chips
+    const x = Math.floor(rng() * 64), w = 2 + Math.floor(rng() * 3);
+    for (let k = 0; k < w; k++) { p.ink(x + k, 0, 'bone', 0.22); p.ink(x + k, 1, 'bone', 0.3); }
+  }
+  p.grime(0.5, 'grey', 0.08, 4);
+  return p.snap(0.5);
+};
+
+T.CONCRETE = () => {
+  const p = new Pix(64, 64, 14);
+  aggregate(p, 14, { baseKey: 'bone', baseLo: 0.30, baseHi: 0.44,
+    grades: [{ count: 200, min: 0.4, max: 1.0, key: 'bone', lo: 0.22, hi: 0.52 },
+             { count: 60,  min: 0.4, max: 1.2, key: 'grey', lo: 0.26, hi: 0.40 }] });
+  /* Broom finish — the drag marks a float leaves, all one way */
+  for (let y = 0; y < 64; y++) {
+    const n = valueNoise(64, 1, 16, 200 + y);
+    for (let x = 0; x < 64; x++) if (n[x] > 0.6) p.wash(x, y, 'bone', 0.24, 0.3);
+  }
+  for (const jy of [0, 32]) p.hline(0, 63, jy, 'bone', 0.15);   // control joints
+  for (const jx of [0]) p.vline(jx, 0, 63, 'bone', 0.15);
+  crack(p, 20, 34, 30, 'bone', 0.12, 21);
+  p.grime(0.3, 'grey', 0.1, 6);
+  return p.snap(0.5);
+};
+
+/* ---------- outside: the building ---------- */
+
+T.STORWALL = () => {
+  /* Insulated render panels with a control joint every 32. The whole
+     front of every big box in the world. */
+  const p = new Pix(64, 64, 21);
+  const n = fbm(64, 64, 16, 3, 21);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'bone', 0.50 + n[y * 64 + x] * 0.14);
+  const height = new Float32Array(64 * 64).fill(0.5);
+  for (const jy of [0, 32]) for (let x = 0; x < 64; x++) {
+    height[jy * 64 + x] = 0.1;
+    height[((jy + 1) % 64) * 64 + x] = 0.35;
+  }
+  for (const jx of [0]) for (let y = 0; y < 64; y++) {
+    height[y * 64 + jx] = 0.1;
+    height[y * 64 + ((jx + 1) % 64)] = 0.35;
+  }
+  p.emboss(height, 0.5, 1.0);
+  streaks(p, 7, 44, 'grey', 0.14, 0.3);          // runoff below the joints
+  p.grime(0.35, 'grey', 0.12, 8);
+  return p.snap(0.6);
+};
+
+T.STORBASE = () => {
+  /* The plinth: 64x32 of blockwork the trolleys have been hitting since
+     it opened. */
+  const p = new Pix(64, 32, 22);
+  aggregate(p, 22, { baseKey: 'grey', baseLo: 0.24, baseHi: 0.34,
+    grades: [{ count: 120, min: 0.4, max: 1.0, key: 'grey', lo: 0.18, hi: 0.40 }] });
+  for (const jy of [0, 16]) p.hline(0, 63, jy, 'grey', 0.12);
+  for (let y = 0; y < 32; y += 16)
+    for (let x = (y % 32 ? 0 : 32); x < 64 + 32; x += 64) p.vline(x % 64, y, y + 15, 'grey', 0.12);
+  p.grime(0.6, 'grey', 0.07, 9);
+  return p.snap(0.5);
+};
+
+T.BRANDBAND = () => {
+  /* The sign band. This is the only place in the game the store says its
+     own name, and it says it in the same red as the blood. */
+  const p = new Pix(64, 32, 23);
+  const n = fbm(64, 32, 8, 2, 23);
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'red', 0.42 + n[y * 64 + x] * 0.12);
+  p.hline(0, 63, 0, 'red', 0.62);
+  p.hline(0, 63, 31, 'red', 0.16);
+  drawTextCentred(p, 'SELLWRONG', 32, 13, 'bone', 0.95);
+  /* Half the letters have failed, which is the point of the place */
+  const rng = makeRng(91);
+  for (let i = 0; i < 40; i++) {
+    const x = Math.floor(rng() * 64), y = 12 + Math.floor(rng() * 8);
+    if (rng() < 0.5) p.ink(x, y, 'red', 0.3);
+  }
+  p.grime(0.4, 'grey', 0.1, 10);
+  return p.snap(0.5);
+};
+
+T.STORGLAS = () => {
+  /* Shopfront glazing. Dark, because you are outside looking in and the
+     lights are off in half the store. */
+  const p = new Pix(64, 64, 24);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const sheen = Math.max(0, 1 - Math.abs((x + y * 0.4) % 42 - 8) / 14);
+    p.ink(x, y, 'blue', 0.16 + sheen * 0.20 + (y / 64) * 0.06);
+  }
+  /* Mullions: a vertical every 32, a transom near the top */
+  for (const mx of [0, 32]) { p.vline(mx, 0, 63, 'grey', 0.42); p.vline(mx + 1, 0, 63, 'grey', 0.20); }
+  p.hline(0, 63, 8, 'grey', 0.42); p.hline(0, 63, 9, 'grey', 0.20);
+  p.hline(0, 63, 62, 'grey', 0.34); p.hline(0, 63, 63, 'grey', 0.16);
+  const rng = makeRng(55);                       // somebody already got here
+  for (let i = 0; i < 3; i++) {
+    const cx = 8 + Math.floor(rng() * 48), cy = 20 + Math.floor(rng() * 30);
+    for (let r = 0; r < 9; r++) {
+      const a = rng() * Math.PI * 2, len = 4 + rng() * 9;
+      p.line(cx, cy, Math.round(cx + Math.cos(a) * len), Math.round(cy + Math.sin(a) * len), 'cyan', 0.7);
+    }
+  }
+  return p.snap(0.4);
+};
+
+/* ---------- inside: the floor and the lid ---------- */
+
+T.LINO = () => {
+  /* Vinyl composition tile, 32 to a side, the speckle running right
+     through it. Every supermarket on earth. */
+  const p = new Pix(64, 64, 31);
+  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) {
+    /* Alternating tiles a shade apart — you only see it under the
+       strip lights, which is exactly when you do see it */
+    const base = (tx + ty) % 2 ? 0.60 : 0.55;
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) p.ink(tx * 32 + x, ty * 32 + y, 'bone', base);
+  }
+  speckle(64, 64, 900, 31, (x, y, a, b) => {
+    if (a < 0.55) p.ink(x, y, 'bone', 0.42 + b * 0.16);
+    else if (a < 0.85) p.ink(x, y, 'bone', 0.70 + b * 0.16);
+    else p.ink(x, y, 'grey', 0.30 + b * 0.2);
+  });
+  for (const j of [0, 32]) { p.hline(0, 63, j, 'bone', 0.34); p.vline(j, 0, 63, 'bone', 0.34); }
+  /* Buffed lanes: the polished tracks worn where everyone walks */
+  const n = valueNoise(64, 64, 3, 66);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    if (n[y * 64 + x] > 0.62) p.wash(x, y, 'bone', 0.82, 0.18);
+  return p.snap(0.7);
+};
+
+T.LINOWORN = () => {
+  const p = T.LINO();
+  p.grime(0.7, 'olive', 0.16, 12);
+  crack(p, 30, 12, 40, 'grey', 0.14, 8, 1.2);
+  const rng = makeRng(101);
+  for (let i = 0; i < 6; i++) {           // missing tiles, screed showing
+    const x = Math.floor(rng() * 60), y = Math.floor(rng() * 60), w = 3 + Math.floor(rng() * 6);
+    for (let dy = 0; dy < w; dy++) for (let dx = 0; dx < w; dx++) p.ink(x + dx, y + dy, 'grey', 0.16 + rng() * 0.06);
+  }
+  return p.snap(0.6);
+};
+
+T.CEILTILE = () => {
+  /* Mineral fibre in a tee grid — 64 is one tile plus its grid. The
+     perforations are what make it read as ceiling rather than as wall. */
+  const p = new Pix(64, 64, 41);
+  const n = fbm(64, 64, 16, 2, 41);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'bone', 0.62 + n[y * 64 + x] * 0.10);
+  speckle(64, 64, 700, 41, (x, y, a) => { if (a > 0.4) p.ink(x, y, 'bone', 0.50); });
+  /* the grid */
+  for (const j of [0, 1]) { p.hline(0, 63, j, 'grey', j ? 0.30 : 0.46); p.vline(j, 0, 63, 'grey', j ? 0.30 : 0.46); }
+  /* Water damage. There is always water damage. */
+  const st = valueNoise(64, 64, 3, 42);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const v = st[y * 64 + x];
+    if (v > 0.66) p.wash(x, y, 'olive', 0.34, (v - 0.66) * 2.4);
+  }
+  return p.snap(0.5);
+};
+
+T.CEILDECK = () => {
+  /* Back of house has no ceiling tiles. You look straight up at profiled
+     metal deck with the purlins crossing under it, and everything up
+     there is filthy because nobody has ever been up there. */
+  const p = new Pix(64, 64, 42);
+  const height = new Float32Array(64 * 64);
+  const n = fbm(64, 64, 12, 2, 43);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      /* the deck profile: a trough, a lit rise, a flat crown */
+      const r = x % 16;
+      let t, hgt;
+      if (r < 2)       { t = 0.09; hgt = 0.05; }
+      else if (r < 4)  { t = 0.30; hgt = 0.85; }
+      else if (r < 12) { t = 0.21; hgt = 0.60; }
+      else if (r < 14) { t = 0.14; hgt = 0.30; }
+      else             { t = 0.10; hgt = 0.10; }
+      p.ink(x, y, 'grey', t + n[y * 64 + x] * 0.05);
+      height[y * 64 + x] = hgt;
+    }
+  }
+  /* the purlin running across, in front of everything */
+  for (let y = 28; y < 36; y++) {
+    for (let x = 0; x < 64; x++) {
+      const t = y < 30 ? 0.34 : y < 34 ? 0.22 : 0.10;
+      p.ink(x, y, 'grey', t);
+      height[y * 64 + x] = y < 30 ? 0.95 : 0.75;
+    }
+  }
+  for (let x = 6; x < 64; x += 16) { p.ink(x, 31, 'rust', 0.34); p.ink(x, 32, 'rust', 0.22); }  // bolts
+  p.emboss(height, 0.34, 1.0);
+  const rng = makeRng(44);
+  for (let i = 0; i < 60; i++) {
+    const x = Math.floor(rng() * 64), y = Math.floor(rng() * 64);
+    p.wash(x, y, 'rust', 0.18, 0.3 + rng() * 0.4);
+  }
+  p.grime(0.45, 'grey', 0.05, 13);
+  return p.snap(0.4);
+};
+
+/* ---------- inside: walls ---------- */
+
+T.WALLPANL = () => {
+  const p = new Pix(64, 64, 51);
+  const n = fbm(64, 64, 12, 3, 51);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'bone', 0.58 + n[y * 64 + x] * 0.12);
+  p.hline(0, 63, 0, 'bone', 0.40);
+  p.grime(0.45, 'grey', 0.1, 14);
+  streaks(p, 4, 52, 'grey', 0.16, 0.25);
+  return p.snap(0.6);
+};
+
+T.TILEWALL = () => {
+  /* 8-pixel tiles with grout. The staff corridor and the toilets. */
+  const p = new Pix(64, 64, 53);
+  const height = new Float32Array(64 * 64);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const gx = x % 8, gy = y % 8;
+    const grout = gx === 0 || gy === 0;
+    height[y * 64 + x] = grout ? 0.2 : 0.7;
+    if (grout) p.ink(x, y, 'olive', 0.22);
+    else {
+      const v = valueNoise(1, 1, 1, x * 131 + y * 17)[0];
+      p.ink(x, y, 'bone', 0.72 + v * 0.10);
+    }
+  }
+  p.emboss(height, 0.4, 1.0);
+  p.grime(0.55, 'olive', 0.14, 15);
+  return p.snap(0.5);
+};
+
+T.STOCKWAL = () => {
+  /* Painted breeze block, 32x16 units, back of house. Unpainted below
+     where the pallet trucks live. */
+  const p = new Pix(64, 64, 54);
+  const height = new Float32Array(64 * 64);
+  const n = fbm(64, 64, 16, 3, 54);
+  for (let y = 0; y < 64; y++) {
+    const row = Math.floor(y / 16);
+    for (let x = 0; x < 64; x++) {
+      const off = (row % 2) * 16;
+      const bx = (x + off) % 32, by = y % 16;
+      const mortar = bx < 2 || by < 2;
+      height[y * 64 + x] = mortar ? 0.25 : 0.72;
+      p.ink(x, y, mortar ? 'grey' : 'bone', mortar ? 0.22 : (0.40 + n[y * 64 + x] * 0.14));
+    }
+  }
+  p.emboss(height, 0.42, 1.0);
+  p.grime(0.6, 'rust', 0.14, 16);
+  return p.snap(0.6);
+};
+
+T.HAZARD = () => {
+  const p = new Pix(64, 64, 61);
+  hazardStripes(p, 8, 'yellow', 0.72, 'grey', 0.08);
+  const n = fbm(64, 64, 8, 2, 62);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    if (n[y * 64 + x] > 0.58) p.wash(x, y, 'grey', 0.14, 0.4);   // scuffed off
+  return p.snap(0.5);
+};
+
+/* ---------- the fixtures: the reason anyone is here ---------- */
+
+T.SHELFSTK = () => {
+  /* A gondola full of stock, side on. Four shelves in 64, and each one is
+     a row of little coloured boxes. This is the single most important
+     texture in the game: it is what an aisle IS.
+
+     The stock is drawn from every ramp at once on purpose. Everything
+     else in the store is bone and grey; the shelves are the only colour
+     in the room, which is exactly the trick a real supermarket pulls. */
+  const p = new Pix(64, 64, 71);
+  p.fill('grey', 0.16);
+  const stockKeys = ['red', 'blue', 'green', 'yellow', 'olive', 'purple', 'cyan', 'pink', 'rust', 'brown'];
+  const rng = makeRng(71);
+
+  for (let shelf = 0; shelf < 4; shelf++) {
+    const top = shelf * 16;
+    /* the shelf pan itself: a lit lip and the shadow it throws */
+    p.hline(0, 63, top + 14, 'grey', 0.52);
+    p.hline(0, 63, top + 15, 'grey', 0.10);
+    /* products, packed left to right in random widths */
+    let x = Math.floor(rng() * 6);
+    while (x < 64) {
+      const w = 3 + Math.floor(rng() * 5);
+      const hgt = 8 + Math.floor(rng() * 5);
+      const key = stockKeys[Math.floor(rng() * stockKeys.length)];
+      const t = 0.35 + rng() * 0.4;
+      const y0 = top + 14 - hgt;
+      for (let yy = 0; yy < hgt; yy++)
+        for (let xx = 0; xx < w; xx++)
+          p.ink(x + xx, y0 + yy, key, t);
+      /* the lit top-left edge and a label band across it */
+      p.hline(x, x + w - 1, y0, key, Math.min(1, t + 0.28));
+      p.vline(x, y0, y0 + hgt - 1, key, Math.min(1, t + 0.18));
+      p.vline(x + w - 1, y0, y0 + hgt - 1, key, Math.max(0, t - 0.22));
+      if (w >= 5 && hgt >= 9) p.hline(x + 1, x + w - 2, y0 + 3, 'bone', 0.82);
+      x += w + (rng() < 0.14 ? 1 + Math.floor(rng() * 2) : 0);   // occasional gap
+    }
+    /* the shelf-edge price rail */
+    p.hline(0, 63, top + 15, 'yellow', 0.62);
+    for (let x2 = 1; x2 < 64; x2 += 9) p.ink(x2, top + 15, 'grey', 0.1);
+  }
+  p.grime(0.3, 'grey', 0.1, 17);
+  return p.snap(0.4);
+};
+
+T.SHELFEMP = () => {
+  /* The same gondola after the panic buying. Perforated back panel,
+     bare shelf pans, a couple of survivors. */
+  const p = new Pix(64, 64, 72);
+  p.fill('grey', 0.26);
+  for (let y = 2; y < 64; y += 4) for (let x = 2; x < 64; x += 4) p.ink(x, y, 'grey', 0.12);
+  const rng = makeRng(72);
+  for (let shelf = 0; shelf < 4; shelf++) {
+    const top = shelf * 16;
+    p.hline(0, 63, top + 14, 'grey', 0.48);
+    p.hline(0, 63, top + 15, 'grey', 0.08);
+    p.hline(0, 63, top + 15, 'yellow', 0.5);
+    for (let i = 0; i < 2; i++) {
+      if (rng() < 0.45) continue;
+      const x = Math.floor(rng() * 56), w = 3 + Math.floor(rng() * 4), hgt = 7 + Math.floor(rng() * 4);
+      const key = ['red', 'blue', 'olive'][Math.floor(rng() * 3)];
+      const t = 0.3 + rng() * 0.3, y0 = top + 14 - hgt;
+      for (let yy = 0; yy < hgt; yy++) for (let xx = 0; xx < w; xx++) p.ink(x + xx, y0 + yy, key, t);
+      p.hline(x, x + w - 1, y0, key, Math.min(1, t + 0.25));
+    }
+  }
+  p.grime(0.5, 'grey', 0.08, 18);
+  return p.snap(0.4);
+};
+
+T.SHELFBAK = () => {
+  /* Back-to-back gondolas: what you see is the perforated steel. */
+  const p = new Pix(64, 64, 73);
+  const n = fbm(64, 64, 8, 2, 73);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'grey', 0.28 + n[y * 64 + x] * 0.08);
+  for (let y = 2; y < 64; y += 4) for (let x = 2; x < 64; x += 4) {
+    p.ink(x, y, 'grey', 0.12);
+    p.ink(x, y - 1, 'grey', 0.40);
+  }
+  /* uprights every 32 */
+  for (const ux of [0, 32]) {
+    for (let y = 0; y < 64; y++) { p.ink(ux, y, 'grey', 0.42); p.ink(ux + 1, y, 'grey', 0.20); }
+    for (let y = 3; y < 64; y += 5) p.ink(ux, y, 'grey', 0.10);   // slot punchings
+  }
+  p.grime(0.4, 'rust', 0.16, 19);
+  return p.snap(0.4);
+};
+
+T.SHELFEND = () => {
+  /* The end cap: a promotional block and a screaming price. Where the
+     margin is. */
+  const p = new Pix(64, 64, 74);
+  p.fill('grey', 0.18);
+  const rng = makeRng(74);
+  for (let y = 22; y < 62; y++) for (let x = 4; x < 60; x++) p.ink(x, y, 'red', 0.34 + rng() * 0.1);
+  for (let y = 22; y < 62; y += 8) p.hline(4, 59, y, 'red', 0.20);
+  for (let x = 4; x < 60; x += 8) p.vline(x, 22, 61, 'red', 0.20);
+  p.hline(4, 59, 22, 'red', 0.58);
+  p.vline(4, 22, 61, 'red', 0.5);
+  /* the sign above it */
+  for (let y = 4; y < 20; y++) for (let x = 2; x < 62; x++) p.ink(x, y, 'yellow', 0.72);
+  p.frame(2, 4, 60, 16, 'yellow', 0.3);
+  drawTextCentred(p, 'SALE', 32, 6, 'red', 0.28);
+  drawTextCentred(p, '99P', 32, 13, 'red', 0.28);
+  p.grime(0.25, 'grey', 0.1, 20);
+  return p.snap(0.4);
+};
+
+T.FREEZDOR = () => {
+  /* Glass freezer door: frame, frost, cold light, and the stock behind
+     it going soft. */
+  const p = new Pix(64, 64, 81);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    /* the goods, blurred by the glass into bands of colour */
+    const shelf = Math.floor(y / 16);
+    const band = valueNoise(1, 1, 1, shelf * 977 + Math.floor(x / 6) * 31)[0];
+    const key = ['blue', 'cyan', 'bone', 'red'][Math.floor(band * 4) % 4];
+    p.ink(x, y, key, 0.22 + band * 0.2);
+  }
+  for (let s = 0; s < 4; s++) { p.hline(0, 63, s * 16 + 15, 'grey', 0.34); p.hline(0, 63, s * 16, 'grey', 0.12); }
+  /* frost creeping in from the frame */
+  const fr = fbm(64, 64, 8, 3, 82);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const edge = Math.min(x, 63 - x, y, 63 - y) / 14;
+    const f = Math.max(0, 1 - edge) * fr[y * 64 + x];
+    if (f > 0.18) p.wash(x, y, 'cyan', 0.72, f);
+  }
+  /* the frame and the handle */
+  for (const fx of [0, 1, 62, 63]) p.vline(fx, 0, 63, 'grey', fx < 2 ? 0.5 : 0.24);
+  for (const fy of [0, 1, 62, 63]) p.hline(0, 63, fy, 'grey', fy < 2 ? 0.5 : 0.24);
+  for (let y = 20; y < 44; y++) { p.ink(3, y, 'grey', 0.62); p.ink(4, y, 'grey', 0.3); }
+  /* the specular streak down the glass */
+  for (let y = 0; y < 64; y++) { const x = 46 - Math.floor(y * 0.12); p.wash(x, y, 'cyan', 0.9, 0.35); p.wash(x + 1, y, 'cyan', 0.9, 0.18); }
+  return p.snap(0.4);
+};
+
+T.CHILLER = () => {
+  /* Open multideck: the stuff nobody took, lit blue from within. */
+  const p = new Pix(64, 64, 83);
+  p.fill('grey', 0.14);
+  const rng = makeRng(83);
+  for (let s = 0; s < 4; s++) {
+    const top = s * 16;
+    for (let y = top + 2; y < top + 14; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'blue', 0.14);
+    let x = 0;
+    while (x < 64) {
+      const w = 4 + Math.floor(rng() * 4);
+      if (rng() > 0.28) {
+        const key = ['pink', 'bone', 'red', 'olive'][Math.floor(rng() * 4)];
+        const t = 0.3 + rng() * 0.35;
+        for (let yy = top + 5; yy < top + 14; yy++) for (let xx = 0; xx < w - 1; xx++) p.ink(x + xx, yy, key, t);
+        p.hline(x, x + w - 2, top + 5, key, Math.min(1, t + 0.25));
+      }
+      x += w;
+    }
+    p.hline(0, 63, top + 14, 'grey', 0.44);
+    p.hline(0, 63, top + 15, 'grey', 0.06);
+    p.hline(0, 63, top + 2, 'cyan', 0.66);              // the cold strip light
+    p.hline(0, 63, top + 3, 'cyan', 0.3);
+  }
+  return p.snap(0.4);
+};
+
+T.PRODUCE = () => {
+  /* A produce bench, raked toward you, going over. */
+  const p = new Pix(64, 64, 84);
+  p.fill('green', 0.10);
+  const rng = makeRng(84);
+  for (let s = 0; s < 3; s++) {
+    const top = 6 + s * 20;
+    for (let i = 0; i < 60; i++) {
+      const cx = Math.floor(rng() * 64), cy = top + Math.floor(rng() * 12);
+      const r = 1 + rng() * 1.8;
+      const key = ['green', 'olive', 'red', 'yellow', 'purple'][Math.floor(rng() * 5)];
+      const t = 0.28 + rng() * 0.45;
+      p.disc(cx, cy, r, key, t);
+      p.ink(cx - 1, cy - 1, key, Math.min(1, t + 0.3));       // the wet highlight
+    }
+    p.hline(0, 63, top + 13, 'brown', 0.3);
+    p.hline(0, 63, top + 14, 'brown', 0.12);
+  }
+  p.grime(0.4, 'olive', 0.1, 21);
+  return p.snap(0.4);
+};
+
+T.DELICASE = () => {
+  /* The serve-over counter. A raked bed of trays behind curved glass,
+     a chrome rail across the front, and a stainless kick below.
+
+     Built in bands top to bottom so it reads as a CABINET at a distance
+     rather than as things floating in a box — the rail and the kick are
+     what sell it, not the meat. */
+  const p = new Pix(64, 64, 85);
+  const rng = makeRng(85);
+
+  /* 0-10  the lit canopy over the counter */
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'grey', 0.30 - y * 0.012);
+  p.hline(0, 63, 8, 'bone', 0.92);                  // the strip light in it
+  p.hline(0, 63, 9, 'yellow', 0.60);
+
+  /* 10-42  the raked display bed, lit from that strip */
+  for (let y = 10; y < 42; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'grey', 0.34 - (y - 10) * 0.004);
+  for (let row = 0; row < 4; row++) {
+    const y0 = 12 + row * 7;
+    let x = 1 + Math.floor(rng() * 3);
+    while (x < 63) {
+      const w = 7 + Math.floor(rng() * 6);
+      const key = rng() < 0.55 ? 'pink' : rng() < 0.6 ? 'red' : 'bone';
+      const t = 0.32 + rng() * 0.34;
+      /* the enamel tray, then what is in it */
+      for (let yy = 0; yy < 6; yy++) for (let xx = 0; xx < w - 1 && x + xx < 64; xx++)
+        p.ink(x + xx, y0 + yy, 'bone', 0.52);
+      for (let yy = 1; yy < 5; yy++) for (let xx = 1; xx < w - 2 && x + xx < 64; xx++)
+        p.ink(x + xx, y0 + yy, key, t);
+      p.hline(x + 1, Math.min(63, x + w - 3), y0 + 1, key, Math.min(1, t + 0.26));
+      p.hline(x, Math.min(63, x + w - 2), y0 + 5, 'grey', 0.14);   // the tray's shadow
+      if (w > 9) { p.ink(x + 2, y0 + 3, 'yellow', 0.85); p.ink(x + 3, y0 + 3, 'yellow', 0.85); }  // the ticket
+      x += w;
+    }
+  }
+
+  /* 42-52  the glass, catching the canopy. Drawn as a wash so the trays
+     stay visible through it, which is the entire point of glass. */
+  for (let y = 10; y < 46; y++) {
+    const sx = 50 - Math.floor((y - 10) * 0.55);
+    p.wash(sx, y, 'cyan', 0.86, 0.40);
+    p.wash(sx + 1, y, 'cyan', 0.86, 0.20);
+    p.wash(12 - Math.floor((y - 10) * 0.2), y, 'cyan', 0.86, 0.16);
+  }
+  p.hline(0, 63, 44, 'cyan', 0.78);                 // the bottom edge of the glass
+  p.hline(0, 63, 45, 'grey', 0.44);
+  p.hline(0, 63, 46, 'grey', 0.12);
+
+  /* 47-64  the stainless front and the kick, both scuffed */
+  for (let y = 47; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'grey', y < 50 ? 0.46 : y < 60 ? 0.38 : 0.24);
+  p.hline(0, 63, 47, 'grey', 0.62);
+  p.hline(0, 63, 59, 'grey', 0.16);
+  for (let x = 0; x < 64; x++) if (rng() < 0.4) p.wash(x, 50 + Math.floor(rng() * 9), 'grey', 0.5, 0.35);
+  p.grime(0.4, 'grey', 0.1, 22);
+  return p.snap(0.4);
+};
+
+T.CHECKOUT = () => {
+  /* The side of a till bank: laminate panel, a rubber bumper rail, the
+     belt just visible over the top. */
+  const p = new Pix(64, 64, 86);
+  const n = fbm(64, 64, 10, 2, 86);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'bone', 0.52 + n[y * 64 + x] * 0.08);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'grey', 0.14);   // the belt
+  p.hline(0, 63, 8, 'grey', 0.44);
+  for (let y = 30; y < 36; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'red', 0.36);  // bumper
+  p.hline(0, 63, 30, 'red', 0.58);
+  p.hline(0, 63, 35, 'red', 0.16);
+  for (const vx of [0, 32]) p.vline(vx, 9, 63, 'bone', 0.34);
+  p.grime(0.5, 'grey', 0.1, 22);
+  return p.snap(0.5);
+};
+
+T.TROLLEY = () => {
+  /* A nested rank of trolleys, as a wall. Reads as a mess of wire. */
+  const p = new Pix(64, 48, 87);
+  p.clear();
+  for (let x = 0; x < 64; x += 4) p.vline(x, 6, 40, 'grey', 0.5);
+  for (let y = 8; y < 40; y += 6) p.hline(0, 63, y, 'grey', 0.44);
+  for (let x = 0; x < 64; x += 16) { p.vline(x, 0, 47, 'grey', 0.62); p.vline(x + 1, 0, 47, 'grey', 0.3); }
+  p.hline(0, 63, 6, 'grey', 0.66);
+  p.hline(0, 63, 41, 'grey', 0.24);
+  return p.snap(0.4);
+};
+
+/* ---------- back of house ---------- */
+
+T.STOCKFLR = () => {
+  const p = new Pix(64, 64, 91);
+  aggregate(p, 91, { baseKey: 'grey', baseLo: 0.20, baseHi: 0.30,
+    grades: [{ count: 160, min: 0.4, max: 1.0, key: 'grey', lo: 0.14, hi: 0.34 }] });
+  /* the yellow racking lines everybody ignores */
+  for (const ly of [0, 1]) p.hline(0, 63, ly, 'yellow', 0.5 - ly * 0.15);
+  crack(p, 8, 40, 44, 'grey', 0.1, 33);
+  p.grime(0.5, 'rust', 0.18, 23);
+  const rng = makeRng(92);
+  for (let i = 0; i < 4; i++) {                    // forklift tyre marks
+    const y = Math.floor(rng() * 64);
+    for (let x = 0; x < 64; x++) if (rng() < 0.7) p.wash(x, y, 'grey', 0.08, 0.5);
+  }
+  return p.snap(0.5);
+};
+
+T.DOCKDOOR = () => {
+  /* Roller shutter: galvanised lath, not timber. Steel first, rust
+     second — the earlier version drew the whole thing out of the rust
+     ramp and came out looking like decking. */
+  const p = new Pix(64, 64, 93);
+  const height = new Float32Array(64 * 64);
+  const n = fbm(64, 64, 12, 2, 94);
+  for (let y = 0; y < 64; y++) {
+    const s2 = y % 8;
+    /* one lath: shadowed roll at the top, lit crown, falling away below */
+    const t = s2 === 0 ? 0.10 : s2 === 1 ? 0.44 : s2 === 2 ? 0.38 : s2 < 6 ? 0.30 : 0.18;
+    const hgt = s2 === 0 ? 0.05 : s2 <= 2 ? 0.9 : s2 < 6 ? 0.6 : 0.25;
+    for (let x = 0; x < 64; x++) {
+      p.ink(x, y, 'grey', t + n[y * 64 + x] * 0.06);
+      height[y * 64 + x] = hgt;
+    }
+  }
+  p.emboss(height, 0.30, 1.0);
+  /* Rust, where water sat: along the lath rolls and up from the bottom */
+  const r = fbm(64, 64, 6, 3, 95);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const seam = (y % 8) <= 1 ? 1.4 : 0.6;
+      const low = 0.35 + Math.pow(y / 63, 2) * 0.9;
+      const v = r[y * 64 + x] * seam * low;
+      if (v > 0.62) p.wash(x, y, 'rust', 0.30 + (v - 0.62) * 0.7, Math.min(0.85, (v - 0.62) * 2.4));
+    }
+  }
+  /* the guide channels down both edges */
+  for (const gx of [0, 1, 62, 63]) {
+    for (let y = 0; y < 64; y++) p.ink(gx, y, 'grey', gx === 0 || gx === 62 ? 0.44 : 0.16);
+  }
+  p.grime(0.5, 'grey', 0.08, 24);
+  return p.snap(0.5);
+};
+
+T.DOORSTAF = () => {
+  /* The swing door between the store and the truth. */
+  const p = new Pix(64, 64, 95);
+  const n = fbm(64, 64, 8, 2, 95);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+    p.ink(x, y, 'grey', 0.32 + n[y * 64 + x] * 0.08);
+  p.frame(2, 2, 60, 60, 'grey', 0.5);
+  p.frame(3, 3, 58, 58, 'grey', 0.18);
+  for (let y = 44; y < 62; y++) for (let x = 4; x < 60; x++) p.ink(x, y, 'grey', 0.44);  // kick plate
+  p.hline(4, 59, 44, 'grey', 0.62);
+  for (let y = 10; y < 22; y++) for (let x = 14; x < 50; x++) p.ink(x, y, 'bone', 0.86); // the sign
+  drawTextCentred(p, 'STAFF', 32, 12, 'red', 0.3);
+  drawTextCentred(p, 'ONLY', 32, 19, 'red', 0.3);
+  p.grime(0.6, 'grey', 0.1, 25);
+  return p.snap(0.5);
+};
+
+T.DOORTRAK = () => {
+  /* What you see above a door: the track it hangs from. 64x16. */
+  const p = new Pix(64, 16, 96);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'grey', y < 3 ? 0.16 : y < 6 ? 0.38 : 0.24);
+  p.hline(0, 63, 3, 'grey', 0.54);
+  p.hline(0, 63, 15, 'grey', 0.08);
+  for (let x = 4; x < 64; x += 16) { p.vline(x, 4, 14, 'grey', 0.44); p.vline(x + 1, 4, 14, 'grey', 0.14); }
+  p.grime(0.4, 'grey', 0.08, 26);
+  return p.snap(0.4);
+};
+
+T.CARDBOX = () => {
+  /* A stack of cases. The most flammable wall in the building, and it
+     looks it. */
+  const p = new Pix(64, 64, 97);
+  const rng = makeRng(97);
+  for (let row = 0; row < 3; row++) {
+    const top = row * 22 - 2;
+    let x = -Math.floor(rng() * 10);
+    while (x < 64) {
+      const w = 16 + Math.floor(rng() * 12);
+      const t = 0.38 + rng() * 0.16;
+      for (let y = top; y < top + 22 && y < 64 + 22; y++)
+        for (let xx = 0; xx < w; xx++) p.ink(x + xx, y, 'brown', t);
+      p.hline(x, x + w - 1, top, 'brown', Math.min(1, t + 0.22));
+      p.vline(x, top, top + 21, 'brown', Math.min(1, t + 0.14));
+      p.vline(x + w - 1, top, top + 21, 'brown', Math.max(0, t - 0.2));
+      p.hline(x, x + w - 1, top + 21, 'brown', Math.max(0, t - 0.24));
+      /* tape down the middle, and a printed panel */
+      p.vline(x + (w >> 1), top, top + 21, 'bone', 0.7);
+      for (let k = 0; k < 3; k++) p.hline(x + 3, x + w - 4, top + 6 + k * 4, 'brown', Math.max(0, t - 0.16));
+      x += w;
+    }
+  }
+  p.grime(0.4, 'grey', 0.12, 27);
+  return p.snap(0.5);
+};
+
+T.PALLET = () => {
+  const p = new Pix(64, 16, 98);
+  p.clear();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 64; x++) p.ink(x, y, 'brown', 0.30);
+  p.hline(0, 63, 0, 'brown', 0.52);
+  p.hline(0, 63, 15, 'brown', 0.12);
+  for (const bx of [4, 30, 56]) for (let y = 3; y < 13; y++) for (let x = 0; x < 6; x++) p.ink(bx + x, y, 'brown', 0.22);
+  for (let y = 4; y < 12; y++) for (let x = 0; x < 64; x++)
+    if (!((x >= 4 && x < 10) || (x >= 30 && x < 36) || (x >= 56 && x < 62))) p.set(x, y, 0, 0, 0, 0);
+  return p.snap(0.4);
+};
+
+/* ---------- lights, signs, and the thing that says GO THIS WAY ---------- */
+
+T.LIGHTPAN = () => {
+  /* A recessed fluorescent panel. Fullbright in the ceiling. */
+  const p = new Pix(64, 64, 101);
+  p.fill('grey', 0.3);
+  for (let y = 6; y < 58; y++) for (let x = 6; x < 58; x++) p.ink(x, y, 'bone', 0.95);
+  for (const gx of [22, 42]) p.vline(gx, 6, 57, 'grey', 0.4);
+  p.frame(5, 5, 54, 54, 'grey', 0.5);
+  p.frame(6, 6, 52, 52, 'bone', 0.7);
+  return p.snap(0.3);
+};
+
+T.EXITSIGN = () => {
+  const p = new Pix(64, 32, 102);
+  p.fill('grey', 0.12);
+  for (let y = 4; y < 28; y++) for (let x = 4; x < 60; x++) p.ink(x, y, 'green', 0.30);
+  p.frame(4, 4, 56, 24, 'green', 0.55);
+  drawTextCentred(p, 'EXIT', 32, 12, 'green', 0.95);
+  return p.snap(0.3);
+};
+
+T.MISSING = () => {
+  /* Loud on purpose. See TextureBank.get. */
+  const p = new Pix(64, 64, 1);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const c = ((x >> 3) + (y >> 3)) & 1;
+    p.set(x, y, c ? 255 : 0, 0, c ? 255 : 0, 255);
+  }
+  drawTextCentred(p, 'NO', 32, 20, 'bone', 1);
+  drawTextCentred(p, 'TEX', 32, 30, 'bone', 1);
+  return p;
+};
+
+/* Textures whose world footprint is not their pixel size. */
+const SIZES = {
+  KERB:     { w: 64, h: 16 },
+  STORBASE: { w: 64, h: 32 },
+  BRANDBAND:{ w: 64, h: 32 },
+  DOORTRAK: { w: 64, h: 16 },
+  EXITSIGN: { w: 64, h: 32 },
+  PALLET:   { w: 64, h: 16, masked: true },
+  TROLLEY:  { w: 64, h: 48, masked: true },
+};
+
+export function bakeTextures() {
+  const bank = new TextureBank();
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  for (const [name, gen] of Object.entries(T)) {
+    bank.add(name, gen(), SIZES[name] || {});
+  }
+  const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+  console.log(`baked ${bank.map.size} textures in ${ms.toFixed(0)}ms`);
+  return bank;
+}
+
+export const TEXTURE_NAMES = Object.keys(T);
+export { T as TEXTURE_GENERATORS };
