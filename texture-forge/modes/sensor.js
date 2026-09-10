@@ -19,11 +19,16 @@
                  and a blade antenna wants a long strip, so offering
                  either the other's bay is offering a lie — and squashing
                  one to fit is worse. See ASPECT BUCKETS below.
-     the harness the runs BETWEEN the devices, which is what a real
-                 installation is mostly made of: rectangular waveguide
-                 with flanged joints, coax in bundles, at a standoff off
-                 the plate, passing behind whatever is taller than they
-                 are. Nothing is wired up if the cables are missing.
+     the deck    the runs are UNDER the plate, not over it. Nothing is
+                 wired up if the cables are missing, but a cable dressed
+                 across the face of an array is not an installation
+                 either — it is a cable somebody would trip over. So the
+                 plate is PANELLED, the gaps between panels are real gaps
+                 you can see down through, a share of the panels are
+                 removed altogether, and what shows underneath is a dense
+                 sub-deck of conduit, waveguide and cable in crossed
+                 layers. Nothing at all stands proud of the plate that is
+                 not a device bolted to it.
 
    TWELVE DEVICES, and each is a real thing rather than a shape:
 
@@ -34,9 +39,11 @@
      dish      a parabolic comms dish: a real paraboloid bowl, a rim, a
                feed boss on struts, a sub-reflector at the focus
      satcom    a flat SATCOM panel — concentric rings of elements
-     camera    an electro-optical cluster: several lens bores of
-               different diameters, each with a hood and dark glass, and
-               a rectangular sensor window beside them
+     camera    an electro-optical cluster: several MULTI-ELEMENT lenses
+               of different diameters — bezel, retaining ring with
+               wrench slots, a convex coated front element, the element
+               groups behind it, baffle rings down the barrel and a
+               bladed iris — and a rectangular sensor window beside them
      blade     a blade antenna, tapered along a long thin bay, on a boot
      whip      a whip mast base: a collar and a tapered stub
      dome      a radome: a truncated composite dome on a base flange
@@ -122,41 +129,61 @@ function pickTables(P){
 }
 const bandOf=a=>a<BANDS[1]?0:(a<BANDS[2]?1:(a<BANDS[3]?2:3));
 
-/* ============================ the harness ============================
+/* ============================ the deck below ============================
 
-   Straight runs on a coarse lattice, one pass of both axes. Straight rather
-   than walked — greeble's walker is the right answer for pipework threaded
-   through a machine, and the wrong one here: waveguide is rigid, it is cut to
-   length and bolted between flanges, and on a mast it goes straight up and
-   straight along. So a run is a whole lattice line, which also means the
-   nearest one can be found in O(1) per texel off the nearest line in u and
-   the nearest in v, with no grid to store beyond one byte a line.
+   WHAT IS UNDER THE PLATE, seen through the gaps in it. This is the one thing
+   the mode used to get backwards: the runs were laid ON the plate, at a
+   standoff, passing over the arrays and behind the domes. That is a cable
+   dressed across the face of a radar, which is not an installation — it is a
+   cable somebody would trip over. Real equipment plates are the LID: the
+   plumbing is beneath them, and you only see it where the lid is opened.
 
-   NO RUN IS FATTER THAN HALF THE LATTICE PITCH, enforced where the radius is
-   chosen: two runs on neighbouring lines would otherwise merge into a slab
-   and the lookup — which only ever considers the nearest line — would be
-   wrong about which one a texel belongs to. */
-function harness(o){
-  const n=Math.max(2,o.n|0);
-  const U=new Uint8Array(n),V=new Uint8Array(n);   // 0 bare, else kind+1
-  const gU=new Uint8Array(n),gV=new Uint8Array(n); // gauge
-  const lU=new Uint8Array(n),lV=new Uint8Array(n); // layer: which rides over
-  for(let k=0;k<n;k++){
-    for(let ax=0;ax<2;ax++){
-      const A=ax?V:U,G=ax?gV:gU,L=ax?lV:lU;
-      if(hashi(k,ax*31+7,o.seed)>=o.dens)continue;
-      /* waveguide, coax bundle, or a single fat feeder — the mix is what
-         stops a harness reading as one repeated extrusion */
-      const r=hashi(k,ax*31+11,o.seed);
-      A[k]=(r<o.wgShare?1:(r<o.wgShare+(1-o.wgShare)*0.62?2:3));
-      G[k]=Math.floor(hashi(k,ax*31+13,o.seed)*o.gauges);
-      L[k]=hashi(k,ax*31+17,o.seed)<0.5?0:1;
+   So there are no runs on the top surface at all, and instead:
+
+     panel gaps      every bay is a removable panel, and the gap between
+                     panels is a real gap cut through the panel's thickness.
+                     Stretches of it are open all the way to the deck, and
+                     which stretches is hashed on the coordinate the gap RUNS
+                     ALONG — so both sides of a seam agree, and a slot is not
+                     open on one side and shut on the other.
+     removed panels  a share of bays have no panel at all: the rebate it
+                     seated on, its anchor points, and the deck wide open.
+
+   The deck itself is CROSSED LAYERS, which is what makes it read as deep
+   rather than as a texture at the bottom of a hole: the lowest layer runs one
+   way, the next runs across it a conduit's width higher, and the third across
+   that again. Every layer is on its own fine lattice, so the nearest run is
+   one rounding per layer and the whole thing costs three lookups however
+   dense it looks. */
+function deckOf(o){
+  return {
+    /* the height and kind of the topmost thing in the deck under (u,v).
+       Returns kind 0 for the deck floor, else 1..3 for which layer. */
+    at:function(u,v,out){
+      let top=o.floorY,kind=0,ri=0,li=0,alng=0;
+      for(let L=0;L<o.layers;L++){
+        const axis=L&1;
+        const p=o.pitch*(1+L*0.42);
+        const t=(axis?u:v)/p;
+        const ln=Math.round(t);
+        const key=((ln%9973)+9973)%9973;
+        if(hashi(key,L*13+3,o.seed)>=o.fill)continue;
+        const rr=p*(0.22+hashi(key,L*13+5,o.seed)*0.20);
+        const d=Math.abs(t-ln)*p;
+        if(d>=rr)continue;
+        /* each layer clears the one below by a full conduit, so the upper one
+           passes over rather than merging with it */
+        const y=o.floorY+o.pitch*(0.55+L*0.95)+Math.sqrt(rr*rr-d*d);
+        if(y>top){top=y;kind=L+1;ri=key;li=L;alng=(axis?v:u);}
+      }
+      out.y=top;out.kind=kind;out.line=ri;out.layer=li;out.along=alng;
+      return out;
     }
-  }
-  return {n:n,U:U,V:V,gU:gU,gV:gV,lU:lU,lV:lV};
+  };
 }
 
 /* ============================ the generator ============================ */
+
 
 function build(params,io){
   P=params;
@@ -195,16 +222,16 @@ function build(params,io){
   const rec=Quilt.record();
   const TAB=pickTables(P);
 
-  /* ---- the harness ---- */
-  const Ng=clamp(P.runGrid|0,2,40);
-  const rCap=0.40/Ng;
-  const runR=Math.min(P.runD*MM*0.5,rCap);
-  const nGauge=clamp(P.runGauge|0,1,3);
-  const HN=harness({n:Ng,seed:seed+4241,dens:clamp(+P.runDens,0,1),
-                    gauges:nGauge,wgShare:clamp(+P.runWg,0,1)});
-  const runRise=R0*0.10*Math.max(0,+P.runRise);    // standoff off the plate
-  const flangePitch=Math.max(P.runFlange*MM,px*6);
-  const gaugeR=g=>runR*(g===0?1:(g===1?0.66:0.44));
+  /* ---- the deck below, and how much of it shows ---- */
+  const panelT=Math.max(P.panelT*MM,px*1.2);       // the panel's own thickness
+  const deckD=Math.max(P.deckD*MM,panelT*1.6);     // how far down the deck sits
+  const deckPitch=Math.max(P.deckPitch*MM,px*2.6); // conduit pitch under there
+  const deckLayers=clamp(P.deckLayers|0,1,3);
+  const DK=deckOf({pitch:deckPitch,layers:deckLayers,fill:clamp(+P.deckFill,0,1),
+                   floorY:-deckD,seed:seed+8081});
+  const dOut={y:0,kind:0,line:0,layer:0,along:0};
+  const gapSeg=Math.max(2,Math.round(1/Math.max(px*20,0.02)));   // stretches along a gap
+  const cable=hex2rgb(P.cCable);
 
   const band=Math.max(4,Math.round(65536/S));
   let y=0;
@@ -228,8 +255,18 @@ function build(params,io){
         const tone=1+(Quilt.rand(BQ,rec,101)-0.5)*0.05;
         r*=tone;g*=tone;b*=tone;
 
+        /* THE GAP BETWEEN PANELS IS A REAL GAP, cut through the panel's own
+           thickness rather than scribed into it — and stretches of it are open
+           all the way down to the deck. Which stretches is hashed on the
+           coordinate the gap RUNS ALONG, so the two bays either side of a seam
+           reach the same answer and a slot is never open on one side and shut
+           on the other. */
         const inGut=1-smoothstep(gut,gut+bev,rec.dEdge);
-        h-=inGut*frameH*0.55;
+        const gapVert=rec.du<rec.dv;                   // the near edge is a vertical one
+        const gapAlong=gapVert?v:u;
+        const gapSee=inGut>0.5&&
+          hashi(Math.floor(gapAlong*gapSeg),gapVert?1:2,seed+9091)<P.gapSee;
+        h-=inGut*panelT;
 
         /* ---------------- which device, if any ----------------
            The face is what is left of the bay once the gutter and the frame
@@ -239,8 +276,11 @@ function build(params,io){
         const facePx=(short-2*(gut+fw))*S;
         const bandI=bandOf(long/short);
         const tab=TAB[bandI];
+        /* A PANEL REMOVED comes first, because it is a decision about the
+           panel and a device is a decision about what is bolted to one. */
+        const gone=Quilt.rand(BQ,rec,211)<P.openFrac&&facePx>=6;
         let dev=-1;
-        if(tab.tot>0&&facePx>=4&&Quilt.rand(BQ,rec,103)<P.devDens){
+        if(!gone&&tab.tot>0&&facePx>=4&&Quilt.rand(BQ,rec,103)<P.devDens){
           const pick=Quilt.rand(BQ,rec,107)*tab.tot;
           let k=0;while(k<tab.cum.length-1&&pick>tab.cum[k])k++;
           const cand=tab.idx[k];
@@ -384,11 +424,11 @@ function build(params,io){
             /* AN ELECTRO-OPTICAL CLUSTER IS SEVERAL APERTURES OF DIFFERENT
                SIZES, because they are different instruments — a wide field, a
                narrow field, a laser channel. One lens repeated is a stereo
-               camera; three unequal ones are a targeting turret. */
-            /* A HOUSING FIRST. An electro-optical cluster is a BOX with
-               apertures in it, and the apertures are a small part of its face
-               — so the lenses alone left most of a bay bare, which read as
-               lenses printed on a plate. The pad is what they are cut into. */
+               camera; three unequal ones are a targeting turret.
+
+               A HOUSING FIRST. The cluster is a BOX with apertures in it, and
+               the apertures are a small part of its face, so the lenses alone
+               left most of a bay bare and read as lenses printed on a plate. */
             const padQ=Math.max(Math.abs(cu)/(faceW*0.5),Math.abs(cv)/(faceH*0.5));
             const pad=(1-smoothstep(0.92,0.98,padQ))*inFace;
             h+=pad*R0*0.16;
@@ -398,56 +438,194 @@ function build(params,io){
                middle of it: the first and last are half a step from the ends */
             const span=fLong*0.80;
             const step=span/nL;
-            let best=1e9,bR=0,bK=0;
+            let best=1e9,bR=0,bK=0,bdx=0,bdy=0;
             for(let k=0;k<nL;k++){
               const c=(k+0.5)*step-span*0.5;
               const rk=Math.min(step*0.42,fShort*0.34)*(0.66+hashi(rec.key,k*7+53,seed)*0.34);
               const dx=alo-c,dy=acr;
               const d=Math.sqrt(dx*dx+dy*dy)-rk;
-              if(d<best){best=d;bR=rk;bK=k;}
+              if(d<best){best=d;bR=rk;bK=k;bdx=dx;bdy=dy;}
             }
-            if(bR>bev*2.4){
-              const hood=1-smoothstep(0,bev,best-bR*0.26);
-              h+=hood*pad*R0*0.10;
-              met=lerp(met,0.92,hood*0.7);
+            /* A LENS IS AN ASSEMBLY, NOT A DARK CIRCLE, and every ring of it
+               is a part somebody machined:
+
+                 bezel     the outer ring of the barrel, raised, radially
+                           knurled where a hand would grip it
+                 retainer  the ring that holds the front element in, with the
+                           wrench slots it is turned by
+                 element   a CONVEX front glass — the curvature is what puts a
+                           ring highlight on it instead of a flat sheen, and a
+                           flat sheen is what made this read as a hole before
+                 groups    the element groups behind it, seen as concentric
+                           steps each with its own coating tint. Multi-coating
+                           is why real lenses flash magenta and green, and it
+                           is the single strongest cue that a dark circle is a
+                           lens rather than a socket.
+                 baffles   the fine rings turned into the inside of the barrel
+                           to kill flare, between the glass and the iris
+                 iris      a POLYGON, not a circle, because it is made of
+                           blades — the one detail no amount of shading
+                           substitutes for.
+
+               It needs room: below about nine texels of radius none of this
+               survives the resolution, so the whole assembly drops back to a
+               plain bore rather than turning into grey mush. */
+            const lensPx=bR*S;
+            if(bR>bev*2.4&&lensPx>=9){
+              const d=best+bR;                        // distance from the lens axis
+              const R=bR;
+              const rBez=R,rRet=R*0.88,rGls=R*0.78,rBar=R*0.50;
+              const nElem=clamp(P.lensElem|0,1,6);
+              const nB=clamp(P.lensBlades|0,4,10);
+              const coat=clamp(+P.lensCoat,0,1);
+              const ang=Math.atan2(bdy,bdx);
+
+              /* the barrel, standing proud of the housing */
+              const barrel=(1-smoothstep(rBez,rBez+bev,d))*pad;
+              h+=barrel*R0*0.11;
+              met=lerp(met,0.94,barrel*0.85);
+              rough=lerp(rough,0.36,barrel*0.7);
+              r=lerp(r,r*1.06+8,barrel*0.5);g=lerp(g,g*1.06+8,barrel*0.5);b=lerp(b,b*1.05+8,barrel*0.5);
+
+              /* the bezel's knurl: fine radial flutes, dropped when they would
+                 alias into a grey band rather than read as knurling */
+              const bez=barrel*smoothstep(rRet-bev,rRet,d);
+              const nK=Math.max(10,Math.round(6.2831853*R/Math.max(bev*2.4,px*2.6)));
+              if(bez>0.004&&6.2831853*R/nK*S>=2.4){
+                const ka=ang*nK/6.2831853;
+                const kf=ka-Math.floor(ka);
+                const knurl=bez*(1-smoothstep(0.28,0.42,Math.abs(kf-0.5)));
+                h-=knurl*bev*0.5;
+                rough=lerp(rough,0.5,knurl*0.5);
+              }
+
+              /* the retaining ring, set a little below the bezel, with the
+                 slots a lens wrench engages */
+              const ret=barrel*(1-smoothstep(rRet,rRet+bev,d))*smoothstep(rGls-bev,rGls,d);
+              h-=ret*R0*0.020;
+              met=lerp(met,0.95,ret*0.8);rough=lerp(rough,0.3,ret*0.7);
+              if(ret>0.004){
+                const sa=ang*nB/6.2831853;
+                const sf=sa-Math.floor(sa);
+                const slot=ret*(1-smoothstep(0.06,0.13,Math.abs(sf-0.5)));
+                h-=slot*R0*0.030;
+                r=lerp(r,dark[0],slot*0.7);g=lerp(g,dark[1],slot*0.7);b=lerp(b,dark[2],slot*0.7);
+              }
+
+              /* the front element: convex, so the highlight is a ring */
+              const gls=1-smoothstep(rGls,rGls+bev,d);
+              if(gls>0.004){
+                const t=clamp(d/rGls,0,1);
+                const dome=Math.sqrt(Math.max(0,1-t*t));
+                h-=gls*R0*0.10;                       // set back into the barrel
+                h+=gls*R0*0.055*dome;                 // and bulging out of it
+                r=lerp(r,glass[0],gls*0.95);g=lerp(g,glass[1],gls*0.95);b=lerp(b,glass[2],gls*0.95);
+                rough=lerp(rough,0.04,gls*0.94);met=lerp(met,0.9,gls*0.92);
+                /* THE ELEMENT GROUPS, as concentric steps with their own
+                   coatings. The band index is what the coating cycles on, so
+                   successive groups flash different colours the way a
+                   multi-coated stack does. */
+                const bi=Math.min(nElem-1,Math.floor(t*nElem));
+                const bf=t*nElem-bi;
+                const c3=bi%3;
+                const cr=c3===0?1.35:(c3===1?0.72:1.18);
+                const cg=c3===0?0.70:(c3===1?1.30:1.06);
+                const cb=c3===0?1.30:(c3===1?0.86:0.66);
+                const kk=gls*coat*0.85;
+                r=lerp(r,clamp(r*cr+10,0,255),kk);
+                g=lerp(g,clamp(g*cg+10,0,255),kk);
+                b=lerp(b,clamp(b*cb+10,0,255),kk);
+                /* each group's own edge, seen as a fine dark line, and a step
+                   down as the stack recedes */
+                const edge=gls*(1-smoothstep(0.06,0.14,Math.min(bf,1-bf)));
+                h-=edge*R0*0.012;
+                r*=1-edge*0.45;g*=1-edge*0.45;b*=1-edge*0.45;
+                h-=gls*R0*0.010*bi;                   // the stack recedes inward
+              }
+
+              /* the baffle rings turned into the barrel behind the glass */
+              const bar=(1-smoothstep(rBar,rBar+bev,d))*gls;
+              if(bar>0.004){
+                const nBaf=Math.max(2,Math.round(rBar/Math.max(bev*2.2,px*2.4)));
+                const bp=rBar/nBaf;
+                if(bp*S>=2.4){
+                  const fb2=d/bp-Math.floor(d/bp);
+                  const baf=bar*(1-smoothstep(0.24,0.36,Math.abs(fb2-0.5)));
+                  h-=baf*R0*0.014;
+                  r=lerp(r,dark[0]*0.7,baf*0.6);g=lerp(g,dark[1]*0.7,baf*0.6);b=lerp(b,dark[2]*0.7,baf*0.6);
+                  rough=lerp(rough,0.9,baf*0.6);met=lerp(met,0.1,baf*0.6);
+                }
+              }
+
+              /* THE IRIS IS A POLYGON, because it is made of blades. The
+                 regular-polygon distance is the largest projection of the
+                 radius onto a blade normal, which is one cosine once the angle
+                 is folded into a single blade's sector. */
+              const segA=6.2831853/nB;
+              const fa=ang-Math.round(ang/segA)*segA;
+              const dP=d*Math.cos(fa);
+              const ap=rBar*0.62;
+              const iris=(1-smoothstep(ap,ap+bev,dP))*gls;
+              h-=iris*R0*0.055;
+              r=lerp(r,dark[0]*0.28,iris*0.95);g=lerp(g,dark[1]*0.28,iris*0.95);b=lerp(b,dark[2]*0.3,iris*0.95);
+              /* THE PUPIL IS A LIGHT TRAP, so it goes all the way matte and all
+                 the way dielectric rather than most of the way: it is the one
+                 place on the whole plate that should reflect nothing at all,
+                 and at four fifths of the way there it still read as dull
+                 metal — 49 of 255 on the metallic map, which is a dark socket
+                 rather than the inside of a barrel. */
+              rough=lerp(rough,0.97,iris*0.95);met=lerp(met,0.015,iris*0.96);
+              /* the blades themselves, and the joint where each laps the next */
+              const blades=clamp(bar-iris,0,1);
+              if(blades>0.004){
+                met=lerp(met,0.85,blades*0.6);rough=lerp(rough,0.3,blades*0.6);
+                r=lerp(r,r*1.10+6,blades*0.5);g=lerp(g,g*1.10+6,blades*0.5);b=lerp(b,b*1.08+6,blades*0.5);
+                const ja=ang-(Math.round(ang/segA-0.5)+0.5)*segA;
+                const joint=blades*(1-smoothstep(0,Math.max(bev*0.8,px*0.9),Math.abs(ja)*d));
+                h-=joint*R0*0.008;
+                r*=1-joint*0.35;g*=1-joint*0.35;b*=1-joint*0.35;
+              }
+            }else if(bR>bev*2.4){
+              /* too small for the assembly: a plain bore with dark glass in it,
+                 which is the honest answer at four texels across */
               const bore=1-smoothstep(0,bev,best);
-              h-=bore*R0*0.30;
-              /* THE GLASS IS THE SAME CHEAT THE HULL'S WINDOWS USE: dark, very
-                 smooth, and metallic on an opaque surface, so it picks up the
-                 environment and reads as a lens rather than as a hole. */
-              const gl=1-smoothstep(0,bev,best+bR*0.13);
+              h-=bore*pad*R0*0.22;
+              const gl=1-smoothstep(0,bev,best+bR*0.18);
               r=lerp(r,glass[0],gl*0.94);g=lerp(g,glass[1],gl*0.94);b=lerp(b,glass[2],gl*0.94);
               rough=lerp(rough,0.06,gl*0.92);met=lerp(met,0.85,gl*0.9);
-              /* the iris ring between the hood and the glass */
-              const iris=clamp(bore-gl,0,1);
-              r=lerp(r,dark[0],iris*0.8);g=lerp(g,dark[1],iris*0.8);b=lerp(b,dark[2],iris*0.8);
-              rough=lerp(rough,0.85,iris*0.7);met=lerp(met,0.1,iris*0.6);
-              /* AND A RECTANGULAR SENSOR WINDOW, off to one side of the lens
-                 row rather than at the end of it — where it sat before it ran
-                 off the edge of its own housing and read as a hole punched
-                 through the plate. It gets a rebate of its own, because a
-                 window in a box has a frame and a void does not. */
-              /* well inside the housing: at a tenth of the face from its edge
-                 the window read as touching it, which is a window that has run
-                 out of box to sit in */
-              const wOff=fShort*0.26;
-              const wHalfA=Math.min(span*0.22,fShort*0.26),wHalfC=fShort*0.12;
-              const wq=Math.max((Math.abs(alo)-wHalfA)/Math.max(bev,1e-6),
-                                (Math.abs(acr-wOff)-wHalfC)/Math.max(bev,1e-6));
-              const rebate=(1-smoothstep(1.9,2.6,wq))*pad;
-              const win=(1-smoothstep(0,1,wq))*pad;
-              if(wHalfC>bev*2&&rebate>0.004){
-                h-=clamp(rebate-win,0,1)*R0*0.05;
-                h-=win*R0*0.12;
-                r=lerp(r,glass[0]*1.1,win*0.92);g=lerp(g,glass[1]*1.1,win*0.92);b=lerp(b,glass[2]*1.1,win*0.92);
-                rough=lerp(rough,0.09,win*0.9);met=lerp(met,0.8,win*0.85);
-                /* the rebate is MACHINED METAL, not shadow: a dark lip round a
-                   dark window is one dark shape, and the frame is what says
-                   the window is set into something */
-                const lip=clamp(rebate-win,0,1);
-                r=lerp(r,r*1.12+16,lip*0.75);g=lerp(g,g*1.12+16,lip*0.75);b=lerp(b,b*1.10+15,lip*0.75);
-                rough=lerp(rough,0.34,lip*0.7);met=lerp(met,0.94,lip*0.7);
-              }
+            }
+
+            /* AND A RECTANGULAR SENSOR WINDOW, off to one side of the lens
+               row rather than at the end of it — where it sat before it ran
+               off the edge of its own housing and read as a hole punched
+               through the plate. It gets a rebate of its own, because a
+               window in a box has a frame and a void does not. */
+            const wOff=fShort*0.26;
+            const wHalfA=Math.min(span*0.22,fShort*0.26),wHalfC=fShort*0.12;
+            const wq=Math.max((Math.abs(alo)-wHalfA)/Math.max(bev,1e-6),
+                              (Math.abs(acr-wOff)-wHalfC)/Math.max(bev,1e-6));
+            const rebate=(1-smoothstep(1.9,2.6,wq))*pad;
+            const win=(1-smoothstep(0,1,wq))*pad;
+            if(wHalfC>bev*2&&rebate>0.004){
+              h-=clamp(rebate-win,0,1)*R0*0.05;
+              h-=win*R0*0.12;
+              /* A SLIGHT CROWN, which is what stops flat glass reading as a
+                 hole: the lenses beside it are convex and catch a ring
+                 highlight, and this had nothing to bend the light across it at
+                 all. Armoured windows are laminated with a shallow crown
+                 anyway, so a couple of per cent of the relief is both the fix
+                 and the truth. */
+              const wu=clamp((Math.abs(alo))/Math.max(wHalfA,1e-6),0,1);
+              const wv=clamp((Math.abs(acr-wOff))/Math.max(wHalfC,1e-6),0,1);
+              h+=win*R0*0.014*Math.sqrt(Math.max(0,1-wu*wu*0.85-wv*wv*0.85));
+              r=lerp(r,glass[0]*1.1,win*0.92);g=lerp(g,glass[1]*1.1,win*0.92);b=lerp(b,glass[2]*1.1,win*0.92);
+              rough=lerp(rough,0.09,win*0.9);met=lerp(met,0.8,win*0.85);
+              /* the rebate is MACHINED METAL, not shadow: a dark lip round a
+                 dark window is one dark shape, and the frame is what says
+                 the window is set into something */
+              const lip=clamp(rebate-win,0,1);
+              r=lerp(r,r*1.12+16,lip*0.75);g=lerp(g,g*1.12+16,lip*0.75);b=lerp(b,b*1.10+15,lip*0.75);
+              rough=lerp(rough,0.34,lip*0.7);met=lerp(met,0.94,lip*0.7);
             }
           }else if(id==="blade"){
             /* a blade antenna: a fin tapered along the bay, on a boot */
@@ -531,7 +709,7 @@ function build(params,io){
             }
           }else if(id==="conn"){
             /* a bulkhead connector plate: a row of circular connectors with
-               knurled shells, and a clamp where the harness enters */
+               knurled shells, and the dark pin faces behind them */
             const nC=2+((rnd(137)*3)|0);
             const step=fLong/(nC+0.5);
             const cR=Math.min(step*0.34,fShort*0.30);
@@ -637,74 +815,74 @@ function build(params,io){
           }
         }
 
-        /* ---------------- the harness ----------------
-           The nearest lattice line in each axis, and whichever run is taller
-           where two cross. Runs sit at a standoff off the PLATE, so anything
-           taller than they are — a dome, a dish rim, a blade — stands in front
-           of them and they pass behind it, which is what a cable does. */
-        let runH=-1e9,runKind=0,runT=0,runFl=0;
-        for(let ax=0;ax<2;ax++){
-          const A2=ax?HN.V:HN.U;
-          const t=(ax?v:u)*Ng;
-          const li=Math.round(t);
-          const k=((li%Ng)+Ng)%Ng;
-          if(!A2[k])continue;
-          const off=(t-li)/Ng;                      // SIGNED offset across the run
-          const dcr=Math.abs(off);
-          const kind=A2[k];
-          const gg=(ax?HN.gV:HN.gU)[k]%nGauge;
-          const rr=gaugeR(gg);
-          const alng=(ax?u:v);                      // distance along it
-          let prof=-1e9,fl=0;
-          if(kind===1){
-            /* rectangular waveguide: a flat top with vertical walls, and a
-               bolted flange every so often. The flange is what says waveguide
-               rather than duct — it is how the stuff is joined. */
-            const hw=rr*1.15,hh=rr*0.72;
-            if(dcr<hw){
-              prof=runRise+hh;
-              const fp=edgeDist(alng,flangePitch);
-              fl=(1-smoothstep(flangePitch*0.06,flangePitch*0.10,fp))*P.runFit;
-              prof+=fl*hh*0.28;
-            }
-          }else if(kind===2){
-            /* a bundle: two or three round conduits side by side, with a clamp
-               at intervals holding them together */
-            const nb=2+(gg%2);
-            const cr=rr*0.5;                        // each conduit of the bundle
-            const pitch=cr*2.1;
-            const spread=(nb-1)*pitch*0.5;
-            let bd=1e9;
-            for(let q2=0;q2<nb;q2++){
-              const dd=Math.abs(off-(-spread+q2*pitch));
-              if(dd<bd)bd=dd;
-            }
-            if(bd<cr){
-              prof=runRise+Math.sqrt(Math.max(0,cr*cr-bd*bd));
-              const fp=edgeDist(alng,flangePitch*1.6);
-              fl=(1-smoothstep(flangePitch*0.10,flangePitch*0.16,fp))*P.runFit;
-              prof+=fl*cr*0.34;
-            }
-          }else if(kind===3){
-            /* a single fat feeder, on saddle clamps */
-            if(dcr<rr){
-              prof=runRise+Math.sqrt(Math.max(0,rr*rr-dcr*dcr));
-              const fp=edgeDist(alng,flangePitch*2.2);
-              fl=(1-smoothstep(flangePitch*0.14,flangePitch*0.22,fp))*P.runFit;
-              prof+=fl*rr*0.22;
-            }
+        /* ---------------- the deck, where the plate is open ----------------
+           An opening is a hole, so everything in it is BELOW the plate: the
+           rebate the panel seated on, then the deck. Nothing here is allowed
+           to come up through the surface, which is the whole difference
+           between plumbing under a lid and cable dressed over a radar. */
+        let openN=0;
+        if(gone){
+          /* the rebate: the seating the panel bolted down onto, one panel
+             thickness below the surface and a frame's width wide */
+          const lip=smoothstep(gut,gut+bev,rec.dEdge);
+          const seat=clamp(smoothstep(gut+fw*0.75,gut+fw*0.75+bev,rec.dEdge),0,1);
+          h-=lip*panelT;
+          openN=seat;
+          if(seat>0.004){
+            /* and an anchor point at each corner of the seating, which is what
+               a captive fastener leaves behind when its panel is gone */
+            const inset=gut+fw*0.38;
+            const au=Math.abs(Math.abs(rec.lu-0.5)*bw-(bw*0.5-inset));
+            const av=Math.abs(Math.abs(rec.lv-0.5)*bh-(bh*0.5-inset));
+            const ad=Math.sqrt(au*au+av*av);
+            const anch=(1-smoothstep(boltR*0.9,boltR*1.3,ad))*clamp(lip-seat,0,1);
+            h+=anch*panelT*0.35;
+            met=lerp(met,0.95,anch*0.8);
           }
-          if(prof>runH){runH=prof;runKind=kind;runT=1;runFl=fl;}
+        }else if(gapSee){
+          openN=inGut;                              // a stretch of open gap
         }
-        if(runT&&runH>h){
-          h=runH;
-          const shade=runKind===1?1.0:(runKind===2?0.92:0.96);
-          r=plate[0]*shade*1.04;g=plate[1]*shade*1.04;b=plate[2]*shade*1.04;
-          met=0.95;rough=clamp(+P.rough*0.8,0.05,1);
-          if(runFl>0.01){
-            r=r*1.06+8;g=g*1.06+8;b=b*1.05+8;
-            rough=clamp(rough*0.85,0.04,1);
+        if(openN>0.004){
+          DK.at(u,v,dOut);
+          const dh=dOut.y;
+          /* the deck is only seen THROUGH the opening, so it can never write a
+             height above the plate: whatever it reports is clamped to the lip
+             of the hole it is seen through */
+          const dy=Math.min(dh,-panelT*1.05);
+          h=lerp(h,dy,openN);
+          let dr,dg,db,drg,dmt;
+          if(dOut.kind===0){
+            /* the floor of the deck: dark, dusty, and nothing you can make out */
+            dr=dark[0]*0.55;dg=dark[1]*0.55;db=dark[2]*0.58;drg=0.94;dmt=0.05;
+          }else{
+            /* conduit, or a cable bundle. Which one is a per-LINE draw, so a
+               run is one thing for its whole length rather than changing
+               material every few texels. */
+            const isCable=hashi(dOut.line,dOut.layer*29+7,seed+9137)<P.deckCable;
+            if(isCable){
+              const tint=0.72+hashi(dOut.line,dOut.layer*29+11,seed+9137)*0.5;
+              dr=cable[0]*tint;dg=cable[1]*tint;db=cable[2]*tint;
+              drg=0.72;dmt=0.06;
+            }else{
+              const tint=0.5+hashi(dOut.line,dOut.layer*29+13,seed+9137)*0.28;
+              dr=plate[0]*tint;dg=plate[1]*tint;db=plate[2]*tint;
+              drg=clamp(+P.rough*1.1,0.1,1);dmt=0.9;
+            }
+            /* a tie or a clamp every so often along the run */
+            const tiePitch=deckPitch*(3.2+hashi(dOut.line,dOut.layer*29+17,seed+9137)*3);
+            const tie=(1-smoothstep(tiePitch*0.08,tiePitch*0.14,
+                                    edgeDist(dOut.along,tiePitch)))*P.deckTie;
+            if(tie>0.01){
+              dr=dr*0.72+10;dg=dg*0.72+10;db=db*0.7+9;
+              drg=clamp(drg*0.8,0.08,1);dmt=lerp(dmt,0.92,0.6);
+            }
+            /* the deeper a run sits, the less light reaches it */
+            const shade=1-clamp((-dh)/Math.max(deckD,1e-6),0,1)*0.45;
+            dr*=shade;dg*=shade;db*=shade;
           }
+          r=lerp(r,dr,openN);g=lerp(g,dg,openN);b=lerp(b,db,openN);
+          rough=lerp(rough,drg,openN);met=lerp(met,dmt,openN);
+          emi*=1-openN;                              // no lamp shines inside a hole
         }
 
         HGT[i]=h;
@@ -797,9 +975,9 @@ Forge.register({
   label:"Sensor",
   group:"Sci-fi",
   threadable:true,
-  blurb:"Sensor and antenna cluster — AESA faces, dishes, cameras, waveguide",
+  blurb:"Sensor and antenna cluster — AESA faces, dishes, lenses, a deck below",
   title:'Sensor <em>Cluster</em>',
-  tagline:"AESA · dishes · cameras · antennas · waveguide harness · seamless",
+  tagline:"AESA · dishes · multi-element lenses · antennas · open panels · seamless",
   actionLabel:"Fit the sensors",
   busyLabel:"Fitting…",
   seamless:true,
@@ -821,7 +999,8 @@ Forge.register({
       wAesa:1.2,wDish:.5,wSat:.35,wCam:.4,wBlade:.7,wWhip:.35,wDome:.5,
       wHorn:.4,wGrille:.5,wConn:.5,wWarn:.45,wLaser:.25,
       bolts:.6,boltD:12,lamps:.18,glow:.85,
-      runDens:.5,runGrid:9,runD:44,runRise:.8,runWg:.55,runGauge:3,runFlange:180,runFit:.85,
+      openFrac:.14,gapSee:.4,panelT:7,deckD:80,deckPitch:28,deckLayers:3,deckFill:.82,deckCable:.4,deckTie:.85,
+      lensElem:4,lensBlades:7,lensCoat:.55,cCable:"#6b5a44",
       grime:.45,scratch:.3,rough:.5,metalness:.88,
       cPlate:"#8b9096",cDark:"#2b2f33",cRadome:"#c9c6bd",cGlass:"#1b2026",cLamp:"#ff9a3c"}},
     {id:"nose",label:"Aircraft nose array",set:{
@@ -831,7 +1010,8 @@ Forge.register({
       wAesa:2.2,wDish:.1,wSat:.2,wCam:.6,wBlade:.3,wWhip:.1,wDome:.2,
       wHorn:.2,wGrille:.55,wConn:.5,wWarn:.5,wLaser:.4,
       bolts:.75,boltD:8,lamps:.08,glow:.7,
-      runDens:.35,runGrid:11,runD:26,runRise:.6,runWg:.7,runGauge:2,runFlange:120,runFit:.9,
+      openFrac:.08,gapSee:.22,panelT:4,deckD:40,deckPitch:16,deckLayers:3,deckFill:.85,deckCable:.5,deckTie:.9,
+      lensElem:5,lensBlades:8,lensCoat:.7,cCable:"#5f5344",
       grime:.3,scratch:.35,rough:.44,metalness:.9,
       cPlate:"#9aa0a6",cDark:"#2f3337",cRadome:"#d5d2c9",cGlass:"#161b21",cLamp:"#49d8ff"}},
     {id:"satbus",label:"Satellite bus",set:{
@@ -841,7 +1021,8 @@ Forge.register({
       wAesa:.5,wDish:1.4,wSat:1.0,wCam:.5,wBlade:.2,wWhip:.5,wDome:.6,
       wHorn:.9,wGrille:.2,wConn:.6,wWarn:.15,wLaser:.2,
       bolts:.5,boltD:10,lamps:.25,glow:.9,
-      runDens:.45,runGrid:8,runD:34,runRise:.9,runWg:.35,runGauge:3,runFlange:140,runFit:.8,
+      openFrac:.18,gapSee:.3,panelT:5,deckD:60,deckPitch:20,deckLayers:3,deckFill:.88,deckCable:.55,deckTie:.8,
+      lensElem:4,lensBlades:6,lensCoat:.6,cCable:"#7a6446",
       grime:.12,scratch:.15,rough:.4,metalness:.92,
       cPlate:"#7f858c",cDark:"#22262a",cRadome:"#e2ded2",cGlass:"#12171d",cLamp:"#ffd06a"}},
     {id:"turret",label:"EO turret cluster",set:{
@@ -851,7 +1032,8 @@ Forge.register({
       wAesa:.25,wDish:.1,wSat:.1,wCam:2.4,wBlade:.15,wWhip:.1,wDome:.35,
       wHorn:.1,wGrille:.3,wConn:.5,wWarn:.6,wLaser:1.1,
       bolts:.7,boltD:7,lamps:.3,glow:1,
-      runDens:.3,runGrid:12,runD:20,runRise:.5,runWg:.3,runGauge:2,runFlange:90,runFit:.85,
+      openFrac:.06,gapSee:.18,panelT:3,deckD:30,deckPitch:12,deckLayers:2,deckFill:.8,deckCable:.45,deckTie:.85,
+      lensElem:5,lensBlades:9,lensCoat:.85,cCable:"#5a4d3c",
       grime:.4,scratch:.4,rough:.48,metalness:.86,
       cPlate:"#6e747a",cDark:"#232629",cRadome:"#bdb9b0",cGlass:"#141a20",cLamp:"#ff5a3c"}},
     {id:"ground",label:"Ground station",set:{
@@ -861,7 +1043,8 @@ Forge.register({
       wAesa:.5,wDish:1.6,wSat:.7,wCam:.2,wBlade:.5,wWhip:.7,wDome:.8,
       wHorn:.5,wGrille:.4,wConn:.5,wWarn:.1,wLaser:.05,
       bolts:.55,boltD:22,lamps:.15,glow:.8,
-      runDens:.55,runGrid:7,runD:90,runRise:.9,runWg:.6,runGauge:3,runFlange:400,runFit:.85,
+      openFrac:.2,gapSee:.45,panelT:16,deckD:220,deckPitch:70,deckLayers:3,deckFill:.75,deckCable:.35,deckTie:.8,
+      lensElem:3,lensBlades:6,lensCoat:.4,cCable:"#6e5c42",
       grime:.6,scratch:.25,rough:.58,metalness:.8,
       cPlate:"#96999a",cDark:"#31353a",cRadome:"#cfccc4",cGlass:"#1a1f25",cLamp:"#ff9a3c"}},
     {id:"derelict",label:"Derelict — stripped",set:{
@@ -871,7 +1054,8 @@ Forge.register({
       wAesa:.6,wDish:.3,wSat:.2,wCam:.2,wBlade:.4,wWhip:.4,wDome:.2,
       wHorn:.3,wGrille:.5,wConn:1.0,wWarn:.2,wLaser:.1,
       bolts:.7,boltD:12,lamps:0,glow:0,
-      runDens:.6,runGrid:9,runD:40,runRise:.7,runWg:.4,runGauge:3,runFlange:170,runFit:.5,
+      openFrac:.5,gapSee:.75,panelT:7,deckD:90,deckPitch:26,deckLayers:3,deckFill:.7,deckCable:.5,deckTie:.35,
+      lensElem:3,lensBlades:6,lensCoat:.25,cCable:"#5e5140",
       grime:.9,scratch:.65,rough:.72,metalness:.62,
       cPlate:"#797a74",cDark:"#26282a",cRadome:"#a8a49a",cGlass:"#191d22",cLamp:"#ff9a3c"}}
   ],
@@ -895,13 +1079,16 @@ Forge.register({
       {id:"relief",label:"Tallest device",unit:"mm",min:5,max:400,step:5,value:90},
       {type:"note",html:"A bay holds <b>one</b> device, wholly, inside its own frame — "+
         "equipment comes in boxes that bolt to a plate. The gap between bays is where the "+
-        "harness runs."}
+        "deck below shows through."}
     ]},
     {title:"Devices",open:true,rows:[
       {id:"devDens",label:"Bays with a device",min:0,max:1,step:0.01,value:0.85}
     ].concat(WEIGHTS.map(w=>({id:w.id,label:w.label,min:0,max:2.5,step:0.05,value:w.value})))
      .concat([
       {id:"radome",label:"Arrays under a cover",min:0,max:1,step:0.01,value:0.3},
+      {id:"lensElem",label:"Lens element groups",min:1,max:6,step:1,value:4},
+      {id:"lensBlades",label:"Iris blades",min:4,max:10,step:1,value:7},
+      {id:"lensCoat",label:"Lens coating",min:0,max:1,step:0.01,value:0.55},
       {type:"note",html:"These twelve are <b>weights</b>, not a chain: one at zero never "+
         "appears, and doubling one makes it twice as likely against the rest. A device is also "+
         "chosen by <b>fit</b> — a dish wants square ground and a blade antenna a long strip, so "+
@@ -909,7 +1096,15 @@ Forge.register({
         "left as plain plate rather than filled with mush."},
       {type:"note",html:"<b>Arrays under a cover</b> is how many AESA faces get a composite "+
         "radome over them: the element lattice goes to a ghost and the face turns dielectric, "+
-        "which is what a covered array looks like from outside."}
+        "which is what a covered array looks like from outside."},
+      {type:"note",html:"<b>A lens is an assembly.</b> Bezel, knurl, a retaining ring with the "+
+        "wrench slots it is turned by, a <b>convex</b> front element — the curvature is what "+
+        "puts a ring highlight on it rather than a flat sheen — the element groups behind it "+
+        "each with their own coating tint, baffle rings down the barrel, and an iris that is a "+
+        "<b>polygon</b> because it is made of blades. Multi-coating is why real lenses flash "+
+        "magenta and green, and it is the strongest cue that a dark circle is a lens rather "+
+        "than a socket. Below nine texels of radius none of it survives, so the assembly drops "+
+        "back to a plain bore instead of turning to mush."}
      ])},
     {title:"Fasteners & lamps",rows:[
       {id:"bolts",label:"Frame bolts",min:0,max:1,step:0.01,value:0.6},
@@ -918,28 +1113,37 @@ Forge.register({
       {id:"glow",label:"Emissive strength",min:0,max:1,step:0.01,value:0.85},
       {type:"note",html:"Skipped on any frame too narrow to hold them."}
     ]},
-    {title:"Waveguide harness",open:true,rows:[
-      {id:"runDens",label:"Run density",min:0,max:1,step:0.01,value:0.5},
-      {id:"runGrid",label:"Run lattice",unit:"cells",min:2,max:32,step:1,value:9},
-      {id:"runD",label:"Largest run",unit:"mm",min:4,max:250,step:1,value:44},
-      {id:"runRise",label:"Standoff height",min:0,max:2,step:0.05,value:0.8},
-      {id:"runWg",label:"Rectangular waveguide",min:0,max:1,step:0.01,value:0.55},
-      {id:"runGauge",label:"Sizes in use",min:1,max:3,step:1,value:3},
-      {id:"runFlange",label:"Flange pitch",unit:"mm",min:20,max:900,step:10,value:180},
-      {id:"runFit",label:"Flanges & clamps",min:0,max:1,step:0.01,value:0.85},
-      {type:"note",html:"Runs are <b>straight</b>, and deliberately: waveguide is rigid, cut "+
-        "to length and bolted between flanges, so on a mast it goes straight up and straight "+
-        "along. <b>Rectangular waveguide</b> is what share of them are that rather than coax; "+
-        "the rest come out as bundles of two or three, or as a single fat feeder."},
-      {type:"note",html:"A run sits at a standoff off the plate and passes <b>behind</b> "+
-        "anything taller than it is, which is what a cable does — so a dome, a dish rim or a "+
-        "blade stands in front of the harness rather than being sliced by it."}
+    {title:"Panels & the deck below",open:true,rows:[
+      {id:"openFrac",label:"Panels removed",min:0,max:1,step:0.01,value:0.14},
+      {id:"gapSee",label:"Gaps open to the deck",min:0,max:1,step:0.01,value:0.35},
+      {id:"panelT",label:"Panel thickness",unit:"mm",min:1,max:60,step:0.5,value:6},
+      {id:"deckD",label:"Deck depth",unit:"mm",min:5,max:400,step:5,value:70},
+      {id:"deckPitch",label:"Conduit pitch",unit:"mm",min:4,max:200,step:2,value:26},
+      {id:"deckLayers",label:"Crossed layers",min:1,max:3,step:1,value:3},
+      {id:"deckFill",label:"How packed",min:0,max:1,step:0.01,value:0.8},
+      {id:"deckCable",label:"Cable, not conduit",min:0,max:1,step:0.01,value:0.4},
+      {id:"deckTie",label:"Ties & clamps",min:0,max:1,step:0.01,value:0.8},
+      {type:"note",html:"<b>Nothing runs over the top of this plate.</b> A cable dressed "+
+        "across the face of an array is not an installation — it is a cable somebody would "+
+        "trip over. The plate is the <b>lid</b>: the plumbing is underneath, and you see it "+
+        "where the lid is opened."},
+      {type:"note",html:"Every bay is a removable <b>panel</b>, and the gap between panels is "+
+        "a real gap cut through the panel's thickness. <b>Gaps open to the deck</b> is how much "+
+        "of that gap's length opens all the way down rather than bottoming out — which "+
+        "stretches is hashed on the coordinate the gap runs along, so both sides of a seam "+
+        "agree and a slot is never open on one side and shut on the other. <b>Panels "+
+        "removed</b> takes the panel away altogether and leaves the rebate it seated on, its "+
+        "anchor points, and the deck wide open."},
+      {type:"note",html:"The deck is <b>crossed layers</b>: the lowest runs one way, the next "+
+        "across it a conduit higher, the third across that again — which is what makes it read "+
+        "as deep rather than as a texture at the bottom of a hole. Every layer is on its own "+
+        "lattice, so however packed it looks it costs one lookup a layer."}
     ]},
     {title:"Finish",rows:[
-      {type:"colors",label:"Plate · recess · composite · glass · lamp",items:[
+      {type:"colors",label:"Plate · recess · composite · glass · lamp · cable",items:[
         {id:"cPlate",value:"#8b9096"},{id:"cDark",value:"#2b2f33"},
         {id:"cRadome",value:"#c9c6bd"},{id:"cGlass",value:"#1b2026"},
-        {id:"cLamp",value:"#ff9a3c"}]},
+        {id:"cLamp",value:"#ff9a3c"},{id:"cCable",value:"#6b5a44"}]},
       {id:"grime",label:"Grime",min:0,max:1,step:0.01,value:0.45},
       {id:"scratch",label:"Scuffing",min:0,max:1,step:0.01,value:0.3},
       {id:"rough",label:"Base roughness",min:0.05,max:1,step:0.01,value:0.5},
@@ -993,12 +1197,20 @@ Forge.register({
     if(!fits.length)m+="<br><b>nothing fits the smallest bay</b> — narrow the frame, drop the "+
                        "sub-division depth, use fewer rows, or raise the resolution";
     const linePx=P.gutter/1000*pxPerM;
-    if(linePx<1.2)m+="<br>gap between bays "+linePx.toFixed(1)+" px — held at a texel";
-    const runPx=P.runD/1000*pxPerM;
-    if(P.runDens>0&&runPx<3)m+="<br>largest run "+runPx.toFixed(1)+" px across — too fine to read";
-    const cap=0.80/Math.max(2,P.runGrid|0)*T*1000;
-    if(P.runD>cap)m+="<br>runs held to <b>"+cap.toFixed(0)+" mm</b> by the lattice — "+
-                     "two on neighbouring lines would merge";
+    if(linePx<1.2)m+="<br>panel gap "+linePx.toFixed(1)+" px — held at a texel";
+    /* THE LENS ASSEMBLY NEEDS ROOM, and the answer to "why are my lenses plain
+       bores" is arithmetic. The biggest lens a camera bay can hold is a little
+       over a third of the face's short side. */
+    if((+P.wCam||0)>0){
+      const lensPx=facePx*0.34*0.5;
+      m+="<br>largest lens <b>"+Math.max(0,lensPx).toFixed(0)+" px</b> radius — "+
+         (lensPx>=9?"the full element stack":"a plain bore, under the 9 px the stack needs");
+    }
+    const deckPx=P.deckPitch/1000*pxPerM;
+    if(P.openFrac>0||P.gapSee>0){
+      m+="<br>deck conduit every <b>"+deckPx.toFixed(0)+" px</b>"+
+         (deckPx<3?" — too fine to read; widen the pitch":"");
+    }
     return m;
   },
 
@@ -1011,8 +1223,10 @@ Forge.register({
       "Seed "+(P.seed|0)+"   Resolution "+info.W+"x"+info.H+"   Seamless in both axes",
       "Tile covers "+T+" m, so one texel is "+(T/info.W*1000).toFixed(2)+" mm.",
       "",
-      "A mounting plate carved into BAYS, each holding one device inside its own",
-      "frame, with a waveguide and coax harness running in the gaps between them.",
+      "A mounting plate carved into BAYS, each a removable panel holding one device",
+      "inside its own frame. NOTHING RUNS OVER THE TOP: the plate is the lid, and the",
+      "plumbing is a dense sub-deck of conduit and cable in crossed layers underneath,",
+      "seen through the gaps between panels and through the ones that have been removed.",
       "",
       "In the mix at these settings ("+on.length+" of "+DEV.length+" devices):",
       "  "+on.map(d=>d.label).join(", ")+".",
@@ -1031,6 +1245,7 @@ Forge.register({
       "               and reads as glass on an opaque surface.",
       "ao.png         Linear grey ambient occlusion, from the gutters and the bores.",
       "emissive.png   Status lamps and the designator's own aperture; black elsewhere.",
+      "               No lamp shines inside an opening, so the deck is always black here.",
       "height.png     Linear grey spanning "+mm.toFixed(1)+" mm of real relief",
       "               (0-1 maps to "+(info.hMax-info.hMin).toFixed(6)+" in tile-width units).",
       "height16.png   The same field at 16 bits. Worth using: a dome and a dish take",
@@ -1049,7 +1264,7 @@ Forge.register({
    than inferring it from pixels */
 window.ForgeSensor={
   DEV:DEV,DEV_BY:DEV_BY,BANDS:BANDS,bandOf:bandOf,
-  pickTables:pickTables,harness:harness
+  pickTables:pickTables,deckOf:deckOf
 };
 
 })();

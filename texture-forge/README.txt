@@ -27,7 +27,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter, stacked and routed
-  modes/sensor.js       sensor and antenna cluster — AESA, dishes, cameras
+  modes/sensor.js       sensor and antenna cluster — AESA, dishes, lenses
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
@@ -596,11 +596,27 @@ Sensor — sensor and antenna cluster
                       each ring divided into as many as fit round it at the
                       ring spacing. Continuous grooves came out as a vinyl
                       record — decorative, and nothing like an array.
-    camera cluster    an electro-optical housing with several lens bores of
-                      DIFFERENT diameters, because they are different
-                      instruments, each with a hood and dark glass, and a
-                      rectangular sensor window in a machined rebate beside
-                      them
+    camera cluster    an electro-optical housing with several MULTI-ELEMENT
+                      lenses of different diameters, because they are
+                      different instruments, and a rectangular sensor window
+                      in a machined rebate beside them. A LENS IS AN ASSEMBLY,
+                      not a dark circle, and every ring of it is a part
+                      somebody machined: the barrel, a radially knurled bezel,
+                      a retaining ring with the wrench slots it is turned by,
+                      a CONVEX front element — the curvature is what puts a
+                      ring highlight on it instead of a flat sheen, and a flat
+                      sheen is what made this read as a hole — the element
+                      groups behind it as concentric steps each with their own
+                      coating tint, the baffle rings turned into the barrel to
+                      kill flare, and an iris that is a POLYGON because it is
+                      made of blades. Multi-coating is why real lenses flash
+                      magenta and green, and it is the strongest cue that a
+                      dark circle is a lens rather than a socket. The pupil
+                      behind the iris is a light trap: fully matte and fully
+                      dielectric, the one place on the plate that reflects
+                      nothing. Below nine texels of radius none of this
+                      survives, so the assembly drops back to a plain bore
+                      rather than turning into grey mush.
     blade antenna     tapered along a long thin bay, on a rubber boot
     whip mast base    a collar, a boot and a tapered stub
     radome dome       a truncated composite dome on a base flange with a
@@ -618,24 +634,34 @@ Sensor — sensor and antenna cluster
                       from that radius, which is the only way a gap between
                       them is guaranteed rather than hoped for.
 
-  THE HARNESS IS STRAIGHT, AND DELIBERATELY. Waveguide is rigid: it is cut to
-  length and bolted between flanges, so on a mast it goes straight up and
-  straight along — greeble's wandering walker is the right answer for pipework
-  threaded through a machine and the wrong one here. A run is a whole lattice
-  line, which also means the nearest one is found in O(1) per texel off the
-  nearest line in u and the nearest in v, with nothing stored beyond a byte a
-  line. No run is fatter than half the lattice pitch, and the readout says when
-  the lattice has held the diameter you asked for: two runs on neighbouring
-  lines would merge into a slab, and the lookup — which only considers the
-  nearest line — would then be wrong about which one a texel belongs to.
-  Rectangular waveguide with bolted flanges is one share of them; the rest come
-  out as bundles of two or three conduits with clamps, or as a single fat
-  feeder on saddles.
+  NOTHING RUNS OVER THE TOP OF THIS PLATE. The runs went on it once, at a
+  standoff, passing over the arrays and behind the domes — and a cable dressed
+  across the face of a radar is not an installation, it is a cable somebody
+  would trip over. Real equipment plates are the LID: the plumbing is beneath
+  them, and you see it only where the lid is opened. So the plate carries
+  nothing but the devices bolted to it, and everything else is underneath.
 
-  A RUN PASSES BEHIND WHAT IS TALLER THAN IT. It sits at a standoff off the
-  plate and wins only where it is higher, so a dome, a dish rim or a blade
-  stands in front of the harness rather than being sliced by it, and the cables
-  come out from under the boxes — which is what cables do.
+  PANEL GAPS AND MISSING PANELS ARE HOW YOU SEE IT. Every bay is a removable
+  panel, and the gap between panels is a real gap cut through the panel's own
+  thickness rather than a line scribed into it. Stretches of that gap open all
+  the way down to the deck, and which stretches is hashed on the coordinate the
+  gap RUNS ALONG — so the two bays either side of a seam reach the same answer.
+  Hashed per bay instead, a slot would be open on one side of a seam and shut
+  on the other, and every seam would be a ragged half-slot. PANELS REMOVED
+  takes a share of panels away altogether and leaves the rebate the panel
+  seated on, the anchor points its captive fasteners left behind, and the deck
+  wide open.
+
+  THE DECK IS CROSSED LAYERS, which is what makes it read as deep rather than
+  as a texture at the bottom of a hole: the lowest layer runs one way, the next
+  runs across it a conduit's width higher, and the third across that again.
+  Each is on its own fine lattice, so however packed it looks it costs one
+  rounding per layer. A run is conduit or cable by a draw on the LINE rather
+  than on the texel, so it is one thing for its whole length; ties and clamps
+  come at intervals along it; and the deeper a run sits the less light reaches
+  it. Nothing seen through an opening can write a height above the plate — it
+  is clamped to the lip of the hole it is seen through — so the "nothing on
+  top" rule holds by construction rather than by care.
 
   MATERIALS DO THE OTHER HALF OF THE WORK. The plate is metal; a radome, a dome
   shell, a dish face and a blade are COMPOSITE — dielectric, so metallic goes
@@ -2059,9 +2085,31 @@ It also covers the thirteen things that are easy to break silently:
             device: a composite dome reads 19 metallic against the plate's 225,
             and a camera's glass 23 roughness / 206 metallic against a tile
             mean of 113. And the harness passes BEHIND what is taller, measured
-            as the claim is stated — the tallest thing a full-density harness
-            reaches is 36 mm and a dome crowns at 89, and adding the harness
-            does not move that crown
+            as the claim is stated. NOTHING ON THE TOP LAYER is an absence,
+            and an absence is awkward to look for, so it is tested the other
+            way round: with every panel removed and the deck as busy as it
+            goes, the highest texel in the tile still cannot be above the
+            plate's own surface, and it comes out at -6 mm. A run laid on top
+            would break that at once, and so would a run merely dressed over
+            an array. An opening then has to reach the deck (-70 mm, which is
+            where it was asked for) and the deck has to be DENSE — a line
+            across it rides over 64 separate runs. A shut plate is just a
+            plate, panel gaps and no more. And a gap has to be open on both
+            sides of its seam or on neither: 504 of 504 seam bands agree, 79
+            of them open, so there were both kinds to disagree about — and the
+            gap is widened for that check, because at the default it is barely
+            a texel either side of the seam and a band two texels across
+            cannot be halved and compared. THE LENS is two claims measured on
+            what would give each away: its iris is made of blades, so it is a
+            polygon, and the pupil's radius varies 18% round its circumference
+            where a circle would vary by none; and an assembly crosses many
+            rings along its radius where a bore crosses a couple. That walk is
+            BOUNDED to three and a half pupil radii — walked to the edge of the
+            tile it counted every frame and gutter it crossed on the way out
+            and reported 162 rings for one lens, a number about resolution
+            rather than about the lens. The step back to a plain bore is
+            measured on what a bore lacks: no iris, so none of the matte light
+            trap the other checks find
   road      a profile swept into a road is SOUND GEOMETRY before it is
             anything else, and the NETWORK has to be as sound as the straight
             road was: every plan preset from the straight to the grid — one,
