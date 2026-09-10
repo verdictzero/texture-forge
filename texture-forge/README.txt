@@ -27,6 +27,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter, stacked and routed
+  modes/sensor.js       sensor and antenna cluster — AESA, dishes, cameras
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
@@ -548,6 +549,107 @@ Greeble — machined surface clutter
   which of it has got too small to read. Presets: hull greeble (fine), machine
   bay (coarse), reactor face (lit), service panel (shallow), pipe works
   (conduit heavy).
+
+Sensor — sensor and antenna cluster
+  The face of a warship's mast, an aircraft's cheek, a satellite bus, a ground
+  station: a mounting plate carrying a cluster of apertures that all do
+  different jobs. Greeble next door is machined clutter that means nothing in
+  particular; this one is clutter that MEANS something, and the difference is
+  entirely in whether each piece looks like equipment somebody specified.
+
+  BAYS, AND A BAY HOLDS ONE DEVICE. The plate is carved into bays — the same
+  wrapping subdivision the hull and greeble modes use — and a device sits
+  wholly inside its own frame, because equipment comes in boxes that bolt to a
+  plate: it does not overlap its neighbour and it does not straddle a seam. The
+  gap between bays is where the harness runs.
+
+  THE FIT IS A RULE, NOT A SUGGESTION. A device is chosen by weight AND by
+  whether the bay is the shape it needs: a parabolic dish wants square ground
+  and a blade antenna wants a long strip, so offering either the other's bay is
+  offering a lie, and squashing one to fit is worse. Each device declares the
+  range of long-over-short it will accept, and a bay is only offered the
+  devices that accept it. Choosing by weight and by fit together needs a
+  cumulative table holding only what this bay can take, and building one per
+  texel would be twelve additions sixteen million times over for an answer that
+  only takes four values — so the tables are built once, one per band of aspect,
+  and a texel does two compares to find its band.
+
+  A FACE TOO SMALL IS LEFT AS PLAIN PLATE. Each device also declares how many
+  texels it needs across the FACE, which is what is left of the bay once the
+  gutter and the frame have taken their cut off every side — not the bay, which
+  on a small one is mostly frame. Below that the detail turns to grey mush, and
+  plain plate is the better answer. The readout says how big the smallest face
+  will be and how many of the twelve still fit it.
+
+  TWELVE DEVICES, and each is a real thing rather than a shape:
+
+    AESA array face   a TRIANGULAR lattice of radiating elements at half-
+                      wavelength spacing behind a chamfered frame, which is
+                      the one detail that separates an active array from a
+                      perforated sheet. A share of them get a composite cover,
+                      under which the lattice goes to a ghost and the face
+                      turns dielectric — what a covered array looks like.
+    comms dish        a real paraboloid bowl, depth going as the square of the
+                      radius, with a rim, a feed boss on three or four struts
+                      and a sub-reflector at the focus
+    SATCOM panel      a circular array: DISCRETE element patches in rings,
+                      each ring divided into as many as fit round it at the
+                      ring spacing. Continuous grooves came out as a vinyl
+                      record — decorative, and nothing like an array.
+    camera cluster    an electro-optical housing with several lens bores of
+                      DIFFERENT diameters, because they are different
+                      instruments, each with a hood and dark glass, and a
+                      rectangular sensor window in a machined rebate beside
+                      them
+    blade antenna     tapered along a long thin bay, on a rubber boot
+    whip mast base    a collar, a boot and a tapered stub
+    radome dome       a truncated composite dome on a base flange with a
+                      moulding seam round its equator. Truncated because a
+                      full hemisphere in a height map has a silhouette the
+                      normal map cannot sell, and a flat crown reads at any
+                      angle.
+    waveguide horn    a rectangular pyramid flaring out of its flange
+    cooling grille    the array's liquid-cooling heat exchanger, louvred
+    connector plate   circular bulkhead connectors with knurled shells and
+                      dark pin faces
+    warning receiver  a small faceted aperture, chamfered back into the plate
+    designator        a deep bore with a lens, and a ranging aperture beside
+                      it. Both are sized off BOTH axes and their centres set
+                      from that radius, which is the only way a gap between
+                      them is guaranteed rather than hoped for.
+
+  THE HARNESS IS STRAIGHT, AND DELIBERATELY. Waveguide is rigid: it is cut to
+  length and bolted between flanges, so on a mast it goes straight up and
+  straight along — greeble's wandering walker is the right answer for pipework
+  threaded through a machine and the wrong one here. A run is a whole lattice
+  line, which also means the nearest one is found in O(1) per texel off the
+  nearest line in u and the nearest in v, with nothing stored beyond a byte a
+  line. No run is fatter than half the lattice pitch, and the readout says when
+  the lattice has held the diameter you asked for: two runs on neighbouring
+  lines would merge into a slab, and the lookup — which only considers the
+  nearest line — would then be wrong about which one a texel belongs to.
+  Rectangular waveguide with bolted flanges is one share of them; the rest come
+  out as bundles of two or three conduits with clamps, or as a single fat
+  feeder on saddles.
+
+  A RUN PASSES BEHIND WHAT IS TALLER THAN IT. It sits at a standoff off the
+  plate and wins only where it is higher, so a dome, a dish rim or a blade
+  stands in front of the harness rather than being sliced by it, and the cables
+  come out from under the boxes — which is what cables do.
+
+  MATERIALS DO THE OTHER HALF OF THE WORK. The plate is metal; a radome, a dome
+  shell, a dish face and a blade are COMPOSITE — dielectric, so metallic goes
+  to nothing and roughness up — and a lens is dark glass, smooth and specular,
+  which is the same cheat the hull mode's windows use: on an opaque surface a
+  metallic pane picks up the environment and reads as glass. Get those three
+  wrong and every device is the same grey lump whatever shape it is. In the lit
+  preview a lens shows as a bright warm disc, which is it mirroring the sun,
+  not a bug.
+
+  Nearly all the character is in HEIGHT, like greeble and unlike the hull:
+  displace this if you can and use a strong normal if you cannot. Dimensioned
+  in metres and millimetres. Presets: warship mast face, aircraft nose array,
+  satellite bus, EO turret cluster, ground station, derelict (stripped).
 
 Factory — 1940s brick works, panel or whole building
   Two pieces off one generator. WALL is a seamless panel: three storeys by four
@@ -1933,6 +2035,33 @@ It also covers the thirteen things that are easy to break silently:
             check is measured against each preset's OWN hull metalness rather
             than a fixed threshold, because the derelict's glass is deliberately
             dull and a fixed threshold called it plating
+  sensor    the mode's own claim is that a device is chosen by FIT as well as
+            by weight, and that is a pure function of the weights and the
+            aspect, so it is asked of the placement directly rather than
+            inferred from pixels: a dish, a dome and a SATCOM panel have to be
+            offered square ground and not a strip, a blade antenna a strip and
+            nothing else, and all twelve have to be reachable from some band or
+            their weight controls nothing. Then that all twelve actually DRAW,
+            which is the failure this mode is most exposed to — a bay of plain
+            plate is a legitimate output, so a device that silently falls
+            through to one looks like a decision rather than a bug. Each is
+            built alone on a bay of the shape it asked for and has to put
+            relief on its own FACE, and the ones sharing a bay shape have to
+            come out as different pictures from each other. Where the faces
+            are is ASKED rather than assumed: the quilt shifts its rows off the
+            tile edge and phases every row's columns, so a sampler that guessed
+            bay centres straddled frames and gutters and called a busy face
+            flat — the check rebuilds the same carving from the same numbers
+            and keeps only texels a clear margin inside a bay. The floor it is
+            measured against is a build with no device at all, which comes out
+            at 0.000 mm, so the comparison is against nothing rather than
+            against a guess. Materials are measured on the build that HAS the
+            device: a composite dome reads 19 metallic against the plate's 225,
+            and a camera's glass 23 roughness / 206 metallic against a tile
+            mean of 113. And the harness passes BEHIND what is taller, measured
+            as the claim is stated — the tallest thing a full-density harness
+            reaches is 36 mm and a dome crowns at 89, and adding the harness
+            does not move that crown
   road      a profile swept into a road is SOUND GEOMETRY before it is
             anything else, and the NETWORK has to be as sound as the straight
             road was: every plan preset from the straight to the grid — one,

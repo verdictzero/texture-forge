@@ -2645,6 +2645,207 @@ if (want("road")) {
   await page.waitForTimeout(200);
 }
 
+/* ============================ the sensor cluster ============================
+   The claim this mode lives or dies by is that a device is chosen by FIT as
+   well as by weight: a parabolic dish wants square ground and a blade antenna
+   wants a strip, and offering either the other's bay is offering a lie. That
+   is a pure function of the weights and the aspect, so it is asked directly
+   rather than inferred from pixels.
+
+   Then that all twelve actually DRAW — a device that silently falls through to
+   plain plate is the failure this mode is most exposed to, because a bay of
+   plain plate is a legitimate output and looks like a decision rather than a
+   bug. So each is built alone, on a bay of the shape it asked for, and has to
+   put relief inside its own face; and the ones that share a bay shape have to
+   come out as different pictures from each other.
+   ========================================================================== */
+if (want("sensor")) {
+  console.log("\n— the sensor cluster —");
+  await page.evaluate(() => window.Forge.activate("sensor"));
+  await settle();
+
+  /* ---- the fit, asked of the placement itself ---- */
+  const fit = await page.evaluate(() => {
+    const F = window.ForgeSensor;
+    if (!F) return { missing: true };
+    /* every device on, so the only thing keeping one out of a band is its fit */
+    const P = {};
+    for (const d of F.DEV) P[d.key] = 1;
+    const tab = F.pickTables(P);
+    const offered = tab.map(t => t.idx.map(i => F.DEV[i].id));
+    return { missing: false, bands: F.BANDS, offered,
+             /* and the bands a real bay lands in, to be sure bandOf agrees */
+             square: F.bandOf(1.0), oblong: F.bandOf(2.0), strip: F.bandOf(4.0) };
+  });
+  ok("the sensor placement is loaded", !fit.missing);
+  if (!fit.missing) {
+    const sq = fit.offered[0], strip = fit.offered[3];
+    ok("a dish is only ever offered square ground",
+       sq.includes("dish") && sq.includes("dome") && sq.includes("satcom") &&
+       !strip.includes("dish") && !strip.includes("dome") && !strip.includes("satcom"),
+       `square band offers ${sq.join(", ")}`);
+    ok("and a blade antenna only ever a strip",
+       strip.includes("blade") && !sq.includes("blade") &&
+       fit.offered[1].indexOf("blade") < 0,
+       `strip band offers ${strip.join(", ")}`);
+    ok("every device is offered somewhere, or its weight does nothing",
+       (() => { const seen = new Set(); for (const b of fit.offered) for (const d of b) seen.add(d);
+                return seen.size === 12; })(),
+       `${new Set(fit.offered.flat()).size} of 12 devices reachable`);
+    ok("and a bay's aspect finds the band it belongs to",
+       fit.square === 0 && fit.oblong === 2 && fit.strip === 3,
+       `1.0 → band ${fit.square}, 2.0 → ${fit.oblong}, 4.0 → ${fit.strip}`);
+  }
+
+  /* ---- every device draws, on a bay of the shape it wants ----
+     cols is pinned at two and rows is what sets the aspect, so a bay is
+     0.5 x 1/rows and its long/short is rows/2 — a clean ladder rather than
+     whatever the quilt's own stagger happened to produce.
+
+     WHERE THE FACES ARE IS ASKED, NOT ASSUMED. The quilt shifts its rows off
+     the tile edge and gives every row its own column phase, so bay centres are
+     not at the halves and thirds you would guess — a sampler that guessed them
+     straddled frames and gutters and reported a flat face as a busy one and a
+     busy one as flat. So the test rebuilds the same carving from the same
+     numbers and keeps only texels a clear margin inside a bay, which is
+     exactly the region a device is allowed to draw on. */
+  const ROWS = { aesa:3, dish:2, satcom:2, camera:4, blade:6, whip:2,
+                 dome:2, horn:3, grille:4, conn:4, warn:3, laser:3 };
+  const one = async (dev, over) => {
+    const P = await page.evaluate(([dev, rows, over]) => {
+      const F = window.ForgeSensor;
+      const P = Object.assign({ size: 512, tileM: 2.4, seed: 4242, rows: rows, colsMin: 2, colsMax: 2,
+                                subdiv: 0, subdepth: 0, gutter: 10, frame: 16, bevel: 2, relief: 90,
+                                devDens: 1, radome: 0, bolts: 0, lamps: 0, glow: 1,
+                                runDens: 0, grime: 0, scratch: 0, normalStr: 1, aoStr: 0.8 }, over || {});
+      for (const k in P) window.Forge.setParam("sensor", k, P[k]);
+      for (const d of F.DEV) window.Forge.setParam("sensor", d.key, (dev && d.id === dev) ? 1 : 0);
+      window.Forge.state("sensor").built = false;
+      return P;
+    }, [dev, ROWS[dev] || 2, over]);
+    await page.click("#sensor--forge");
+    await settle();
+    return await page.evaluate(p => {
+      const st = window.Forge.state("sensor"), B = st.B, S = B.W, H = B.HGT;
+      const T = Math.max(0.05, +p.tileM), MM = 0.001 / T, px = 1 / S;
+      /* the mode's own carving, off the mode's own numbers */
+      const Q = window.Quilt.build({ rows: Math.max(1, p.rows | 0), colsMin: p.colsMin | 0,
+                                     colsMax: p.colsMax | 0, split: p.subdiv, depth: p.subdepth | 0,
+                                     minW: 8 * px, minH: 8 * px, seed: p.seed | 0 });
+      const rec = window.Quilt.record();
+      const gut = Math.max(p.gutter * MM * 0.5, px * 0.6);
+      const bev = Math.max(p.bevel * MM, px * 0.7);
+      const fw = Math.max(p.frame * MM, bev * 1.6);
+      const inside = gut + fw + px * 3;        // a clear margin in from the frame
+      let lo = Infinity, hi = -Infinity, faceN = 0;
+      let shellMet = 0, shellN = 0, plateMet = 0, plateN = 0;
+      let darkR = 0, darkM = 0, darkN = 0, allR = 0, emiMax = 0;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const i = y * S + x;
+        allR += B.RGH[i];
+        if (B.EMI[i] > emiMax) emiMax = B.EMI[i];
+        const lum = B.A[i * 3] + B.A[i * 3 + 1] + B.A[i * 3 + 2];
+        /* the three materials by luminance, off their own default colours:
+           composite #c9c6bd sums to 588, the plate #8b9096 to 433, glass
+           #1b2026 to 97 — and the plate sits BETWEEN the other two, which is
+           why a plain "dark half / light half" split matched it to neither */
+        if (lum > 520) { shellMet += B.MET[i]; shellN++; }
+        else if (lum > 300 && lum < 470) { plateMet += B.MET[i]; plateN++; }
+        if (lum < 110) { darkR += B.RGH[i]; darkM += B.MET[i]; darkN++; }
+        window.Quilt.locate(Q, (x + 0.5) / S, (y + 0.5) / S, rec);
+        if (rec.dEdge <= inside) continue;
+        faceN++;
+        const h = H[i];
+        if (h < lo) lo = h; if (h > hi) hi = h;
+      }
+      let sig = "";
+      for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 6; gx++) {
+        let t = 0, n = 0;
+        for (let yy = gy * S / 6; yy < (gy + 1) * S / 6; yy += 3)
+          for (let xx = gx * S / 6; xx < (gx + 1) * S / 6; xx += 3) { t += H[(yy | 0) * S + (xx | 0)]; n++; }
+        sig += Math.round(t / n / (B.hMax - B.hMin || 1) * 40) + ",";
+      }
+      /* relief reported in MILLIMETRES, which is the unit the controls use */
+      return { faceMM: faceN ? (hi - lo) * T * 1000 : 0, faceN, sig,
+               spanMM: (B.hMax - B.hMin) * T * 1000, topMM: B.hMax * T * 1000, emiMax,
+               shell: shellN ? shellMet / shellN : -1, shellN,
+               plate: plateN ? plateMet / plateN : -1,
+               darkR: darkN ? darkR / darkN : -1, darkM: darkN ? darkM / darkN : -1, darkN,
+               allR: allR / (S * S) };
+    }, P);
+  };
+
+  const bare = await one(null);
+  ok("an empty bay's face is flat, which is what makes the next check mean anything",
+     bare.faceN > 5000 && bare.faceMM < 0.5,
+     `${bare.faceN} texels of face at ${bare.faceMM.toFixed(3)} mm of relief`);
+  const got = {};
+  for (const d of Object.keys(ROWS)) got[d] = await one(d);
+  const weak = Object.keys(got).filter(d => got[d].faceMM < 1);
+  const least = Object.keys(got).reduce((a, d) => got[d].faceMM < got[a].faceMM ? d : a);
+  ok("every one of the twelve devices puts relief on its own face", weak.length === 0,
+     weak.length ? `nothing drawn by: ${weak.join(", ")}`
+       : `weakest is ${least} at ${got[least].faceMM.toFixed(1)} mm, against a bare face at ` +
+         `${bare.faceMM.toFixed(3)} mm`);
+  /* and the ones sharing a bay shape are different pictures from each other */
+  const byShape = {};
+  for (const d of Object.keys(ROWS)) (byShape[ROWS[d]] || (byShape[ROWS[d]] = [])).push(d);
+  const clash = [];
+  for (const k in byShape) {
+    const seen = {};
+    for (const d of byShape[k]) {
+      if (seen[got[d].sig]) clash.push(`${seen[got[d].sig]}=${d}`);
+      seen[got[d].sig] = d;
+    }
+  }
+  ok("and no two on the same shape of bay draw the same picture", clash.length === 0,
+     clash.length ? `identical: ${clash.join(", ")}`
+       : Object.keys(byShape).map(k => `${byShape[k].length} on ${k} rows`).join(", ") +
+         " — all distinct");
+
+  /* ---- the guard: a face too small is left as plain plate ---- */
+  const tiny = await one("dome", { size: 256, rows: 8, colsMin: 6, colsMax: 6, frame: 60, gutter: 20 });
+  ok("a face too small for its device is left as plain plate", tiny.faceMM < 1,
+     `face relief ${tiny.faceMM.toFixed(3)} mm — nothing was crammed in`);
+
+  /* ---- materials: composite is a dielectric, glass is smooth and specular ----
+     Measured on the build that HAS the device, immediately: measuring a dome's
+     shell off whatever build happened to be on screen is how this test first
+     reported a dome as the most metallic thing in the tile. */
+  ok("a composite dome is a dielectric, not more painted metal",
+     got.dome.shellN > 2000 && got.dome.shell < 40 && got.dome.plate > 150,
+     `the shell reads ${got.dome.shell.toFixed(0)} metallic over ${got.dome.shellN} texels, ` +
+     `the plate ${got.dome.plate.toFixed(0)}`);
+  ok("and a camera's glass is smooth and specular rather than a hole",
+     got.camera.darkN > 80 && got.camera.darkR < 45 && got.camera.darkM > 170,
+     `${got.camera.darkN} texels of glass at ${got.camera.darkR.toFixed(0)} roughness / ` +
+     `${got.camera.darkM.toFixed(0)} metallic, against the tile's mean roughness of ` +
+     `${got.camera.allR.toFixed(0)}`);
+
+  /* ---- the harness passes BEHIND what is taller than it ----
+     Measured as the claim is stated: the tallest thing a run can reach is
+     lower than a dome's crown, so where the two meet the dome wins. A run
+     that sliced a dome would be a run higher than one. */
+  const runsOnly = await one(null, { runDens: 1, runGrid: 6, runD: 60, runRise: 1, devDens: 0 });
+  const domeRuns = await one("dome", { runDens: 1, runGrid: 6, runD: 60, runRise: 1 });
+  const domeNoRuns = await one("dome", { runDens: 0 });
+  ok("the harness draws when there is nothing in its way",
+     runsOnly.spanMM > 1 && runsOnly.topMM > 1,
+     `bare plate and full harness spans ${runsOnly.spanMM.toFixed(1)} mm, topping out ` +
+     `${runsOnly.topMM.toFixed(1)} mm above the plate`);
+  ok("and it passes behind a dome rather than through it",
+     domeRuns.topMM > runsOnly.topMM * 1.4 && Math.abs(domeRuns.topMM - domeNoRuns.topMM) < 1e-6,
+     `the dome crowns at ${domeNoRuns.topMM.toFixed(1)} mm against the harness's ` +
+     `${runsOnly.topMM.toFixed(1)} mm, and adding the harness does not move it`);
+
+  /* ---- the emissive is the lamps and the designator, and nothing else ---- */
+  const litUp = await one("dome", { lamps: 1 });
+  ok("with the lamps off the emissive is empty", got.dome.emiMax === 0,
+     `brightest emissive texel ${got.dome.emiMax}`);
+  ok("and with them on it is not", litUp.emiMax > 100,
+     `brightest emissive texel ${litUp.emiMax}`);
+}
+
 /* ============================ the hull's windows ============================
    Nothing that holds pressure has square corners — a corner is where the hoop
    stress goes to find something to tear — so every port cut in a real hull is
