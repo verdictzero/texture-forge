@@ -27,6 +27,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter, stacked and routed
+  modes/sensor.js       sensor and antenna cluster — AESA, dishes, lenses
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
@@ -604,6 +605,133 @@ Greeble — machined surface clutter
   which of it has got too small to read. Presets: hull greeble (fine), machine
   bay (coarse), reactor face (lit), service panel (shallow), pipe works
   (conduit heavy).
+
+Sensor — sensor and antenna cluster
+  The face of a warship's mast, an aircraft's cheek, a satellite bus, a ground
+  station: a mounting plate carrying a cluster of apertures that all do
+  different jobs. Greeble next door is machined clutter that means nothing in
+  particular; this one is clutter that MEANS something, and the difference is
+  entirely in whether each piece looks like equipment somebody specified.
+
+  BAYS, AND A BAY HOLDS ONE DEVICE. The plate is carved into bays — the same
+  wrapping subdivision the hull and greeble modes use — and a device sits
+  wholly inside its own frame, because equipment comes in boxes that bolt to a
+  plate: it does not overlap its neighbour and it does not straddle a seam. The
+  gap between bays is where the harness runs.
+
+  THE FIT IS A RULE, NOT A SUGGESTION. A device is chosen by weight AND by
+  whether the bay is the shape it needs: a parabolic dish wants square ground
+  and a blade antenna wants a long strip, so offering either the other's bay is
+  offering a lie, and squashing one to fit is worse. Each device declares the
+  range of long-over-short it will accept, and a bay is only offered the
+  devices that accept it. Choosing by weight and by fit together needs a
+  cumulative table holding only what this bay can take, and building one per
+  texel would be twelve additions sixteen million times over for an answer that
+  only takes four values — so the tables are built once, one per band of aspect,
+  and a texel does two compares to find its band.
+
+  A FACE TOO SMALL IS LEFT AS PLAIN PLATE. Each device also declares how many
+  texels it needs across the FACE, which is what is left of the bay once the
+  gutter and the frame have taken their cut off every side — not the bay, which
+  on a small one is mostly frame. Below that the detail turns to grey mush, and
+  plain plate is the better answer. The readout says how big the smallest face
+  will be and how many of the twelve still fit it.
+
+  TWELVE DEVICES, and each is a real thing rather than a shape:
+
+    AESA array face   a TRIANGULAR lattice of radiating elements at half-
+                      wavelength spacing behind a chamfered frame, which is
+                      the one detail that separates an active array from a
+                      perforated sheet. A share of them get a composite cover,
+                      under which the lattice goes to a ghost and the face
+                      turns dielectric — what a covered array looks like.
+    comms dish        a real paraboloid bowl, depth going as the square of the
+                      radius, with a rim, a feed boss on three or four struts
+                      and a sub-reflector at the focus
+    SATCOM panel      a circular array: DISCRETE element patches in rings,
+                      each ring divided into as many as fit round it at the
+                      ring spacing. Continuous grooves came out as a vinyl
+                      record — decorative, and nothing like an array.
+    camera cluster    an electro-optical housing with several MULTI-ELEMENT
+                      lenses of different diameters, because they are
+                      different instruments, and a rectangular sensor window
+                      in a machined rebate beside them. A LENS IS AN ASSEMBLY,
+                      not a dark circle, and every ring of it is a part
+                      somebody machined: the barrel, a radially knurled bezel,
+                      a retaining ring with the wrench slots it is turned by,
+                      a CONVEX front element — the curvature is what puts a
+                      ring highlight on it instead of a flat sheen, and a flat
+                      sheen is what made this read as a hole — the element
+                      groups behind it as concentric steps each with their own
+                      coating tint, the baffle rings turned into the barrel to
+                      kill flare, and an iris that is a POLYGON because it is
+                      made of blades. Multi-coating is why real lenses flash
+                      magenta and green, and it is the strongest cue that a
+                      dark circle is a lens rather than a socket. The pupil
+                      behind the iris is a light trap: fully matte and fully
+                      dielectric, the one place on the plate that reflects
+                      nothing. Below nine texels of radius none of this
+                      survives, so the assembly drops back to a plain bore
+                      rather than turning into grey mush.
+    blade antenna     tapered along a long thin bay, on a rubber boot
+    whip mast base    a collar, a boot and a tapered stub
+    radome dome       a truncated composite dome on a base flange with a
+                      moulding seam round its equator. Truncated because a
+                      full hemisphere in a height map has a silhouette the
+                      normal map cannot sell, and a flat crown reads at any
+                      angle.
+    waveguide horn    a rectangular pyramid flaring out of its flange
+    cooling grille    the array's liquid-cooling heat exchanger, louvred
+    connector plate   circular bulkhead connectors with knurled shells and
+                      dark pin faces
+    warning receiver  a small faceted aperture, chamfered back into the plate
+    designator        a deep bore with a lens, and a ranging aperture beside
+                      it. Both are sized off BOTH axes and their centres set
+                      from that radius, which is the only way a gap between
+                      them is guaranteed rather than hoped for.
+
+  NOTHING RUNS OVER THE TOP OF THIS PLATE. The runs went on it once, at a
+  standoff, passing over the arrays and behind the domes — and a cable dressed
+  across the face of a radar is not an installation, it is a cable somebody
+  would trip over. Real equipment plates are the LID: the plumbing is beneath
+  them, and you see it only where the lid is opened. So the plate carries
+  nothing but the devices bolted to it, and everything else is underneath.
+
+  PANEL GAPS AND MISSING PANELS ARE HOW YOU SEE IT. Every bay is a removable
+  panel, and the gap between panels is a real gap cut through the panel's own
+  thickness rather than a line scribed into it. Stretches of that gap open all
+  the way down to the deck, and which stretches is hashed on the coordinate the
+  gap RUNS ALONG — so the two bays either side of a seam reach the same answer.
+  Hashed per bay instead, a slot would be open on one side of a seam and shut
+  on the other, and every seam would be a ragged half-slot. PANELS REMOVED
+  takes a share of panels away altogether and leaves the rebate the panel
+  seated on, the anchor points its captive fasteners left behind, and the deck
+  wide open.
+
+  THE DECK IS CROSSED LAYERS, which is what makes it read as deep rather than
+  as a texture at the bottom of a hole: the lowest layer runs one way, the next
+  runs across it a conduit's width higher, and the third across that again.
+  Each is on its own fine lattice, so however packed it looks it costs one
+  rounding per layer. A run is conduit or cable by a draw on the LINE rather
+  than on the texel, so it is one thing for its whole length; ties and clamps
+  come at intervals along it; and the deeper a run sits the less light reaches
+  it. Nothing seen through an opening can write a height above the plate — it
+  is clamped to the lip of the hole it is seen through — so the "nothing on
+  top" rule holds by construction rather than by care.
+
+  MATERIALS DO THE OTHER HALF OF THE WORK. The plate is metal; a radome, a dome
+  shell, a dish face and a blade are COMPOSITE — dielectric, so metallic goes
+  to nothing and roughness up — and a lens is dark glass, smooth and specular,
+  which is the same cheat the hull mode's windows use: on an opaque surface a
+  metallic pane picks up the environment and reads as glass. Get those three
+  wrong and every device is the same grey lump whatever shape it is. In the lit
+  preview a lens shows as a bright warm disc, which is it mirroring the sun,
+  not a bug.
+
+  Nearly all the character is in HEIGHT, like greeble and unlike the hull:
+  displace this if you can and use a strong normal if you cannot. Dimensioned
+  in metres and millimetres. Presets: warship mast face, aircraft nose array,
+  satellite bus, EO turret cluster, ground station, derelict (stripped).
 
 Factory — 1940s brick works, panel or whole building
   Two pieces off one generator. WALL is a seamless panel: three storeys by four
@@ -1994,6 +2122,55 @@ It also covers the thirteen things that are easy to break silently:
             check is measured against each preset's OWN hull metalness rather
             than a fixed threshold, because the derelict's glass is deliberately
             dull and a fixed threshold called it plating
+  sensor    the mode's own claim is that a device is chosen by FIT as well as
+            by weight, and that is a pure function of the weights and the
+            aspect, so it is asked of the placement directly rather than
+            inferred from pixels: a dish, a dome and a SATCOM panel have to be
+            offered square ground and not a strip, a blade antenna a strip and
+            nothing else, and all twelve have to be reachable from some band or
+            their weight controls nothing. Then that all twelve actually DRAW,
+            which is the failure this mode is most exposed to — a bay of plain
+            plate is a legitimate output, so a device that silently falls
+            through to one looks like a decision rather than a bug. Each is
+            built alone on a bay of the shape it asked for and has to put
+            relief on its own FACE, and the ones sharing a bay shape have to
+            come out as different pictures from each other. Where the faces
+            are is ASKED rather than assumed: the quilt shifts its rows off the
+            tile edge and phases every row's columns, so a sampler that guessed
+            bay centres straddled frames and gutters and called a busy face
+            flat — the check rebuilds the same carving from the same numbers
+            and keeps only texels a clear margin inside a bay. The floor it is
+            measured against is a build with no device at all, which comes out
+            at 0.000 mm, so the comparison is against nothing rather than
+            against a guess. Materials are measured on the build that HAS the
+            device: a composite dome reads 19 metallic against the plate's 225,
+            and a camera's glass 23 roughness / 206 metallic against a tile
+            mean of 113. And the harness passes BEHIND what is taller, measured
+            as the claim is stated. NOTHING ON THE TOP LAYER is an absence,
+            and an absence is awkward to look for, so it is tested the other
+            way round: with every panel removed and the deck as busy as it
+            goes, the highest texel in the tile still cannot be above the
+            plate's own surface, and it comes out at -6 mm. A run laid on top
+            would break that at once, and so would a run merely dressed over
+            an array. An opening then has to reach the deck (-70 mm, which is
+            where it was asked for) and the deck has to be DENSE — a line
+            across it rides over 64 separate runs. A shut plate is just a
+            plate, panel gaps and no more. And a gap has to be open on both
+            sides of its seam or on neither: 504 of 504 seam bands agree, 79
+            of them open, so there were both kinds to disagree about — and the
+            gap is widened for that check, because at the default it is barely
+            a texel either side of the seam and a band two texels across
+            cannot be halved and compared. THE LENS is two claims measured on
+            what would give each away: its iris is made of blades, so it is a
+            polygon, and the pupil's radius varies 18% round its circumference
+            where a circle would vary by none; and an assembly crosses many
+            rings along its radius where a bore crosses a couple. That walk is
+            BOUNDED to three and a half pupil radii — walked to the edge of the
+            tile it counted every frame and gutter it crossed on the way out
+            and reported 162 rings for one lens, a number about resolution
+            rather than about the lens. The step back to a plain bore is
+            measured on what a bore lacks: no iris, so none of the matte light
+            trap the other checks find
   road      a profile swept into a road is SOUND GEOMETRY before it is
             anything else, and the NETWORK has to be as sound as the straight
             road was: every plan preset from the straight to the grid — one,

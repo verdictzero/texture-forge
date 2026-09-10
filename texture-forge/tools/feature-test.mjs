@@ -2645,6 +2645,407 @@ if (want("road")) {
   await page.waitForTimeout(200);
 }
 
+/* ============================ the sensor cluster ============================
+   The claim this mode lives or dies by is that a device is chosen by FIT as
+   well as by weight: a parabolic dish wants square ground and a blade antenna
+   wants a strip, and offering either the other's bay is offering a lie. That
+   is a pure function of the weights and the aspect, so it is asked directly
+   rather than inferred from pixels.
+
+   Then that all twelve actually DRAW — a device that silently falls through to
+   plain plate is the failure this mode is most exposed to, because a bay of
+   plain plate is a legitimate output and looks like a decision rather than a
+   bug. So each is built alone, on a bay of the shape it asked for, and has to
+   put relief inside its own face; and the ones that share a bay shape have to
+   come out as different pictures from each other.
+   ========================================================================== */
+if (want("sensor")) {
+  console.log("\n— the sensor cluster —");
+  await page.evaluate(() => window.Forge.activate("sensor"));
+  await settle();
+
+  /* ---- the fit, asked of the placement itself ---- */
+  const fit = await page.evaluate(() => {
+    const F = window.ForgeSensor;
+    if (!F) return { missing: true };
+    /* every device on, so the only thing keeping one out of a band is its fit */
+    const P = {};
+    for (const d of F.DEV) P[d.key] = 1;
+    const tab = F.pickTables(P);
+    const offered = tab.map(t => t.idx.map(i => F.DEV[i].id));
+    return { missing: false, bands: F.BANDS, offered,
+             /* and the bands a real bay lands in, to be sure bandOf agrees */
+             square: F.bandOf(1.0), oblong: F.bandOf(2.0), strip: F.bandOf(4.0) };
+  });
+  ok("the sensor placement is loaded", !fit.missing);
+  if (!fit.missing) {
+    const sq = fit.offered[0], strip = fit.offered[3];
+    ok("a dish is only ever offered square ground",
+       sq.includes("dish") && sq.includes("dome") && sq.includes("satcom") &&
+       !strip.includes("dish") && !strip.includes("dome") && !strip.includes("satcom"),
+       `square band offers ${sq.join(", ")}`);
+    ok("and a blade antenna only ever a strip",
+       strip.includes("blade") && !sq.includes("blade") &&
+       fit.offered[1].indexOf("blade") < 0,
+       `strip band offers ${strip.join(", ")}`);
+    ok("every device is offered somewhere, or its weight does nothing",
+       (() => { const seen = new Set(); for (const b of fit.offered) for (const d of b) seen.add(d);
+                return seen.size === 12; })(),
+       `${new Set(fit.offered.flat()).size} of 12 devices reachable`);
+    ok("and a bay's aspect finds the band it belongs to",
+       fit.square === 0 && fit.oblong === 2 && fit.strip === 3,
+       `1.0 → band ${fit.square}, 2.0 → ${fit.oblong}, 4.0 → ${fit.strip}`);
+  }
+
+  /* ---- every device draws, on a bay of the shape it wants ----
+     cols is pinned at two and rows is what sets the aspect, so a bay is
+     0.5 x 1/rows and its long/short is rows/2 — a clean ladder rather than
+     whatever the quilt's own stagger happened to produce.
+
+     WHERE THE FACES ARE IS ASKED, NOT ASSUMED. The quilt shifts its rows off
+     the tile edge and gives every row its own column phase, so bay centres are
+     not at the halves and thirds you would guess — a sampler that guessed them
+     straddled frames and gutters and reported a flat face as a busy one and a
+     busy one as flat. So the test rebuilds the same carving from the same
+     numbers and keeps only texels a clear margin inside a bay, which is
+     exactly the region a device is allowed to draw on. */
+  const ROWS = { aesa:3, dish:2, satcom:2, camera:4, blade:6, whip:2,
+                 dome:2, horn:3, grille:4, conn:4, warn:3, laser:3 };
+  const one = async (dev, over) => {
+    const P = await page.evaluate(([dev, rows, over]) => {
+      const F = window.ForgeSensor;
+      const P = Object.assign({ size: 512, tileM: 2.4, seed: 4242, rows: rows, colsMin: 2, colsMax: 2,
+                                subdiv: 0, subdepth: 0, gutter: 10, frame: 16, bevel: 2, relief: 90,
+                                devDens: 1, radome: 0, bolts: 0, lamps: 0, glow: 1,
+                                openFrac: 0, gapSee: 0, panelT: 6, deckD: 70, deckPitch: 26,
+                                deckLayers: 3, deckFill: 0.8, deckCable: 0.4, deckTie: 0.8,
+                                lensElem: 4, lensBlades: 7, lensCoat: 0.55,
+                                grime: 0, scratch: 0, normalStr: 1, aoStr: 0.8 }, over || {});
+      for (const k in P) window.Forge.setParam("sensor", k, P[k]);
+      for (const d of F.DEV) window.Forge.setParam("sensor", d.key, (dev && d.id === dev) ? 1 : 0);
+      window.Forge.state("sensor").built = false;
+      return P;
+    }, [dev, ROWS[dev] || 2, over]);
+    await page.click("#sensor--forge");
+    await settle();
+    return await page.evaluate(p => {
+      const st = window.Forge.state("sensor"), B = st.B, S = B.W, H = B.HGT;
+      const T = Math.max(0.05, +p.tileM), MM = 0.001 / T, px = 1 / S;
+      /* the mode's own carving, off the mode's own numbers */
+      const Q = window.Quilt.build({ rows: Math.max(1, p.rows | 0), colsMin: p.colsMin | 0,
+                                     colsMax: p.colsMax | 0, split: p.subdiv, depth: p.subdepth | 0,
+                                     minW: 8 * px, minH: 8 * px, seed: p.seed | 0 });
+      const rec = window.Quilt.record();
+      const gut = Math.max(p.gutter * MM * 0.5, px * 0.6);
+      const bev = Math.max(p.bevel * MM, px * 0.7);
+      const fw = Math.max(p.frame * MM, bev * 1.6);
+      const inside = gut + fw + px * 3;        // a clear margin in from the frame
+      let lo = Infinity, hi = -Infinity, faceN = 0;
+      let shellMet = 0, shellN = 0, plateMet = 0, plateN = 0;
+      let darkR = 0, darkM = 0, darkN = 0, matteN = 0, allR = 0, emiMax = 0;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const i = y * S + x;
+        allR += B.RGH[i];
+        if (B.EMI[i] > emiMax) emiMax = B.EMI[i];
+        const lum = B.A[i * 3] + B.A[i * 3 + 1] + B.A[i * 3 + 2];
+        /* the three materials by luminance, off their own default colours:
+           composite #c9c6bd sums to 588, the plate #8b9096 to 433, glass
+           #1b2026 to 97 — and the plate sits BETWEEN the other two, which is
+           why a plain "dark half / light half" split matched it to neither */
+        if (lum > 520) { shellMet += B.MET[i]; shellN++; }
+        else if (lum > 300 && lum < 470) { plateMet += B.MET[i]; plateN++; }
+        /* DARK IS TWO DIFFERENT THINGS ON A LENS and they must not be pooled:
+           the front element is dark AND smooth AND specular, while the pupil
+           behind the iris is dark and deliberately matte, because it is a light
+           trap. Pooled, the pupil's roughness drowned the glass's and the check
+           reported the glass as a hole — which is exactly what it was there to
+           tell apart. */
+        if (lum < 130) {
+          if (B.RGH[i] < 60) { darkR += B.RGH[i]; darkM += B.MET[i]; darkN++; }
+          else if (B.RGH[i] > 190) matteN++;
+        }
+        window.Quilt.locate(Q, (x + 0.5) / S, (y + 0.5) / S, rec);
+        if (rec.dEdge <= inside) continue;
+        faceN++;
+        const h = H[i];
+        if (h < lo) lo = h; if (h > hi) hi = h;
+      }
+      let sig = "";
+      for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 6; gx++) {
+        let t = 0, n = 0;
+        for (let yy = gy * S / 6; yy < (gy + 1) * S / 6; yy += 3)
+          for (let xx = gx * S / 6; xx < (gx + 1) * S / 6; xx += 3) { t += H[(yy | 0) * S + (xx | 0)]; n++; }
+        sig += Math.round(t / n / (B.hMax - B.hMin || 1) * 40) + ",";
+      }
+      /* HOW MANY SEPARATE RAISED RUNS a line crosses. The deck's whole claim
+         is that it is DENSE, and a count of the humps a scanline rides over is
+         that claim as a number. Taken on the deepest rows, which are the ones
+         inside an opening. */
+      const humps = row => {
+        let n = 0, rising = false;
+        for (let x = 1; x < S; x++) {
+          const d = H[row * S + x] - H[row * S + x - 1];
+          if (d > 1e-7 && !rising) { rising = true; n++; }
+          else if (d < -1e-7) rising = false;
+        }
+        return n;
+      };
+      let deepRow = 0, deepest = Infinity;
+      for (let y = 0; y < S; y++) {
+        let m = 0;
+        for (let x = 0; x < S; x++) m += H[y * S + x];
+        if (m / S < deepest) { deepest = m / S; deepRow = y; }
+      }
+      /* THE PUPIL OF THE LARGEST LENS, found by flooding rather than by
+         guessing where a lens ended up: the iris interior is the one place
+         that is both barely metallic and very rough, so it separates from
+         everything else on two channels at once. */
+      const isPupil = i => B.MET[i] < 70 && B.RGH[i] > 190;
+      const seen = new Uint8Array(S * S);
+      let bestN = 0, bx = 0, by = 0, bcells = null;
+      for (let i0 = 0; i0 < S * S; i0++) {
+        if (seen[i0] || !isPupil(i0)) continue;
+        const stack = [i0]; seen[i0] = 1;
+        const cells = [];
+        while (stack.length) {
+          const q = stack.pop(); cells.push(q);
+          const x = q % S, y = (q - x) / S;
+          const nb = [x > 0 ? q - 1 : -1, x < S - 1 ? q + 1 : -1, y > 0 ? q - S : -1, y < S - 1 ? q + S : -1];
+          for (const nq of nb) if (nq >= 0 && !seen[nq] && isPupil(nq)) { seen[nq] = 1; stack.push(nq); }
+        }
+        if (cells.length > bestN) {
+          bestN = cells.length; bcells = cells;
+          let sx = 0, sy = 0;
+          for (const q of cells) { sx += q % S; sy += (q - q % S) / S; }
+          bx = sx / cells.length; by = sy / cells.length;
+        }
+      }
+      /* the pupil's radius at 72 angles. A regular n-gon's vertex reaches
+         1/cos(pi/n) of its apothem — 11% further at seven blades — and a
+         circle reaches the same distance at every angle. */
+      let rMin = Infinity, rMax = 0, rSum = 0, rN = 0;
+      if (bestN > 60) {
+        const inBlob = new Uint8Array(S * S);
+        for (const q of bcells) inBlob[q] = 1;
+        for (let a = 0; a < 72; a++) {
+          const th = a / 72 * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
+          let rr = 0;
+          for (let t = 0; t < S / 2; t += 0.5) {
+            const x = Math.round(bx + cs * t), y = Math.round(by + sn * t);
+            if (x < 0 || y < 0 || x >= S || y >= S || !inBlob[y * S + x]) break;
+            rr = t;
+          }
+          if (rr > 0) { rSum += rr; rN++; if (rr < rMin) rMin = rr; if (rr > rMax) rMax = rr; }
+        }
+      }
+      /* RING TRANSITIONS ALONG A RADIUS from that same centre: an assembly of
+         bezel, retainer, glass, element groups, baffles and an iris crosses
+         many; a plain bore crosses a couple.
+
+         BOUNDED TO THE LENS. Walked to the edge of the tile it counted every
+         frame, gutter and bay it happened to cross on the way out, which
+         correlates with resolution and not with the lens at all — 162
+         transitions for one assembly. The iris apothem is 31% of the barrel's
+         outer radius, so three and a half pupil radii reaches the bezel and
+         stops. */
+      let rings = 0;
+      if (bestN > 60 && rN) {
+        const rLim = (rSum / rN) * 3.4;
+        const prof = [];
+        for (let t = 0; t <= rLim; t += 0.5) {
+          const x = Math.round(bx + t), y = Math.round(by);
+          if (x >= S) break;
+          prof.push(H[y * S + x]);
+        }
+        let up = null;
+        for (let k = 1; k < prof.length; k++) {
+          const d = prof[k] - prof[k - 1];
+          if (Math.abs(d) < 2e-7) continue;
+          const nowUp = d > 0;
+          if (up !== null && nowUp !== up) rings++;
+          up = nowUp;
+        }
+      }
+      /* relief reported in MILLIMETRES, which is the unit the controls use */
+      return { faceMM: faceN ? (hi - lo) * T * 1000 : 0, faceN, sig,
+               spanMM: (B.hMax - B.hMin) * T * 1000, topMM: B.hMax * T * 1000,
+               botMM: B.hMin * T * 1000, emiMax,
+               shell: shellN ? shellMet / shellN : -1, shellN,
+               plate: plateN ? plateMet / plateN : -1,
+               darkR: darkN ? darkR / darkN : -1, darkM: darkN ? darkM / darkN : -1, darkN, matteN,
+               allR: allR / (S * S),
+               humps: humps(deepRow), deepMM: deepest * T * 1000,
+               pupilN: bestN, pupilRound: rN ? (rMax - rMin) / (rSum / rN) : -1, rings };
+    }, P);
+  };
+
+  const bare = await one(null);
+  ok("an empty bay's face is flat, which is what makes the next check mean anything",
+     bare.faceN > 5000 && bare.faceMM < 0.5,
+     `${bare.faceN} texels of face at ${bare.faceMM.toFixed(3)} mm of relief`);
+  const got = {};
+  for (const d of Object.keys(ROWS)) got[d] = await one(d);
+  const weak = Object.keys(got).filter(d => got[d].faceMM < 1);
+  const least = Object.keys(got).reduce((a, d) => got[d].faceMM < got[a].faceMM ? d : a);
+  ok("every one of the twelve devices puts relief on its own face", weak.length === 0,
+     weak.length ? `nothing drawn by: ${weak.join(", ")}`
+       : `weakest is ${least} at ${got[least].faceMM.toFixed(1)} mm, against a bare face at ` +
+         `${bare.faceMM.toFixed(3)} mm`);
+  /* and the ones sharing a bay shape are different pictures from each other */
+  const byShape = {};
+  for (const d of Object.keys(ROWS)) (byShape[ROWS[d]] || (byShape[ROWS[d]] = [])).push(d);
+  const clash = [];
+  for (const k in byShape) {
+    const seen = {};
+    for (const d of byShape[k]) {
+      if (seen[got[d].sig]) clash.push(`${seen[got[d].sig]}=${d}`);
+      seen[got[d].sig] = d;
+    }
+  }
+  ok("and no two on the same shape of bay draw the same picture", clash.length === 0,
+     clash.length ? `identical: ${clash.join(", ")}`
+       : Object.keys(byShape).map(k => `${byShape[k].length} on ${k} rows`).join(", ") +
+         " — all distinct");
+
+  /* ---- the guard: a face too small is left as plain plate ---- */
+  const tiny = await one("dome", { size: 256, rows: 8, colsMin: 6, colsMax: 6, frame: 60, gutter: 20 });
+  ok("a face too small for its device is left as plain plate", tiny.faceMM < 1,
+     `face relief ${tiny.faceMM.toFixed(3)} mm — nothing was crammed in`);
+
+  /* ---- materials: composite is a dielectric, glass is smooth and specular ----
+     Measured on the build that HAS the device, immediately: measuring a dome's
+     shell off whatever build happened to be on screen is how this test first
+     reported a dome as the most metallic thing in the tile. */
+  ok("a composite dome is a dielectric, not more painted metal",
+     got.dome.shellN > 2000 && got.dome.shell < 40 && got.dome.plate > 150,
+     `the shell reads ${got.dome.shell.toFixed(0)} metallic over ${got.dome.shellN} texels, ` +
+     `the plate ${got.dome.plate.toFixed(0)}`);
+  ok("and a camera's glass is smooth and specular rather than a hole",
+     got.camera.darkN > 80 && got.camera.darkR < 45 && got.camera.darkM > 170,
+     `${got.camera.darkN} texels of glass at ${got.camera.darkR.toFixed(0)} roughness / ` +
+     `${got.camera.darkM.toFixed(0)} metallic, against the tile's mean roughness of ` +
+     `${got.camera.allR.toFixed(0)}`);
+
+  /* ---- A LENS IS AN ASSEMBLY, NOT A DARK CIRCLE ----
+     Two claims, each measured on the thing that would give it away. The IRIS
+     is made of blades, so it is a polygon: a regular seven-sided one reaches
+     11% further at a vertex than at the middle of a blade, and a circle
+     reaches the same distance at every angle — so walking the pupil's radius
+     round tells the two apart on its own. And an ASSEMBLY crosses many rings
+     along its radius where a plain bore crosses a couple. */
+  const big = await one("camera", { size: 1024, tileM: 0.8, rows: 2, colsMin: 1, colsMax: 1,
+                                    gutter: 6, frame: 10, bevel: 1, relief: 40,
+                                    lensElem: 5, lensBlades: 7, lensCoat: 0.8 });
+  ok("a lens is an assembly of rings, not a bore with glass in it",
+     big.rings >= 8,
+     `${big.rings} ring transitions along its radius — bezel, retainer, glass, ` +
+     `element groups, baffles and iris`);
+  ok("and it has both a specular front element and a matte trap behind the iris",
+     big.darkN > 300 && big.darkM > 170 && big.matteN > 300,
+     `${big.darkN} texels of smooth specular glass at ${big.darkM.toFixed(0)} metallic, ` +
+     `and ${big.matteN} of matte light trap — a plain hole would have only the second`);
+  ok("and its iris is a polygon, because an iris is made of blades",
+     big.pupilN > 200 && big.pupilRound > 0.05,
+     `the pupil's radius varies ${(big.pupilRound * 100).toFixed(1)}% round its circumference ` +
+     `over ${big.pupilN} texels — seven blades reach 11% further at a vertex, a circle 0%`);
+  /* AND IT STEPS BACK TO A PLAIN BORE rather than turning to mush when small.
+     Measured on what a bore LACKS: no iris means no matte light trap behind
+     one, so the pupil the checks above find simply is not there. (The build
+     has to be genuinely under the floor — at four rows of three the lenses
+     still came out over nine texels and took the full assembly, so this
+     tested nothing at all.) */
+  const small = await one("camera", { size: 256, tileM: 2.4, rows: 6, colsMin: 5, colsMax: 5,
+                                      gutter: 8, frame: 10, bevel: 2 });
+  ok("and it drops back to a plain bore when there is no room for the assembly",
+     small.pupilN < 60 && small.rings <= 6 && big.pupilN > 200,
+     `no iris and ${small.rings} rings at a lens under the 9 px the stack needs, ` +
+     `against ${big.pupilN} texels of pupil and ${big.rings} rings when there is room`);
+
+  /* ---- NOTHING RUNS OVER THE PLATE, and the deck runs under it ----
+     The instruction was that no conduit is on the top layer, and absence is
+     awkward to test by looking for a thing that is not there. So it is tested
+     the other way round: with every panel removed and the deck as busy as it
+     goes, the highest texel in the tile still cannot be above the plate's own
+     surface. A run laid on top would break that immediately, and a run merely
+     dressed over an array would break it too. */
+  const wideOpen = await one(null, { openFrac: 1, deckFill: 1, deckLayers: 3, devDens: 0 });
+  ok("nothing at all stands proud of the plate where it is open",
+     wideOpen.topMM <= 0.001,
+     `the highest texel in a wide-open tile is ${wideOpen.topMM.toFixed(3)} mm — ` +
+     `the plate's own surface is 0`);
+  ok("and an opening goes right down to the deck",
+     wideOpen.botMM < -50,
+     `it bottoms out ${wideOpen.botMM.toFixed(0)} mm down, against a deck asked for at -70`);
+  ok("and the deck under it is dense, not a texture at the bottom of a hole",
+     wideOpen.humps >= 8,
+     `a line across it rides over ${wideOpen.humps} separate runs`);
+  const shut = await one(null, { openFrac: 0, gapSee: 0, devDens: 0 });
+  ok("a plate with nothing open is just a plate", shut.botMM > -12 && shut.topMM <= 0.001,
+     `it spans ${shut.botMM.toFixed(1)} mm to ${shut.topMM.toFixed(1)} mm — panel gaps and no more`);
+  const slots = await one(null, { openFrac: 0, gapSee: 1, devDens: 0 });
+  ok("and opening the panel gaps lets the deck show through them",
+     slots.botMM < -50 && slots.topMM <= 0.001,
+     `the gaps reach ${slots.botMM.toFixed(0)} mm down without anything rising above the plate`);
+
+  /* ---- a gap is open on both sides of a seam, or on neither ----
+     Which stretches of a gap open to the deck is hashed on the coordinate the
+     gap RUNS ALONG, precisely so the two bays either side of a seam reach the
+     same answer. Hashed per bay instead, a slot would be open on one side and
+     shut on the other, and every seam would be a ragged half-slot. */
+  /* a gap wide enough to MEASURE: at the default the gutter is barely a texel
+     either side of the seam, and a band two texels across cannot be halved and
+     compared. And half the stretches open, so the check cannot pass by finding
+     everything shut. */
+  await one(null, { openFrac: 0, gapSee: 0.5, devDens: 0, gutter: 60,
+                    rows: 3, colsMin: 3, colsMax: 3 });
+  const seam = await page.evaluate(p => {
+    const st = window.Forge.state("sensor"), B = st.B, S = B.W, H = B.HGT;
+    const T = Math.max(0.05, +p.tileM), MM = 0.001 / T, px = 1 / S;
+    const Q = window.Quilt.build({ rows: Math.max(1, p.rows | 0), colsMin: p.colsMin | 0,
+                                   colsMax: p.colsMax | 0, split: p.subdiv, depth: p.subdepth | 0,
+                                   minW: 8 * px, minH: 8 * px, seed: p.seed | 0 });
+    const rec = window.Quilt.record();
+    const gut = Math.max(p.gutter * MM * 0.5, px * 0.6);
+    /* walk each row, find the bands of gutter, and compare the two halves of
+       each band: a vertical seam's gap is decided on v, which both sides share */
+    let bands = 0, agree = 0, open = 0;
+    for (let y = 0; y < S; y += 3) {
+      let run = [];
+      for (let x = 0; x <= S; x++) {
+        let isGut = false;
+        if (x < S) {
+          window.Quilt.locate(Q, (x + 0.5) / S, (y + 0.5) / S, rec);
+          isGut = rec.du <= gut && rec.du < rec.dv;     // a VERTICAL seam
+        }
+        if (isGut) { run.push(x); continue; }
+        if (run.length >= 4) {
+          const half = run.length >> 1;
+          let lo = 0, hi = 0;
+          for (let k = 0; k < half; k++) lo = Math.min(lo, H[y * S + run[k]]);
+          for (let k = run.length - half; k < run.length; k++) hi = Math.min(hi, H[y * S + run[k]]);
+          const deep = v => v < -0.5 * (p.deckD * MM);
+          bands++;
+          if (deep(lo) === deep(hi)) agree++;
+          if (deep(lo) && deep(hi)) open++;
+        }
+        run = [];
+      }
+    }
+    return { bands, agree, open };
+  }, await page.evaluate(() => window.Forge.state("sensor").P));
+  ok("a gap is open on both sides of its seam, or on neither",
+     seam.bands > 20 && seam.agree === seam.bands && seam.open > 0 && seam.open < seam.bands,
+     `${seam.agree} of ${seam.bands} seam gaps agree across the seam, ` +
+     `${seam.open} of them open — so there are both kinds to disagree about`);
+
+  /* ---- the emissive is the lamps and the designator, and nothing else ---- */
+  const litUp = await one("dome", { lamps: 1 });
+  ok("with the lamps off the emissive is empty", got.dome.emiMax === 0,
+     `brightest emissive texel ${got.dome.emiMax}`);
+  ok("and with them on it is not", litUp.emiMax > 100,
+     `brightest emissive texel ${litUp.emiMax}`);
+}
+
 /* ============================ the hull's windows ============================
    Nothing that holds pressure has square corners — a corner is where the hoop
    stress goes to find something to tear — so every port cut in a real hull is
