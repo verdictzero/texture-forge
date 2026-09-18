@@ -73,7 +73,12 @@ const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", e => errors.push("pageerror: " + e.message));
 page.on("console", m => {
-  if (m.type() === "error" && !/ERR_CONNECTION|fonts\.googleapis/.test(m.text())) errors.push(m.text());
+  /* The page asks Google Fonts for its UI type. With no network — or behind a
+     proxy that re-signs TLS — that request fails, and the browser logs it as a
+     console error with no URL attached. It is the environment, not the app. */
+  if (m.type() === "error" &&
+      !/ERR_CONNECTION|ERR_CERT|ERR_NAME_NOT_RESOLVED|ERR_NETWORK|fonts\.googleapis/.test(m.text()))
+    errors.push(m.text());
 });
 
 const status = () => page.$eval("#status", n => n.textContent);

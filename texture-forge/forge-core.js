@@ -3569,7 +3569,7 @@ function filterPanel(st,q){
 /* Groups run in the order somebody would actually go looking, not in whichever
    order the <script> tags happen to load. Anything a mode invents that is not
    on this list falls in at the end. */
-const GROUP_ORDER=["Ground","Buildings","Interiors","Panels","Sci-fi","Detail"];
+const GROUP_ORDER=["Ground","Buildings","Interiors","Panels","Signage","Sci-fi","Detail"];
 function buildBrowser(){
   const host=el("modegrid");
   host.innerHTML="";

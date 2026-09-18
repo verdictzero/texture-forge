@@ -41,7 +41,12 @@ const page = await (await browser.newContext({ viewport: { width: 1500, height: 
 const errors = [];
 page.on("pageerror", e => errors.push("pageerror: " + e.message));
 page.on("console", m => {
-  if (m.type() === "error" && !/ERR_CONNECTION|fonts\.googleapis/.test(m.text())) errors.push(m.text());
+  /* The page asks Google Fonts for its UI type. With no network — or behind a
+     proxy that re-signs TLS — that request fails, and the browser logs it as a
+     console error with no URL attached. It is the environment, not the app. */
+  if (m.type() === "error" &&
+      !/ERR_CONNECTION|ERR_CERT|ERR_NAME_NOT_RESOLVED|ERR_NETWORK|fonts\.googleapis/.test(m.text()))
+    errors.push(m.text());
 });
 await page.goto(APP);
 await page.waitForTimeout(500);
@@ -420,7 +425,12 @@ if (want("threads")) {
   const werr = [];
   wp.on("pageerror", e => werr.push(e.message));
   wp.on("console", m => {
-    if (m.type() === "error" && !/404|googleapis|ERR_CONNECTION/.test(m.text())) werr.push(m.text());
+    /* same environmental noise as the main page: the Google Fonts request the
+       page makes for its UI type, which fails with no network and fails again
+       behind a proxy that re-signs TLS */
+    if (m.type() === "error" &&
+        !/404|googleapis|ERR_CONNECTION|ERR_CERT|ERR_NAME_NOT_RESOLVED|ERR_NETWORK/.test(m.text()))
+      werr.push(m.text());
   });
   await wp.goto(base);
   const wsettle = async () => {
@@ -436,14 +446,21 @@ if (want("threads")) {
   const pool = await wp.evaluate(() => window.Forge.pool());
   ok("the pool comes up when it can be reached", !pool.off && pool.ready > 0, JSON.stringify(pool));
 
-  /* every mode says whether it is safe off thread, and two of them say it
-     depends on whether there is lettering on the build */
+  /* Every mode says whether it is safe off thread: some plainly yes, some
+     conditionally — it depends on whether there is lettering on the build —
+     and the label mode plainly no, because there is ALWAYS lettering on a
+     label. What this is looking for is a mode that never said, since an
+     undeclared `threadable` is falsy and would quietly never thread; a
+     declared `false` is an answer, not an omission. */
   const flags = await wp.evaluate(() => window.Forge.modes.map(m => ({
-    id: m.id, t: typeof m.threadable === "function" ? "conditional" : !!m.threadable
+    id: m.id, declared: Object.prototype.hasOwnProperty.call(m, "threadable"),
+    t: typeof m.threadable === "function" ? "conditional" : !!m.threadable
   })));
   ok("every mode has an opinion about threading",
-     flags.every(f => f.t !== undefined && f.t !== false),
-     flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true");
+     flags.every(f => f.declared),
+     flags.filter(f => !f.declared).map(f => f.id + ": never says").join(", ") ||
+     "said by all " + flags.length + " · " +
+     (flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true"));
 
   /* THE CLAIM. Same parameters, both threads, byte for byte. */
   for (const id of ["factory", "vent", "slab", "hazard"]) {
@@ -3497,6 +3514,510 @@ if (want("hull")) {
      bFound.length > 0 && bFound.every(p => p.du * 2 < cellPx),
      `asked for 3 m across on a ${(12 / B2.nCols).toFixed(1)} m pitch; ` +
      `reaches ${bFound[0].du} px of a ${cellPx.toFixed(0)} px cell`);
+}
+
+/* ============================ the label ============================
+   A label is the one thing in this app somebody might hold up against a real
+   one, so most of what is checked here is a NUMBER OUT OF A STANDARD rather
+   than a look: the ASME A13.1 band and cap heights by pipe diameter, 49 CFR's
+   273 mm and its 12.7 mm line, Code 39's element patterns and quiet zone, and
+   the geometry of the four NFPA quadrants. The rest is the physical claim —
+   that an engraved mark is BELOW the face and a printed one is not, that
+   printed ink over aluminium reads as a dielectric and a laser mark does not,
+   and that a photoluminescent sheet glows where it is not printed. */
+if (want("label")) {
+  console.log("\n— the industrial label —");
+  await page.evaluate(() => window.Forge.activate("label"));
+  await settle();
+
+  const loaded = await page.evaluate(() => !!window.ForgeLabel);
+  ok("the label mode is loaded", loaded);
+
+  /* ---- the tables, asked of themselves ---- */
+  const tables = await page.evaluate(() => {
+    const F = window.ForgeLabel;
+    const row = od => { const r = F.a13Of(od); return [r.band, r.cap]; };
+    return {
+      a13: { p21: row(21.3), p48: row(48.3), p114: row(114.3), p219: row(219.1), p500: row(500) },
+      placard: [F.PLACARD.side, F.PLACARD.line, F.PLACARD.inset],
+      ink: [F.inkOn("#ffffff"), F.inkOn("#f6be00"), F.inkOn("#0058a8"), F.inkOn("#111111")],
+      /* the inscribed box of a diamond is half of each diagonal */
+      dia: F.innerBox("diamond", 100, 60, 0),
+      rect: F.innerBox("rect", 100, 60, 4)
+    };
+  });
+  ok("ASME A13.1 band and cap heights come off the table by diameter",
+     JSON.stringify(tables.a13.p21) === "[203,12.7]" &&
+     JSON.stringify(tables.a13.p48) === "[203,19.1]" &&
+     JSON.stringify(tables.a13.p114) === "[305,31.8]" &&
+     JSON.stringify(tables.a13.p219) === "[610,63.5]" &&
+     JSON.stringify(tables.a13.p500) === "[813,88.9]",
+     JSON.stringify(tables.a13));
+  ok("a placard is 273 mm with a 12.7 mm line 12.7 mm in",
+     JSON.stringify(tables.placard) === "[273,12.7,12.7]", JSON.stringify(tables.placard));
+  ok("black or white is chosen by what can be read on the colour",
+     tables.ink[0] === "#111111" && tables.ink[1] === "#111111" &&
+     tables.ink[2] === "#ffffff" && tables.ink[3] === "#ffffff", tables.ink.join(" "));
+  ok("a diamond's usable box is half of each diagonal",
+     Math.abs(tables.dia.w - 50) < 0.01 && Math.abs(tables.dia.h - 30) < 0.01,
+     JSON.stringify(tables.dia));
+
+  /* ---- Code 39, element by element ---- */
+  const c39 = await page.evaluate(() => {
+    const F = window.ForgeLabel;
+    const a = F.code39("A", 2.5);
+    const wideRuns = [];
+    for (let c = 0; c < 3; c++) {
+      let n = 0;
+      for (let i = 0; i < 9; i++) if (a.els[c * 10 + i].w > 1) n++;
+      wideRuns.push(n);
+    }
+    let alt = true;
+    for (let c = 0; c < 3; c++) for (let i = 0; i < 9; i++)
+      if (a.els[c * 10 + i].bar !== (i % 2 === 0)) alt = false;
+    /* the standard's own pattern for A is 100001001 over bar,space,bar,… */
+    const patA = a.els.slice(10, 19).map(e => (e.w > 1 ? "1" : "0")).join("");
+    return { n: a.els.length, modules: a.modules, wideRuns: wideRuns, alt: alt, patA: patA,
+             gaps: a.els.filter((e, i) => i % 10 === 9).every(e => !e.bar && e.w === 1),
+             dropped: F.code39("a7-b!£x", 2.5).text,
+             empty: F.code39("£££", 2.5).els.length };
+  });
+  ok("Code 39 is nine elements a character with the gaps between",
+     c39.n === 29 && c39.gaps, `${c39.n} elements for *A*`);
+  ok("and exactly three of the nine are wide, alternating bar and space",
+     c39.wideRuns.join(",") === "3,3,3" && c39.alt, c39.wideRuns.join(","));
+  ok("and the pattern for A is the standard's 100001001",
+     c39.patA === "100001001", c39.patA);
+  ok("characters the symbology cannot carry are dropped, not faked",
+     c39.dropped === "A7-BX" && c39.empty === 0, `"${c39.dropped}"`);
+
+  /* ---- one build, parameterised ---- */
+  const BASE = {
+    format: "ansi", stock: "custom", Wmm: 100, Hmm: 50, size: 512, seed: 7010,
+    shape: "auto", cornerMm: 3, marginMm: 3, borderMm: 0.6, gapMm: 1.6, panelOn: true,
+    holes: "none", holeMm: 4, holeInMm: 6,
+    bHeader: true, signal: "danger", signalText: "", hdrAlign: "left", hdrMm: 0,
+    trackHdr: 0.04, alertSym: true,
+    isoCat: "warn", ghsSide: false,
+    nHealth: 3, nFire: 2, nReact: 1, nSpecial: "none",
+    dotClass: "3", dotText: "", unNumber: "", placardMm: 273,
+    pipeClass: "flam", pipeLegend: "NATURAL GAS", pipeSub: "", pipeOd: 114.3,
+    pipeDir: "right", pipeWrap: "full",
+    afVolt: "480 V AC", afBound: "1370 mm", afEnergy: "8.4 cal/cm2", afDist: "455 mm",
+    afPpe: "2", afShock: "1070 / 305", afEquip: "MCC-2",
+    bPicto: true, nPicto: 1, pFrame: "triangle", pictoPos: "left", pictoMm: 0,
+    sym1: "bolt", gly1: "⚠", sym2: "none", gly2: "☢",
+    sym3: "none", gly3: "☣", sym4: "none", gly4: "⚡",
+    bMsg: true, msgHead: "HAZARDOUS VOLTAGE", msgBody: "Disconnect and lock out.",
+    msgAlign: "center", headFrac: 0.42, msgMm: 0, trackMsg: 0.01, msgCaps: true,
+    bTable: false, row1: "MODEL|XR-4200", row2: "", row3: "", row4: "", row5: "", row6: "",
+    tblSplit: 0.42, rowMm: 0, tblRules: true, tblSpine: true, tblCaps: true, tblMono: false,
+    bBar: false, barData: "A7-99413-02", barRatio: 2.5, barMm: 0, barText: true,
+    bFoot: false, footText: "PN 4471-02", footAlign: "left", footMm: 4,
+    typeface: "grot", faceId: "none",
+    material: "vinyl", marking: "print", markDepth: 1, thickMm: 0, bevelMm: 0.25,
+    fieldInk: true, subAuto: true,
+    cPanel: "#ffffff", cText: "#111111", cBorder: "#111111", cSub: "#f4f3ef",
+    cSignal: "#c8102e", cSignalFg: "#ffffff", cSym: "#111111", cGhs: "#c8102e",
+    cField: "#f6be00", cNfpaH: "#0058a8", cNfpaF: "#c8102e", cNfpaR: "#f6be00",
+    cNfpaS: "#ffffff", cGlow: "#8bff9e",
+    scratch: 0, scratchAng: 0, scuff: 0, abrade: 0, grime: 0, oil: 0, fade: 0,
+    yellow: 0, peel: 0, craze: 0, cleanCut: true,
+    glowAmt: 0, normalStr: 1, aoStr: 0.8, flipG: false
+  };
+  const one = async over => {
+    const P = await page.evaluate(([base, o]) => {
+      const P = Object.assign({}, base, o);
+      for (const k in P) window.Forge.setParam("label", k, P[k]);
+      window.Forge.state("label").built = false;
+      return P;
+    }, [BASE, over || {}]);
+    await page.click("#label--forge");
+    await settle();
+    return P;
+  };
+  /* every sample is taken in MILLIMETRES and turned into a texel here, so a
+     test never has to know how many texels the label came out as */
+  /* Samples are taken in MILLIMETRES and turned into texels here, so no test
+     has to know how many texels the label came out as. It hangs off the page
+     rather than off eval's own scope: a `const` inside an eval() is scoped to
+     that eval and is gone by the next line, which is a long way from obvious
+     when a helper comes back undefined. */
+  const sampler = `window.__L=(function(){
+    const st=window.Forge.state("label"),B=st.B,W=B.W,H=B.H;
+    const G=window.ForgeLabel.sizeOf(st.P,W);
+    return {st:st,B:B,W:W,H:H,G:G,
+      ix:(mx,my)=>{
+        const x=Math.max(0,Math.min(W-1,Math.round(mx/G.Wmm*W-0.5)));
+        const y=Math.max(0,Math.min(H-1,Math.round(my/G.Hmm*H-0.5)));
+        return y*W+x;
+      },
+      rgb:i=>[B.A[i*3],B.A[i*3+1],B.A[i*3+2]],
+      lum:i=>(B.A[i*3]*0.299+B.A[i*3+1]*0.587+B.A[i*3+2]*0.114)};
+  })();`;
+
+  /* ---- layout ---- */
+  const lay = await page.evaluate(([base]) => {
+    const F = window.ForgeLabel;
+    const mk = o => { const P = Object.assign({}, base, o); return { P: P, G: F.sizeOf(P), L: F.layout(P) }; };
+    /* six bands need a label with room for six bands: on a 100 x 50 the fixed
+       ones already come to more than the height and the message is squeezed
+       out, which is the right answer there and the wrong test here */
+    const all = mk({ Wmm: 150, Hmm: 200, bHeader: true, bMsg: true, bTable: true,
+                     bBar: true, bFoot: true, pictoPos: "row", row1: "A|1", row2: "B|2" });
+    const over = (a, b) => a && b && !(a.y + a.h <= b.y + 1e-6 || b.y + b.h <= a.y + 1e-6);
+    const names = ["hdr", "pic", "msg", "tbl", "bar", "foot"];
+    const got = names.filter(n => all.L.bands[n]);
+    let overlaps = 0, outside = 0;
+    for (let i = 0; i < got.length; i++) for (let j = i + 1; j < got.length; j++)
+      if (over(all.L.bands[got[i]], all.L.bands[got[j]])) overlaps++;
+    for (const n of got) {
+      const b = all.L.bands[n];
+      if (b.x < all.L.box.x - 1e-6 || b.y < all.L.box.y - 1e-6 ||
+          b.x + b.w > all.L.box.x + all.L.box.w + 1e-6 ||
+          b.y + b.h > all.L.box.y + all.L.box.h + 1e-6) outside++;
+    }
+    const off = mk({ bHeader: false, bTable: false, bBar: false, bFoot: false });
+    const holed = mk({ holes: "h4", holeMm: 4, holeInMm: 6 });
+    const nfpa = mk({ format: "nfpa", Wmm: 250, Hmm: 250, marginMm: 3, borderMm: 0 });
+    const tall = F.sizeOf({ format: "ansi", Wmm: 40, Hmm: 200, size: 4096 });
+    return { got: got, overlaps: overlaps, outside: outside,
+             offGot: names.filter(n => off.L.bands[n]),
+             holeBox: holed.L.box, nfpaBlock: nfpa.L.block, nfpaW: nfpa.G.Wmm,
+             tall: { w: tall.TW, h: tall.TH, capped: tall.capped },
+             dpi: mk({}).G.dpi, mmPerPx: mk({}).G.mmPerPx };
+  }, [BASE]);
+  ok("every band lands inside the content box and none overlaps another",
+     lay.got.length === 6 && lay.overlaps === 0 && lay.outside === 0,
+     `${lay.got.join(", ")} · ${lay.overlaps} overlaps, ${lay.outside} outside`);
+  ok("a band switched off is gone rather than empty",
+     lay.offGot.join(",") === "pic,msg", lay.offGot.join(","));
+  ok("fixing holes push the artwork in past themselves",
+     lay.holeBox.x >= 6 + 2 - 0.01 && lay.holeBox.y >= 6 + 2 - 0.01,
+     `content starts at ${lay.holeBox.x.toFixed(1)}, ${lay.holeBox.y.toFixed(1)} mm ` +
+     `with 4 mm holes 6 mm in`);
+  ok("a fire diamond fills the placard it is printed on",
+     lay.nfpaBlock.w > lay.nfpaW * 0.92 && lay.nfpaBlock.h > lay.nfpaW * 0.92,
+     `${lay.nfpaBlock.w.toFixed(0)} mm of a ${lay.nfpaW} mm blank`);
+  ok("a label too tall to hold at the asked width is capped, not allocated",
+     lay.tall.capped && lay.tall.h === 4096 && lay.tall.w < 1200,
+     `${lay.tall.w} × ${lay.tall.h}`);
+  ok("and the dpi it reports is the dpi it is",
+     Math.abs(lay.dpi - 512 / (100 / 25.4)) < 0.01 && Math.abs(lay.mmPerPx - 100 / 512) < 1e-9,
+     `${lay.dpi.toFixed(1)} dpi at 512 px across 100 mm`);
+
+  /* ---- type ---- */
+  const fit = await page.evaluate(() => {
+    const F = window.ForgeLabel;
+    const c = document.createElement("canvas"); c.width = c.height = 8;
+    const g = c.getContext("2d");
+    const ff = px => "400 " + px + "px sans-serif";
+    const txt = "Contact will cause severe injury or death if the cover is removed";
+    const wide = F.fitText(g, txt, ff, 200, 40, 6, 0, 1.2);
+    const narrow = F.fitText(g, txt, ff, 60, 40, 6, 0, 1.2);
+    const broken = F.fitText(g, "ONE|TWO|THREE", ff, 400, 40, 6, 0, 1.2);
+    return { w: wide.lines.length, wpx: wide.px, n: narrow.lines.length, npx: narrow.px,
+             b: broken.lines, para: F.splitPara("a|b\nc").length };
+  });
+  ok("type is wrapped and then shrunk until the block fits",
+     fit.n > fit.w && fit.npx < fit.wpx,
+     `${fit.w} lines at ${fit.wpx.toFixed(1)} in 200 mm, ${fit.n} at ${fit.npx.toFixed(1)} in 60`);
+  ok("and a bar or a newline starts a new line on purpose",
+     fit.b.join("/") === "ONE/TWO/THREE" && fit.para === 3, fit.b.join("/"));
+
+  /* ---- the blank ---- */
+  await one({ format: "nfpa", Wmm: 250, Hmm: 250, bPicto: false, bMsg: false, marginMm: 3 });
+  const blank = await page.evaluate(s => {
+    eval(s);
+    const { B, ix } = window.__L;
+    return { corner: B.ALP[ix(6, 6)], edgeMid: B.ALP[ix(125, 4)], mid: B.ALP[ix(125, 125)] };
+  }, sampler);
+  ok("a diamond blank is cut on the diagonal: corners clear, points solid",
+     blank.corner < 8 && blank.mid > 250 && blank.edgeMid > 250,
+     `corner ${blank.corner}, point ${blank.edgeMid}, middle ${blank.mid}`);
+
+  await one({ holes: "h2", holeMm: 8, holeInMm: 10, format: "free", bPicto: false,
+              bHeader: false, msgHead: "", msgBody: "" });
+  const holed = await page.evaluate(s => {
+    eval(s);
+    const { B, ix } = window.__L;
+    return { hole: B.ALP[ix(10, 25)], beside: B.ALP[ix(25, 25)] };
+  }, sampler);
+  ok("and a fixing hole is a hole in the alpha",
+     holed.hole < 8 && holed.beside > 250, `hole ${holed.hole}, plate ${holed.beside}`);
+
+  /* ---- the four quadrants of a fire diamond, where they belong ---- */
+  await one({ format: "nfpa", Wmm: 250, Hmm: 250, bPicto: false, bMsg: false,
+              nHealth: 3, nFire: 2, nReact: 1, nSpecial: "none", marginMm: 3 });
+  const quads = await page.evaluate(s => {
+    eval(s);
+    const { st, ix, rgb } = window.__L;
+    /* WHERE THE QUADRANTS ARE IS ASKED, not guessed, and the sample is taken
+       off both axes — a point on the centre line of a quadrant lands in the
+       numeral, which is white on blue and on red and would report a red
+       quadrant as a white one. */
+    const L = window.ForgeLabel.layout(st.P), b = L.block;
+    const D = Math.min(b.w, b.h), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const q = D * 0.25, r = q - Math.max(D * 0.012, 0.25);
+    const p = (dx, dy) => rgb(ix(cx + dx + r * 0.35, cy + dy + r * 0.35));
+    return { left: p(-q, 0), top: p(0, -q), right: p(q, 0), bottom: p(0, q) };
+  }, sampler);
+  const isBlue = c => c[2] > 110 && c[2] > c[0] + 50;
+  const isRed = c => c[0] > 130 && c[0] > c[1] + 60 && c[0] > c[2] + 60;
+  const isYell = c => c[0] > 150 && c[1] > 120 && c[2] < 110;
+  const isWhite = c => c[0] > 200 && c[1] > 200 && c[2] > 200;
+  ok("NFPA 704 reads blue-red-yellow-white from the left, anticlockwise",
+     isBlue(quads.left) && isRed(quads.top) && isYell(quads.right) && isWhite(quads.bottom),
+     JSON.stringify(quads));
+
+  /* ---- and the prohibition bar goes OVER the symbol ---- */
+  await one({ format: "iso", isoCat: "prohibit", Wmm: 200, Hmm: 200, bMsg: false,
+              bPicto: true, sym1: "nosmoke", marginMm: 4, borderMm: 0 });
+  const bar = await page.evaluate(s => {
+    eval(s);
+    const { ix, rgb } = window.__L;
+    return { mid: rgb(ix(100, 100)), out: rgb(ix(100, 12)) };
+  }, sampler);
+  ok("the 45° bar is drawn over the symbol, not under it",
+     isRed(bar.mid), `centre of the sign is ${bar.mid.join(",")}`);
+
+  /* ---- the process is relief, and only sometimes colour ---- */
+  const relief = async over => {
+    await one(Object.assign({ format: "free", bHeader: false, bPicto: false, bMsg: true,
+                              msgHead: "MAIN ISOLATOR", msgBody: "", Wmm: 80, Hmm: 25,
+                              panelOn: false, borderMm: 0, marginMm: 2.5 }, over));
+    return await page.evaluate(s => {
+      eval(s);
+      const { B, W, H, lum } = window.__L;
+      let lo = Infinity, hi = -Infinity, n = 0, lightN = 0, darkN = 0;
+      for (let y = Math.round(H * 0.25); y < H * 0.75; y++)
+        for (let x = Math.round(W * 0.12); x < W * 0.88; x++) {
+          const i = y * W + x;
+          if (B.ALP[i] < 250) continue;
+          n++;
+          if (B.HGT[i] < lo) lo = B.HGT[i];
+          if (B.HGT[i] > hi) hi = B.HGT[i];
+          if (lum(i) > 190) lightN++; else if (lum(i) < 60) darkN++;
+        }
+      return { lo: lo, hi: hi, span: (hi - lo) * 80, n: n, lightN: lightN, darkN: darkN };
+    }, sampler);
+  };
+  const printed = await relief({ material: "phenol", marking: "print", cText: "#f2f1ec" });
+  const cut = await relief({ material: "phenol", marking: "cut", markDepth: 1 });
+  const proud = await relief({ material: "steel", marking: "emboss", markDepth: 1 });
+  ok("a printed mark leaves the face flat",
+     printed.span < 0.01, `${printed.span.toFixed(4)} mm of relief across the face`);
+  ok("an engraved one is below it, by the depth it says",
+     cut.span > 0.25 && cut.span < 0.45 && cut.lo < printed.lo,
+     `${cut.span.toFixed(3)} mm deep`);
+  ok("and an embossed one stands proud",
+     proud.hi > printed.hi && proud.span > 0.2, `${proud.span.toFixed(3)} mm proud`);
+  ok("cutting two-ply phenolic finds the pale core under the dark face",
+     cut.lightN > 200 && cut.darkN > cut.lightN * 2,
+     `${cut.lightN} core texels against ${cut.darkN} of face`);
+
+  /* ---- printed ink is a dielectric; a laser mark is still the metal ---- */
+  const metal = async marking => {
+    await one({ format: "free", material: "alu", marking: marking, bHeader: false,
+                bPicto: false, bMsg: true, msgHead: "AAAAAA", msgBody: "",
+                cText: "#101010", panelOn: false, borderMm: 0, subAuto: true });
+    return await page.evaluate(s => {
+      eval(s);
+      const { B, W, H, lum } = window.__L;
+      let inkM = 0, inkN = 0, bareM = 0, bareN = 0;
+      for (let y = Math.round(H * 0.3); y < H * 0.7; y++)
+        for (let x = Math.round(W * 0.15); x < W * 0.85; x++) {
+          const i = y * W + x;
+          if (B.ALP[i] < 250) continue;
+          if (lum(i) < 70) { inkM += B.MET[i]; inkN++; }
+          else if (lum(i) > 140) { bareM += B.MET[i]; bareN++; }
+        }
+      return { ink: inkN ? inkM / inkN : -1, bare: bareN ? bareM / bareN : -1, inkN: inkN };
+    }, sampler);
+  };
+  const mPrint = await metal("print");
+  const mLaser = await metal("laser");
+  ok("printed ink over aluminium reads as a dielectric",
+     mPrint.inkN > 100 && mPrint.ink < 40 && mPrint.bare > 180,
+     `metallic ${mPrint.ink.toFixed(0)} under the ink, ${mPrint.bare.toFixed(0)} on the metal`);
+  ok("but a laser mark is the metal, so it stays metallic",
+     mLaser.inkN > 100 && mLaser.ink > 150,
+     `metallic ${mLaser.ink.toFixed(0)} under the mark`);
+
+  /* ---- photoluminescent sheet glows where it is NOT printed ---- */
+  await one({ format: "iso", isoCat: "safe", Wmm: 200, Hmm: 200, material: "glow",
+              glowAmt: 0.8, bMsg: false, bPicto: true, sym1: "exit", marginMm: 4, borderMm: 0 });
+  const glow = await page.evaluate(s => {
+    eval(s);
+    const { B, W, H } = window.__L;
+    let darkE = 0, darkN = 0, lightE = 0, lightN = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (B.ALP[i] < 250) continue;
+      const l = B.A[i * 3] * 0.299 + B.A[i * 3 + 1] * 0.587 + B.A[i * 3 + 2] * 0.114;
+      if (l < 110) { darkE += B.EMI[i]; darkN++; }           /* the green field */
+      else if (l > 200) { lightE += B.EMI[i]; lightN++; }    /* the white symbol */
+    }
+    return { dark: darkN ? darkE / darkN : -1, light: lightN ? lightE / lightN : -1,
+             darkN: darkN, lightN: lightN };
+  }, sampler);
+  ok("a photoluminescent sheet glows out through light ink and not through dark",
+     glow.lightN > 500 && glow.darkN > 500 && glow.light > 150 &&
+     glow.dark < glow.light * 0.6,
+     `emissive ${glow.light.toFixed(0)} through the white symbol, ` +
+     `${glow.dark.toFixed(0)} through the green field`);
+
+  /* ---- the barcode survives the raster with its bars separate ---- */
+  await one({ format: "plate", Wmm: 120, Hmm: 80, bBar: true, barData: "A7-99413-02",
+              bHeader: false, bPicto: false, bMsg: false, bTable: false, bFoot: false,
+              material: "vinyl", marking: "print", cText: "#111111" });
+  const scan = await page.evaluate(s => {
+    eval(s);
+    const { st, B, W, lum } = window.__L;
+    const L = window.ForgeLabel.layout(st.P);
+    const b = L.bands.bar;
+    if (!b) return { missing: true };
+    const G = window.ForgeLabel.sizeOf(st.P, W);
+    const y = Math.round((b.y + b.h * 0.3) / G.Hmm * B.H);
+    /* inside the band only: the label's own keyline is two more dark runs on
+       any scanline that crosses the whole width */
+    const x0 = Math.ceil(b.x / G.mmPerPx), x1 = Math.floor((b.x + b.w) / G.mmPerPx);
+    let runs = 0, dark = false, firstX = -1, lastX = -1;
+    for (let x = x0; x <= x1; x++) {
+      const d = lum(y * W + x) < 110;
+      if (d && !dark) { runs++; if (firstX < 0) firstX = x; }
+      if (d) lastX = x;
+      dark = d;
+    }
+    const code = window.ForgeLabel.code39(st.P.barData, st.P.barRatio);
+    const mod = b.w / (code.modules + 20) / G.mmPerPx;
+    return { runs: runs, chars: code.text.length + 2, mod: mod,
+             quietL: firstX - x0, quietR: x1 - lastX };
+  }, sampler);
+  ok("every bar of the barcode is still its own bar after rasterising",
+     !scan.missing && scan.runs === scan.chars * 5,
+     `${scan.runs} dark runs for ${scan.chars} characters — expected ${scan.chars * 5}`);
+  ok("and it keeps its ten modules of quiet ground each side",
+     scan.quietL > scan.mod * 9 && scan.quietR > scan.mod * 9,
+     `${(scan.quietL / scan.mod).toFixed(1)} and ${(scan.quietR / scan.mod).toFixed(1)} modules`);
+
+  /* ---- a Unicode cell puts a real glyph on the label ---- */
+  const glyphInk = async g1 => {
+    await one({ format: "ansi", bPicto: true, nPicto: 1, sym1: "glyph", gly1: g1,
+                pFrame: "none", pictoPos: "row", bMsg: false, bHeader: false,
+                Wmm: 60, Hmm: 60, panelOn: true, borderMm: 0 });
+    return await page.evaluate(s => {
+      eval(s);
+      const { B, W, H, lum } = window.__L;
+      let n = 0;
+      for (let i = 0; i < W * H; i++) if (B.ALP[i] > 250 && lum(i) < 90) n++;
+      return n;
+    }, sampler);
+  };
+  const withGlyph = await glyphInk("☢");
+  const without = await glyphInk(" ");
+  ok("a Unicode cell draws the character it was given",
+     withGlyph > 2000 && without < withGlyph * 0.1,
+     `${withGlyph} dark texels for ☢ against ${without} for a space`);
+
+  /* ---- wear takes the ink off, and the clean cut puts it back ---- */
+  const inkLeft = async over => {
+    await one(Object.assign({ format: "ansi", Wmm: 100, Hmm: 50 }, over));
+    return await page.evaluate(s => {
+      eval(s);
+      const { B, W, H, rgb } = window.__L;
+      let red = 0;
+      for (let i = 0; i < W * H; i++) {
+        if (B.ALP[i] < 250) continue;
+        const c = rgb(i);
+        if (c[0] > 120 && c[0] > c[1] + 55 && c[0] > c[2] + 55) red++;
+      }
+      return red;
+    }, sampler);
+  };
+  const fresh = await inkLeft({});
+  const worn = await inkLeft({ abrade: 1, scratch: 0.8, fade: 0.9 });
+  ok("wear takes the printed ink off rather than tinting it",
+     worn < fresh * 0.6 && fresh > 4000,
+     `${fresh} texels of signal red fresh, ${worn} worn`);
+
+  const cuts = await page.evaluate(() => {
+    const m = window.Forge.byId.label;
+    const w = m.variants(Object.assign({}, { scratch: 0.4, cleanCut: true }));
+    const c = m.variants({ scratch: 0, cleanCut: true });
+    const off = m.variants({ scratch: 0.4, cleanCut: false });
+    return { worn: w.map(v => v.id), clean: c.length, off: off.length,
+             plan: m.plan({ format: "ansi", Wmm: 100, Hmm: 50, size: 512 }) };
+  });
+  ok("a worn label also exports the artwork as printed",
+     cuts.worn.join(",") === "clean" && cuts.clean === 0 && cuts.off === 0,
+     `worn:[${cuts.worn}] clean:${cuts.clean} switched off:${cuts.off}`);
+  ok("and the exported plane is the label's real size in metres",
+     Math.abs(cuts.plan.w - 0.1) < 1e-9 && Math.abs(cuts.plan.h - 0.05) < 1e-9 &&
+     cuts.plan.cutout === true, JSON.stringify(cuts.plan));
+
+  /* ---- and the archive really packs both cuts ---- */
+  await one({ format: "ansi", Wmm: 100, Hmm: 50, size: 256, scratch: 0.6, abrade: 0.9,
+              fade: 0.8, grime: 0.5, cleanCut: true });
+  await page.click("#zipall");
+  await page.waitForFunction(() => !document.getElementById("zipsave").hidden,
+                             null, { timeout: 180000 });
+  const arc = await page.evaluate(async () => {
+    const st = window.Forge.active();
+    const buf = new Uint8Array(await (await fetch(st.zipUrl)).arrayBuffer());
+    const dv = new DataView(buf.buffer), names = [], entries = {};
+    for (let i = 0; i + 30 < buf.length; i++) {
+      if (dv.getUint32(i, true) !== 0x04034b50) continue;
+      const nLen = dv.getUint16(i + 26, true), xLen = dv.getUint16(i + 28, true);
+      const size = dv.getUint32(i + 18, true);
+      const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nLen));
+      names.push(name);
+      entries[name] = buf.slice(i + 30 + nLen + xLen, i + 30 + nLen + xLen + size);
+      i += 30 + nLen + xLen + size - 1;
+    }
+    /* THE FOLDER NAME IS NOT THE CLAIM — the pixels are. Both base colours
+       are decoded and their signal red counted: the clean cut has to be the
+       one with the paint still on it. */
+    const red = async n => {
+      const bm = await createImageBitmap(new Blob([entries[n]], { type: "image/png" }));
+      const cv = new OffscreenCanvas(bm.width, bm.height), cx = cv.getContext("2d");
+      cx.drawImage(bm, 0, 0);
+      const d = cx.getImageData(0, 0, bm.width, bm.height).data;
+      let k = 0;
+      for (let i = 0; i < d.length; i += 4)
+        if (d[i + 3] > 200 && d[i] > 120 && d[i] > d[i + 1] + 55 && d[i] > d[i + 2] + 55) k++;
+      return k;
+    };
+    const base = names.find(n => /_basecolor\.png$/.test(n) && n.indexOf("_clean/") < 0);
+    const clean = names.find(n => /_clean\/.*_basecolor\.png$/.test(n));
+    return { names: names, worn: base ? await red(base) : -1,
+             clean: clean ? await red(clean) : -1,
+             folders: [...new Set(names.map(n => n.split("/")[0]))].length,
+             /* two per cut: the one about the maps and the one about the
+                geometry, which is why four is right for two cuts */
+             readmes: names.filter(n => /readme\.txt$/.test(n)).length,
+             models: names.filter(n => /model\.gltf$/.test(n)).length };
+  });
+  ok("a worn label packs the clean artwork beside it, readme and geometry and all",
+     arc.folders === 2 && arc.readmes === 4 && arc.models === 2 &&
+     arc.names.some(n => /_clean\/.*_opacity\.png$/.test(n)),
+     `${arc.folders} folders, ${arc.readmes} readmes, ${arc.models} models ` +
+     `in ${arc.names.length} entries`);
+  ok("and the clean one is the one with the paint still on it",
+     arc.clean > arc.worn * 1.5 && arc.worn >= 0,
+     `${arc.clean} texels of signal red clean against ${arc.worn} worn`);
+
+  /* ---- the readout says which row of the table it landed in ---- */
+  const said = await page.evaluate(([base]) => {
+    const m = window.Forge.byId.label;
+    const P = Object.assign({}, base, { format: "pipe", pipeOd: 114.3, pipeWrap: "full" });
+    const thin = Object.assign({}, base, { format: "ansi", Wmm: 300, Hmm: 150, size: 64 });
+    return { pipe: m.readout(P).replace(/<[^>]*>/g, ""), thin: m.readout(thin).replace(/<[^>]*>/g, "") };
+  }, [BASE]);
+  ok("the pipe marker reports the A13.1 row it came out of",
+     /305 mm field/.test(said.pipe) && /31\.8 mm caps/.test(said.pipe) &&
+     /circumference 359 mm/.test(said.pipe), said.pipe.slice(0, 150));
+  ok("and a label too coarse to print says so",
+     /under 150 dpi/.test(said.thin), said.thin.slice(0, 120));
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }

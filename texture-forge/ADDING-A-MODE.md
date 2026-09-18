@@ -506,6 +506,29 @@ A `type:"font"` control gives the user a picker plus a Load button that register
 a file straight from its bytes, so it works on the hosted copy too. Faces are
 global: one registered for your mode is available to every other.
 
+`modes/label.js` is the worked example for lettering that has to be *right*
+rather than merely present, and three things in it are worth copying if your
+mode sets real type:
+
+- **Fit the text to the box, do not hope.** `fitText` wraps on words, honours an
+  explicit break, and then shrinks until the block fits both the width and the
+  height — and it hands back the size it landed on, so the readout can quote the
+  cap height in millimetres. A standard that specifies a letter height is
+  specifying a cap height, and cap is about 0.72 of the em in every grotesque a
+  label is ever set in.
+- **Do letter tracking yourself.** `ctx.letterSpacing` exists in some browsers
+  and not others, and spacing is exactly the kind of thing somebody specified.
+  Drawing glyph by glyph off the measured advance is a dozen lines and works
+  everywhere.
+- **A catalogue of vector symbols, plus an escape hatch.** Every pictogram in
+  that mode is drawn from paths, because a trefoil made of three 60° sectors IS
+  the trefoil and one made from whatever glyph a font carries is a picture of
+  somebody's idea of it. But a catalogue is closed, so any cell will equally
+  take a Unicode character and draw that instead — measured with
+  `actualBoundingBox*` and fitted, because how much of the em a symbol fills
+  varies wildly from one code point to the next. Say which is which in the
+  readout: the glyph is the browser's, and a missing code point is a box.
+
 ## Structures: several faces of one thing
 
 A house is four textures and a diner is three. `Forge.setParam` above is how two
