@@ -4006,6 +4006,252 @@ if (want("label")) {
      arc.clean > arc.worn * 1.5 && arc.worn >= 0,
      `${arc.clean} texels of signal red clean against ${arc.worn} worn`);
 
+
+  /* ============================ centring, level by level ============================
+     A label is a stack of things centred inside other things — a symbol in a
+     frame, a frame in a cell, a cell in a band, a band in the blank — and an
+     error at any level reads as sloppiness at every level above it. None of
+     this is checked by eye: each level is MEASURED against the centre of the
+     region it sits in, in millimetres, and three of these numbers are a
+     standard's rather than a preference.
+
+     What is deliberately NOT asserted, because it would be wrong to: a
+     rounded triangle's ink sits below its nominal apex by the corner radius,
+     exactly as a real sign's does, and an anchored symbol's ink box is
+     lopsided on purpose. Those two are checked by their own rule instead. */
+  const norm = await page.evaluate(() => {
+    const F = window.ForgeLabel, S = 256, PAD = 1.4;
+    const c = document.createElement("canvas"); c.width = c.height = S;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    const out = [];
+    for (const sym of F.SYM) {
+      if (sym.id === "none") continue;
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, S, S);
+      g.save();
+      g.translate(S / 2, S / 2); g.scale(S / 2 / PAD, S / 2 / PAD);
+      g.fillStyle = "#fff"; g.strokeStyle = "#fff";
+      g.lineJoin = "round"; g.lineCap = "round"; g.lineWidth = 0.12;
+      try { sym.draw(g, 1); } catch (e) { out.push({ id: sym.id, err: 1 }); g.restore(); continue; }
+      g.restore();
+      const d = g.getImageData(0, 0, S, S).data;
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, n = 0, mx = 0, my = 0;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        if (d[(y * S + x) * 4 + 3] < 16) continue;
+        n++; mx += x; my += y;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      if (!n) { out.push({ id: sym.id, empty: 1 }); continue; }
+      const u = v => (v + 0.5 - S / 2) / (S / 2 / PAD);
+      const ink = F.inkOf(sym.id);
+      /* where the ink box lands once the mode's own normalisation is applied */
+      out.push({ id: sym.id, anchored: !!sym.anchored,
+        cx: ((u(x0) + u(x1)) / 2 - ink.cx) * ink.k, cy: ((u(y0) + u(y1)) / 2 - ink.cy) * ink.k,
+        ext: Math.max(u(x1) - u(x0), u(y1) - u(y0)) * ink.k,
+        mcx: (u(mx / n) - ink.cx) * ink.k, mcy: (u(my / n) - ink.cy) * ink.k });
+    }
+    return out;
+  });
+  const free = norm.filter(s => !s.anchored && !s.err && !s.empty);
+  const held = norm.filter(s => s.anchored);
+  const offc = free.filter(s => Math.max(Math.abs(s.cx), Math.abs(s.cy)) > 0.03);
+  ok("every symbol's ink lands on the point it was placed at",
+     norm.length > 35 && offc.length === 0,
+     offc.length ? offc.map(s => `${s.id} ${s.cx.toFixed(2)},${s.cy.toFixed(2)}`).join(" · ")
+                 : `${free.length} measured, worst ` +
+                   free.reduce((a, s) => Math.max(a, Math.abs(s.cx), Math.abs(s.cy)), 0).toFixed(3) +
+                   " of the half-box");
+  /* An anchored symbol is NOT re-centred, and the claim that justifies it is
+     that its mass already sits on its own axis — three-fold symmetry about a
+     centre disc, one blade up and two down. */
+  ok("and the two anchored on their own axis really are symmetric about it",
+     held.length === 2 &&
+     held.every(s => Math.abs(s.mcx) < 0.03 && Math.abs(s.mcy) < 0.03),
+     held.map(s => `${s.id} mass ${s.mcx.toFixed(3)},${s.mcy.toFixed(3)}`).join(" · "));
+  const small = norm.filter(s => !s.err && !s.empty && s.ext < 1.5);
+  const overs = norm.filter(s => !s.err && !s.empty && s.ext > 2.05);
+  ok("and none is left rattling around in its box or hanging out of it",
+     small.length === 0 && overs.length === 0,
+     small.length || overs.length
+       ? "small:[" + small.map(s => s.id + " " + s.ext.toFixed(2)) + "] over:[" +
+         overs.map(s => s.id + " " + s.ext.toFixed(2)) + "]"
+       : "extents " + Math.min(...norm.filter(s => s.ext).map(s => s.ext)).toFixed(2) + "–" +
+         Math.max(...norm.filter(s => s.ext).map(s => s.ext)).toFixed(2) + " of 2");
+
+  /* ---- the ISO triangle's band, side by side ----
+     The inner triangle is a homothety about the INCENTRE. Scale about the
+     middle of the bounding box instead — which is the obvious thing to write
+     — and the two triangles are similar but not concentric: the band comes
+     out twice as wide along the base as along the slants. */
+  await one({ format: "iso", isoCat: "warn", Wmm: 200, Hmm: 200, bMsg: false,
+              bPicto: true, sym1: "none", marginMm: 4, borderMm: 0, size: 1024 });
+  const band = await page.evaluate(s => {
+    eval(s);
+    const { st, B, W, H, G } = window.__L;
+    const L = window.ForgeLabel.layout(st.P), b = L.block;
+    const side = Math.min(b.w, b.h * 2 / Math.sqrt(3));
+    const h = side * Math.sqrt(3) / 2;
+    const I = { x: b.x + b.w * 0.5, y: b.y + b.h * 0.5 + h / 6 };   /* the incentre */
+    const at = (mx, my) => {
+      const x = Math.round(mx / G.Wmm * W - 0.5), y = Math.round(my / G.Hmm * H - 0.5);
+      if (x < 0 || y < 0 || x >= W || y >= H) return null;
+      const i = y * W + x;
+      return { a: B.ALP[i], l: B.A[i * 3] + B.A[i * 3 + 1] + B.A[i * 3 + 2] };
+    };
+    /* out from the incentre along each side's own normal */
+    const walk = deg => {
+      const a = deg * Math.PI / 180;
+      let first = -1, last = -1;
+      for (let t = 0; t < 300; t += 0.05) {
+        const p = at(I.x + Math.cos(a) * t, I.y + Math.sin(a) * t);
+        if (!p || p.a <= 200) break;
+        if (p.l < 300) { if (first < 0) first = t; last = t; }
+      }
+      return first < 0 ? -1 : last - first;
+    };
+    return { side: side, base: walk(90), right: walk(-30), left: walk(210) };
+  }, sampler);
+  const bands = [band.base, band.right, band.left];
+  ok("the ISO triangle's black band is the same width on all three sides",
+     Math.max(...bands) - Math.min(...bands) < 0.5 &&
+     Math.abs(Math.min(...bands) - band.side * 0.085) < 0.6,
+     `base ${band.base.toFixed(2)}, right ${band.right.toFixed(2)}, left ` +
+     `${band.left.toFixed(2)} mm — 0.085 × ${band.side.toFixed(0)} mm side is ` +
+     `${(band.side * 0.085).toFixed(2)}`);
+
+  /* ---- and the prohibition annulus is concentric ---- */
+  await one({ format: "iso", isoCat: "prohibit", Wmm: 200, Hmm: 200, bMsg: false,
+              bPicto: true, sym1: "none", marginMm: 4, borderMm: 0, size: 1024 });
+  const ann = await page.evaluate(s => {
+    eval(s);
+    const { st, B, W, H, G } = window.__L;
+    const L = window.ForgeLabel.layout(st.P), b = L.block;
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2, d = Math.min(b.w, b.h);
+    const red = (mx, my) => {
+      const x = Math.round(mx / G.Wmm * W - 0.5), y = Math.round(my / G.Hmm * H - 0.5);
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const i = y * W + x;
+      return B.ALP[i] > 200 && B.A[i * 3] > 120 && B.A[i * 3] > B.A[i * 3 + 1] + 50;
+    };
+    /* START BEYOND THE BAR. The 45° bar is the same red as the annulus and it
+       runs through the middle of the sign, so a walk that starts at the centre
+       reports the band as beginning at zero. A fifth of the diameter out is
+       clear of the bar and still well inside the white. */
+    const walk = deg => {
+      const a = deg * Math.PI / 180;
+      let first = -1, last = -1;
+      for (let t = d * 0.2; t < 200; t += 0.05) {
+        if (red(cx + Math.cos(a) * t, cy + Math.sin(a) * t)) { if (first < 0) first = t; last = t; }
+        else if (first >= 0 && t > last + 0.3) break;
+      }
+      return { in: first, out: last };
+    };
+    return { d: d, n: walk(-90), e: walk(0), s: walk(90), w: walk(180) };
+  }, sampler);
+  const ins = [ann.n.in, ann.e.in, ann.s.in, ann.w.in];
+  const outs = [ann.n.out, ann.e.out, ann.s.out, ann.w.out];
+  ok("and the prohibition annulus is concentric, a tenth of the diameter wide",
+     Math.max(...ins) - Math.min(...ins) < 0.5 && Math.max(...outs) - Math.min(...outs) < 0.5 &&
+     Math.abs((Math.min(...outs) - Math.max(...ins)) - ann.d * 0.1) < 0.8,
+     `band from ${Math.min(...ins).toFixed(1)} to ${Math.max(...outs).toFixed(1)} mm of a ` +
+     `${ann.d.toFixed(0)} mm circle`);
+
+  /* ---- 49 CFR's two numbers, taken on the perpendicular ----
+     A millimetre of edge clearance on a square on point is root-2
+     millimetres of diagonal, and pts() takes a diagonal. */
+  await one({ format: "placard", dotClass: "3", placardMm: 273, bMsg: false,
+              bPicto: false, marginMm: 2, borderMm: 0, size: 1024 });
+  const inner = await page.evaluate(s => {
+    eval(s);
+    const { st, B, W, H, G } = window.__L;
+    const L = window.ForgeLabel.layout(st.P), b = L.block;
+    const D = Math.min(b.w, b.h), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const px = (mx, my) => {
+      const x = Math.round(mx / G.Wmm * W - 0.5), y = Math.round(my / G.Hmm * H - 0.5);
+      if (x < 0 || y < 0 || x >= W || y >= H) return null;
+      const i = y * W + x;
+      return { a: B.ALP[i], r: B.A[i * 3], g: B.A[i * 3 + 1], b: B.A[i * 3 + 2] };
+    };
+    /* 45° is the normal of a diamond's edge, so this ray IS the perpendicular */
+    const a = -45 * Math.PI / 180;
+    let w0 = -1, w1 = -1, redEdge = -1;
+    for (let t = 0; t < 400; t += 0.02) {
+      const p = px(cx + Math.cos(a) * t, cy + Math.sin(a) * t);
+      if (!p || p.a <= 200) break;
+      const white = p.r > 200 && p.g > 200 && p.b > 200;
+      if (white) { if (w0 < 0) w0 = t; w1 = t; }
+      else if (w0 >= 0 && t > w1 + 0.2) break;
+    }
+    for (let t = w1; t < 400; t += 0.02) {
+      const p = px(cx + Math.cos(a) * t, cy + Math.sin(a) * t);
+      if (!p || p.a <= 200) break;
+      if (p.r > 120 && p.r > p.g + 50) redEdge = t;
+    }
+    return { D: D, line: w1 - w0, inset: redEdge - w1, want: 12.7 * D / 273 };
+  }, sampler);
+  ok("the placard's inner line is 12.7 mm wide and 12.7 mm in, both perpendicular",
+     Math.abs(inner.line - inner.want) < 0.7 && Math.abs(inner.inset - inner.want) < 0.7,
+     `line ${inner.line.toFixed(2)} mm, clear edge ${inner.inset.toFixed(2)} mm — ` +
+     `12.7 scaled to this ${inner.D.toFixed(0)} mm placard is ${inner.want.toFixed(2)}`);
+
+  /* ---- type is centred on its ink, not on the em square ---- */
+  const inkCentre = async (over, pick) => {
+    await one(over);
+    return await page.evaluate(([s, pk]) => {
+      eval(s);
+      const { st, B, W, H, G } = window.__L;
+      const L = window.ForgeLabel.layout(st.P);
+      const box = (new Function("L", "G", "st", "return " + pk))(L, G, st);
+      const x0 = Math.round(box.x / G.Wmm * W) + 2, x1 = Math.round((box.x + box.w) / G.Wmm * W) - 2;
+      const y0 = Math.round(box.y / G.Hmm * H) + 2, y1 = Math.round((box.y + box.h) / G.Hmm * H) - 2;
+      let iy0 = 1e9, iy1 = -1e9, ix0 = 1e9, ix1 = -1e9, n = 0;
+      for (let y = Math.max(0, y0); y <= Math.min(H - 1, y1); y++)
+        for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+          const i = y * W + x;
+          if (B.ALP[i] < 200) continue;
+          const lum = B.A[i * 3] * 0.299 + B.A[i * 3 + 1] * 0.587 + B.A[i * 3 + 2] * 0.114;
+          if (!(box.dark ? lum < box.dark : lum > box.light)) continue;
+          n++; if (y < iy0) iy0 = y; if (y > iy1) iy1 = y;
+          if (x < ix0) ix0 = x; if (x > ix1) ix1 = x;
+        }
+      if (!n) return { miss: true };
+      return { n: n,
+        dy: ((iy0 + iy1 + 1) / 2 / H * G.Hmm) - (box.y + box.h / 2),
+        dx: ((ix0 + ix1 + 1) / 2 / W * G.Wmm) - (box.x + box.w / 2),
+        h: box.h, w: box.w };
+    }, [sampler, pick]);
+  };
+  const word = await inkCentre(
+    { format: "ansi", Wmm: 100, Hmm: 50, size: 1024, hdrAlign: "center", alertSym: false,
+      bPicto: false, signal: "danger" },
+    /* the inner 80% of the panel, on the same centre: a region that stops
+       short of the panel's own edges cannot be biased by the antialiased row
+       where the signal colour meets the ground above it */
+    '(function(){var b=L.bands.hdr;return {x:b.x+b.w*0.05,y:b.y+b.h*0.1,' +
+    'w:b.w*0.9,h:b.h*0.8,light:200};})()');
+  ok("a line of capitals is centred on its ink, not on the em square",
+     !word.miss && Math.abs(word.dy) < word.h * 0.01,
+     `DANGER sits ${word.dy.toFixed(2)} mm off the middle of a ${word.h.toFixed(1)} mm panel ` +
+     `(${(100 * word.dy / word.h).toFixed(1)}%)`);
+  const num = await inkCentre(
+    { format: "nfpa", Wmm: 250, Hmm: 250, size: 1024, bPicto: false, bMsg: false, nFire: 4 },
+    '(function(){var b=L.block;var D=Math.min(b.w,b.h),cx=b.x+b.w/2,cy=b.y+b.h/2;' +
+    'var q=D*0.25,r=q-Math.max(D*0.012,0.25)*Math.SQRT2;' +
+    'return {x:cx-r*0.4,y:cy-q-r*0.4,w:r*0.8,h:r*0.8,light:200};})()');
+  ok("and so is a numeral in its quadrant",
+     !num.miss && Math.abs(num.dy) < num.h * 0.02 && Math.abs(num.dx) < num.w * 0.02,
+     `the 4 sits ${num.dx.toFixed(2)}, ${num.dy.toFixed(2)} mm off the middle of its quadrant`);
+
+  /* ---- the symbol that was worst, by name, as a regression guard ---- */
+  const man = await inkCentre(
+    { format: "iso", isoCat: "safe", Wmm: 300, Hmm: 150, size: 1024, bMsg: false,
+      bPicto: true, sym1: "exit", marginMm: 4, borderMm: 0 },
+    '(function(){var b=L.block;var s=Math.min(b.w,b.h);var R=s*0.30;' +
+    'return {x:b.x+b.w/2-R,y:b.y+b.h/2-R,w:R*2,h:R*2,light:200};})()');
+  ok("the running man is in the middle of the green sign, door, arrow and all",
+     !man.miss && Math.abs(man.dx) < man.w * 0.02 && Math.abs(man.dy) < man.h * 0.02,
+     `${man.dx.toFixed(2)}, ${man.dy.toFixed(2)} mm off the middle of an ` +
+     `${man.w.toFixed(0)} mm symbol circle`);
+
   /* ---- the readout says which row of the table it landed in ---- */
   const said = await page.evaluate(([base]) => {
     const m = window.Forge.byId.label;

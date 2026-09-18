@@ -288,7 +288,7 @@ const SYM=[
     poly(g,[0.34,-0.95, -0.42,0.06, -0.02,0.06, -0.30,0.95, 0.52,-0.16, 0.10,-0.16]);
     g.fill();
   }},
-  {id:"trefoil",label:"Radiation — trefoil (ISO 361)",draw:function(g){
+  {id:"trefoil",label:"Radiation — trefoil (ISO 361)",anchored:true,draw:function(g){
     const R=0.20;                                  /* the centre disc */
     dot(g,0,0,R);
     for(let i=0;i<3;i++){
@@ -296,7 +296,7 @@ const SYM=[
       sector(g,0,0,R*1.5,R*5,a-30*DEG,a+30*DEG);
     }
   }},
-  {id:"biohazard",label:"Biohazard (ISO 7010 W009)",draw:function(g){
+  {id:"biohazard",label:"Biohazard (ISO 7010 W009)",anchored:true,draw:function(g){
     /* three interlocking rings around a centre, the arms reaching in */
     const d=0.56,ro=0.50,ri=0.27;
     dot(g,0,0,0.20);
@@ -669,6 +669,86 @@ const SYM=[
 ];
 const SYM_BY={};for(const s of SYM)SYM_BY[s.id]=s;
 
+/* ---- where a symbol's ink actually is, measured once ----
+   NOTHING IN THE CATALOGUE FILLS ITS -1..1 BOX EXACTLY, and nothing should
+   have to: a flame leans, an exit sign carries a door and an arrow off to one
+   side, a pair of goggles is twice as wide as it is tall, and an exclamation
+   mark is a sixth as wide as it is tall. Place a symbol by its BOX rather
+   than by its INK and it sits off-centre in the frame at a size that depends
+   on which symbol it happens to be — measured on the sign it draws, the
+   running man came out 12% of its own circle right of the middle of a green
+   sign, and the fire extinguisher 26% left.
+
+   So each one is rasterised once into a small offscreen canvas, its ink box
+   measured, and every later placement works off that: the ink centre lands on
+   the point asked for, and the larger of its two extents fills the size asked
+   for. The scale is held to a narrow band because a symbol drawn deliberately
+   compact — the first aid cross, which is not supposed to fill its square —
+   should not be inflated to fill one.
+
+   `anchored` is the opt-out, and it is a geometric claim rather than a taste
+   one: a trefoil and a biohazard are three-fold symmetric about a centre
+   disc, so their ink box is legitimately lopsided — one blade up, two down —
+   and centring THAT would tip the symbol off its own axis. Those two are
+   fitted but never moved.
+
+   If the canvas cannot be had at all, every symbol falls back to being placed
+   by its box, which is what this file did before. */
+const INK_N=128;
+let INK=null;
+function inkOf(id){
+  if(!INK){
+    INK={};
+    let g=null;
+    try{
+      const c=document.createElement("canvas");
+      c.width=c.height=INK_N;
+      g=c.getContext("2d",{willReadFrequently:true});
+    }catch(e){g=null;}
+    for(const sym of SYM){
+      INK[sym.id]={cx:0,cy:0,k:1};
+      if(!g||sym.id==="none")continue;
+      const s=INK_N/2/1.45;                     /* headroom: some overflow the box */
+      g.setTransform(1,0,0,1,0,0);
+      g.clearRect(0,0,INK_N,INK_N);
+      g.save();
+      g.translate(INK_N/2,INK_N/2);g.scale(s,s);
+      g.fillStyle="#fff";g.strokeStyle="#fff";
+      g.lineJoin="round";g.lineCap="round";g.lineWidth=0.12;
+      try{sym.draw(g,1);}catch(e){}
+      g.restore();
+      let d=null;
+      try{d=g.getImageData(0,0,INK_N,INK_N).data;}catch(e){d=null;}
+      if(!d)continue;
+      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+      for(let y=0;y<INK_N;y++)for(let x=0;x<INK_N;x++){
+        if(d[(y*INK_N+x)*4+3]<16)continue;
+        if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+      }
+      if(x1<x0)continue;
+      const u=v=>(v+0.5-INK_N/2)/s;
+      const ax=u(x0),bx=u(x1),ay=u(y0),by=u(y1);
+      const k=clamp(2/Math.max(bx-ax,by-ay,1e-6),0.82,1.3);
+      INK[sym.id]=sym.anchored?{cx:0,cy:0,k:k}
+                              :{cx:(ax+bx)*0.5,cy:(ay+by)*0.5,k:k};
+    }
+  }
+  return INK[id]||{cx:0,cy:0,k:1};
+}
+/* the transform every vector symbol is drawn under, and the only place that
+   knows about the measurement. The fill is the caller's — alertMark draws one
+   of these as a knock-out. */
+function vecInto(g,sym,id,cx,cy,R){
+  const n=inkOf(id);
+  g.save();
+  g.translate(cx,cy);
+  g.scale(R*n.k,R*n.k);
+  g.translate(-n.cx,-n.cy);
+  g.lineJoin="round";g.lineCap="round";g.lineWidth=0.12;
+  sym.draw(g,1);
+  g.restore();
+}
+
 /* ============================ stock sizes ============================
    Labels are ordered off a list, not invented, so the list is here. Picking
    one writes the two dimensions and drops the select back to Custom, which
@@ -842,16 +922,32 @@ function drawLine(g,s,x,y,align,track,px){
     cx+=g.measureText(ch).width+track*px;
   }
 }
-function drawBlock(g,fit,x,y,w,align,track){
+/* CENTRE THE INK, NOT THE EM SQUARE. textBaseline "middle" centres the em,
+   whose midpoint sits wherever the font's own ascent and descent put it and
+   is nowhere near the middle of a line of capitals — measured on its own
+   panel, DANGER came out 11% of the panel height off centre, and an NFPA
+   numeral 14% of its quadrant. So the block is placed by the ink it actually
+   makes: one measurement of the tallest ascent and deepest descent across its
+   lines, one offset for the whole block, so the leading stays even and the
+   lines do not jitter against each other. */
+function drawBlock(g,fit,x,y,w,h,align,track,valign,ratio){
   if(!fit.px)return 0;
   const lh=fit.px*fit.lead;
-  g.textBaseline="middle";
+  g.textBaseline="alphabetic";
+  /* the ratio is measured off a scratch context at a large size, because the
+     same call made here — at the millimetre sizes a label is set in — answers
+     on a grid a fifth of a cap high. If there was no ratio to be had, fall
+     back to a cap height, which is right for the capitals most of these
+     panels carry. */
+  const asc=ratio?ratio.a*fit.px:fit.px*CAP;
+  const des=ratio?ratio.d*fit.px:0;
+  const inkH=(fit.lines.length-1)*lh+asc+des;
+  const top=(valign==="top")?y:(valign==="bottom")?(y+h-inkH):(y+(h-inkH)*0.5);
   for(let i=0;i<fit.lines.length;i++){
-    const cy=y+lh*(i+0.5);
     const cx=(align==="center")?x+w/2:(align==="right")?x+w:x;
-    drawLine(g,fit.lines[i],cx,cy,align,track,fit.px);
+    drawLine(g,fit.lines[i],cx,top+asc+lh*i,align,track,fit.px);
   }
-  return fit.lines.length*lh;
+  return inkH;
 }
 
 /* ============================ layout ============================
@@ -1167,6 +1263,61 @@ const SYMSTACK='"Apple Symbols","Segoe UI Symbol","Noto Sans Symbols2","Noto San
 const CAP=0.72;
 const fontFor=(stack,weight)=>px=>weight+" "+px+"px "+stack;
 
+/* ============================ measuring ink ============================
+   actualBoundingBox* is the only way to ask where a string's INK is rather
+   than where its em box is, and it comes back QUANTISED TO WHOLE PIXELS OF
+   THE NOMINAL FONT SIZE — not of the device, and not of the transform. Asked
+   at an 8 mm font in a context scaled to millimetres it answers on a 1 mm
+   grid: a cap height that rasterises at 5.60 is reported as 5.00, and every
+   weight from 400 to 800 gives the same 5.00. Centre a line on that and it
+   sits a third of a millimetre high on an 11 mm panel.
+
+   So ink is measured ONCE per string at a large nominal size on a scratch
+   context of its own, where the quantum is a quarter of a per cent, and
+   returned as a FRACTION OF THE EM for the caller to scale. The scratch
+   context is unscaled and off-screen; a face loaded through ForgeFonts is
+   registered against the document, so it is available here as well. */
+const REF=400;
+let MEAS;
+function measCtx(){
+  if(MEAS!==undefined)return MEAS;
+  try{
+    const c=document.createElement("canvas");
+    c.width=c.height=8;
+    MEAS=c.getContext("2d")||null;
+  }catch(e){MEAS=null;}
+  return MEAS;
+}
+/* -> {a,d} ascent and descent of the tallest and deepest line, in em units */
+function inkRatio(stack,weight,lines){
+  const g=measCtx();
+  if(!g)return null;
+  g.font=weight+" "+REF+"px "+stack;
+  let a=-1,d=-1;
+  for(const l of lines){
+    if(!l||!l.length)continue;
+    const m=g.measureText(l);
+    if(!isFinite(m.actualBoundingBoxAscent)||!isFinite(m.actualBoundingBoxDescent))continue;
+    a=Math.max(a,m.actualBoundingBoxAscent);
+    d=Math.max(d,m.actualBoundingBoxDescent);
+  }
+  return (a<0)?null:{a:a/REF,d:d/REF};
+}
+/* the same for one glyph, which also wants its horizontal extents: a symbol
+   is centred on its ink both ways */
+function glyphInk(text){
+  const g=measCtx();
+  if(!g)return null;
+  g.font="400 "+REF+"px "+SYMSTACK;
+  g.textAlign="center";g.textBaseline="alphabetic";
+  const m=g.measureText(text);
+  const a=m.actualBoundingBoxAscent,d=m.actualBoundingBoxDescent,
+        l=m.actualBoundingBoxLeft,r=m.actualBoundingBoxRight;
+  if(!isFinite(a)||!isFinite(d)||!isFinite(l)||!isFinite(r))return null;
+  if((a+d)<=0||(r+l)<=0)return null;
+  return {a:a/REF,d:d/REF,l:l/REF,r:r/REF};
+}
+
 /* ============================ how it was applied ============================ */
 function styleOf(P){
   const M=markOf(P),mat=matOf(P);
@@ -1223,9 +1374,8 @@ function typeset(A,text,x,y,w,h,o){
   if(!fit.px)return fit;
   A.mark(o.col||"#000000");
   g.font=ff(fit.px);
-  const used=fit.lines.length*fit.px*fit.lead;
-  const oy=(o.valign==="top")?0:(o.valign==="bottom"?(h-used):(h-used)*0.5);
-  drawBlock(g,fit,x,y+oy,w,o.align||"center",o.track||0);
+  fit.inkH=drawBlock(g,fit,x,y,w,h,o.align||"center",o.track||0,o.valign,
+                     inkRatio(stack,o.weight||"700",fit.lines));
   fit.capMm=fit.px*CAP;
   return fit;
 }
@@ -1236,34 +1386,32 @@ function drawSymbol(A,cell,cx,cy,R,col){
   if(!cell||cell.id==="none")return;
   A.mark(col);
   if(cell.glyph){
-    /* the glyph is measured and then fitted, because a browser's idea of how
+    /* The glyph is measured and then fitted, because a browser's idea of how
        much of the em a symbol fills varies wildly between one code point and
-       the next — an emoji fills it, a dingbat rattles around inside it */
-    let px=R*2;
+       the next — an emoji fills it, a dingbat rattles around inside it.
+
+       actualBoundingBoxLeft is SIGNED: positive means the ink runs left of the
+       anchor, negative that it starts to the right of it. So the ink spans
+       [x - left, x + right], its width is right + left and its centre is at
+       x + (right - left) / 2. Taking the absolute value of it — which is easy
+       to do and reads as harmless — shrinks and shifts any glyph whose ink
+       does not straddle its own anchor. */
     g.textAlign="center";g.textBaseline="alphabetic";
-    g.font="400 "+px+"px "+SYMSTACK;
-    const m=g.measureText(cell.text);
-    const asc=m.actualBoundingBoxAscent,des=m.actualBoundingBoxDescent,
-          lf=m.actualBoundingBoxLeft,rt=m.actualBoundingBoxRight;
-    if(isFinite(asc)&&isFinite(des)&&(asc+des)>0.001&&isFinite(lf)&&isFinite(rt)){
-      const gw=Math.abs(lf)+Math.abs(rt),gh=asc+des;
-      const k=Math.min((R*2)/Math.max(gw,1e-6),(R*2)/Math.max(gh,1e-6));
-      px*=k;
+    const r=glyphInk(cell.text);
+    if(r){
+      /* everything in em units, so one measurement settles both the size and
+         the offset and there is nothing to iterate */
+      const px=(R*2)/Math.max(r.r+r.l,r.a+r.d,1e-6);
       g.font="400 "+px+"px "+SYMSTACK;
-      const m2=g.measureText(cell.text);
-      const cy2=cy+(m2.actualBoundingBoxAscent-m2.actualBoundingBoxDescent)*0.5;
-      const cx2=cx-(m2.actualBoundingBoxRight-Math.abs(m2.actualBoundingBoxLeft))*0.5;
-      g.fillText(cell.text,cx2,cy2);
+      g.fillText(cell.text,cx-(r.r-r.l)*0.5*px,cy+(r.a-r.d)*0.5*px);
     }else{
-      g.textBaseline="middle";g.fillText(cell.text,cx,cy);
+      g.textBaseline="middle";
+      g.font="400 "+(R*2)+"px "+SYMSTACK;
+      g.fillText(cell.text,cx,cy);
     }
     return;
   }
-  g.save();
-  g.translate(cx,cy);g.scale(R,R);
-  g.lineJoin="round";g.lineCap="round";g.lineWidth=0.12;
-  cell.sym.draw(g,1);
-  g.restore();
+  vecInto(g,cell.sym,cell.id,cx,cy,R);
 }
 
 /* ---- the ISO geometries, which every frame in the app shares ---- */
@@ -1273,27 +1421,42 @@ function isoTriangle(A,P,cx,cy,side,bandFrac,bg,band){
   const h=side*SQ3/2;
   const r=side*0.085;
   const top=cy-h*0.5,bot=cy+h*0.5;
+  const out=[[cx,top],[cx+side/2,bot],[cx-side/2,bot]];
   if(A.field(band)||A.mask){
     A.mask?A.mark(band):0;
-    roundPoly(g,[[cx,top],[cx+side/2,bot],[cx-side/2,bot]],r);
+    roundPoly(g,out,r);
     g.fill();
   }
-  const k=1-bandFrac*2.6;                 /* the inner triangle, same centroid */
+  /* THE INNER TRIANGLE IS A HOMOTHETY ABOUT THE INCENTRE, which for an
+     equilateral triangle is its centroid, a sixth of the height below the
+     middle of the bounding box. Scale about the middle of the box instead —
+     which is the obvious thing to write, and what this did — and the two
+     triangles are similar but not concentric: the band comes out twice as
+     wide along the base as along the two slants. Measured on a 192 mm sign it
+     was 18.5 mm at the base against 9.2 mm at the sides.
+
+     Scaling about the incentre makes the band uniform, and then the factor
+     follows from the inradius: a band of bandFrac x side needs
+     1 - k = bandFrac x side / r_in with r_in = side / (2 root 3). */
+  const Iy=cy+h/6;
+  const k=clamp(1-bandFrac*2*SQ3,0.2,0.985);
+  const inner=out.map(pt=>[cx+(pt[0]-cx)*k,Iy+(pt[1]-Iy)*k]);
   if(A.field(bg)){
-    roundPoly(g,[[cx,cy+(top-cy)*k],[cx+side*k/2,cy+(bot-cy)*k],[cx-side*k/2,cy+(bot-cy)*k]],r*k);
+    roundPoly(g,inner,r*k);
     g.fill();
   }else if(A.mask){
     /* no field to put the band on, so the band is the mark: take the middle
        back out and what is left is an outline of the right width */
     g.globalCompositeOperation="destination-out";g.fillStyle="#000";
-    roundPoly(g,[[cx,cy+(top-cy)*k],[cx+side*k/2,cy+(bot-cy)*k],[cx-side*k/2,cy+(bot-cy)*k]],r*k);
+    roundPoly(g,inner,r*k);
     g.fill();
     g.globalCompositeOperation="source-over";
   }
-  /* the symbol sits on the centroid of the inner triangle, not on the middle
-     of its bounding box — which is a third of the way up and is the single
-     most visible thing about a triangle sign drawn wrong */
-  return {cx:cx,cy:cy+h*(1/6),R:side*0.20};
+  /* the symbol sits on the centroid, not on the middle of the bounding box —
+     which is a third of the way up and is the single most visible thing about
+     a triangle sign drawn wrong. 0.175 of the side puts its ink at about 86%
+     of the inner triangle's inscribed circle. */
+  return {cx:cx,cy:Iy,R:side*0.175};
 }
 function isoCircle(A,P,cx,cy,d,cat){
   const g=A.g;
@@ -1375,10 +1538,9 @@ function alertMark(A,cx,cy,side,fg,bg){
   roundPoly(g,[[cx,cy-h*0.5],[cx+side*0.5,cy+h*0.5],[cx-side*0.5,cy+h*0.5]],side*0.11);
   g.fill();
   A.knock(bg);
-  g.save();
-  g.translate(cx,cy+h*0.15);g.scale(side*0.26,side*0.26);
-  SYM_BY.alert.draw(g);
-  g.restore();
+  /* on the CENTROID, a sixth of the height below the middle of the box — the
+     same point a triangle sign puts its symbol on, and now ink-centred on it */
+  vecInto(g,SYM_BY.alert,"alert",cx,cy+h/6,side*0.215);
   A.knockEnd();
 }
 
@@ -1454,6 +1616,14 @@ function paintMsg(A,P,L,b){
   const col=str(P.cText,"")||"#111111";
   const align=str(P.msgAlign,"center");
   const pad=Math.min(b.h*0.05,1.5);
+  /* A LINE OF TYPE IS FITTED TO THE WIDTH IT IS GIVEN, so give it less than
+     the whole content box: fitted to the box itself, a long headline lands
+     hard against the keyline drawn just outside it and the label reads as
+     over-set. The signal panel is a different case and keeps the full width —
+     a real ANSI panel runs edge to edge — so the padding belongs to the text
+     bands rather than to the box they are cut from. */
+  const padX=Math.min(b.w*0.03,2);
+  b={x:b.x+padX,y:b.y,w:Math.max(1,b.w-padX*2),h:b.h};
   let y=b.y+pad,h=b.h-pad*2;
   if(head.length&&body.length){
     const hh=h*clamp(num(P.headFrac,0.42),0.15,0.8);
@@ -1518,8 +1688,10 @@ function paintFoot(A,P,L,b){
   if(!b)return;
   const t=str(P.footText,"");
   if(!t.length)return;
-  typeset(A,t,b.x,b.y,b.w,b.h,{col:str(P.cText,"")||"#111111",weight:"400",
-    align:str(P.footAlign,"left"),lines:2,lead:1.2});
+  const padX=Math.min(b.w*0.02,1.5);
+  typeset(A,t,b.x+padX,b.y,Math.max(1,b.w-padX*2),b.h,
+    {col:str(P.cText,"")||"#111111",weight:"400",
+     align:str(P.footAlign,"left"),lines:2,lead:1.2});
 }
 
 /* ---- the block formats: geometry that belongs to a standard ---- */
@@ -1555,7 +1727,9 @@ function paintNfpa(A,P,L){
   const D=Math.min(b.w,b.h);
   const cx=b.x+b.w*0.5,cy=b.y+b.h*0.5;
   const q=D*0.25;                                  /* each quadrant's half-diagonal */
-  const gap=Math.max(D*0.012,0.25);
+  /* the gap is a width you could measure with a rule, so it is taken
+     perpendicular to the edges and converted, not subtracted from a diagonal */
+  const gap=Math.max(D*0.012,0.25)*Math.SQRT2;
   const quads=[
     {dx:-q,dy:0,col:str(P.cNfpaH,"")||"#0058a8",val:String(clamp(P.nHealth|0,0,4))},
     {dx:0,dy:-q,col:str(P.cNfpaF,"")||"#c8102e",val:String(clamp(P.nFire|0,0,4))},
@@ -1621,14 +1795,29 @@ function paintPlacard(A,P,L){
     for(let i=-n;i<=n;i++)g.fillRect(cx+i*w*2-w*0.5,y0,w,y1-y0);
     g.restore();
   }
-  /* the inner line */
+  /* THE INNER LINE IS 12.7 mm WIDE AND SET 12.7 mm IN FROM THE EDGE, and both
+     of those are perpendicular distances. On a square on point a millimetre of
+     edge clearance is root-2 millimetres of diagonal, so insetting along the
+     diagonal — which is what pts() takes — puts the line at seven tenths of
+     the distance the rule asks for: 9 mm instead of 12.7 on a full-size
+     placard. */
   const fg=inkOn(C.top);
   A.mask?A.mark(fg):(A.field(fg)||A.mark(fg));
-  g.lineWidth=line;g.lineJoin="miter";
-  roundPoly(g,pts(D*0.5-inset-line*0.5),D*0.01);g.stroke();
-  g.lineJoin="round";
+  /* A MITRED JOIN ON A DIAMOND SPIKES. The corner is 90 degrees, so the mitre
+     runs out to root-2 half-widths beyond the path — a black dart pointing at
+     the placard's own point, outside the line it belongs to. Rounded joins on
+     a slightly radiused path give the corner a real placard has. */
+  g.lineWidth=line;g.lineJoin="round";g.lineCap="round";
+  roundPoly(g,pts(D*0.5-(inset+line*0.5)*Math.SQRT2),D*0.02);g.stroke();
   const cell=L.cells[0]||(C.sym!=="none"?{glyph:false,id:C.sym,sym:SYM_BY[C.sym]}:null);
-  drawSymbol(A,cell,cx,cy-D*0.23,D*0.155,fg);
+  /* CLEAR OF THE INNER LINE, and clear by enough to read as a symbol on a
+     placard rather than as part of its frame. The line crosses the vertical
+     axis 0.37 of the diagonal up — it is set in from the edge on the
+     perpendicular, not along the diagonal — and a symbol that now fills the
+     size it is given rather than two thirds of it was reaching to within a
+     few millimetres of it, leaving a sliver of colour trapped between the
+     two. 0.125 of the diagonal leaves 13 mm of air on a full-size placard. */
+  drawSymbol(A,cell,cx,cy-D*0.20,D*0.125,fg);
   const bf=inkOn(C.bot);
   /* A UN number panel and the written name are ALTERNATIVES, not a stack: the
      panel goes where the name would have gone, so drawing both put one on top
@@ -1643,11 +1832,16 @@ function paintPlacard(A,P,L){
     typeset(A,un,cx-pw*0.46,cy-ph*0.42,pw*0.92,ph*0.84,
       {col:"#111111",weight:"700",align:"center",lines:1});
   }else{
-    typeset(A,str(P.dotText,""),cx-D*0.32,cy-D*0.02,D*0.64,D*0.11,
+    /* INSIDE THE LINE, AT ITS OWN HEIGHT. The room across a square on point
+       narrows with every millimetre away from the middle, so a box as wide as
+       the widest part of it runs the wording out over the line: the available
+       half-width at the bottom of this box is 0.27 of the diagonal, not the
+       0.32 the middle would allow. */
+    typeset(A,str(P.dotText,""),cx-D*0.27,cy-D*0.02,D*0.54,D*0.11,
       {col:bf,weight:"700",caps:true,align:"center",lines:1,track:0.02});
   }
-  /* the class number in the bottom corner */
-  typeset(A,C.num,cx-D*0.19,cy+D*0.16,D*0.38,D*0.17,
+  /* the class number in the bottom corner, inside the line at ITS height */
+  typeset(A,C.num,cx-D*0.13,cy+D*0.15,D*0.26,D*0.16,
     {col:bf,weight:"700",align:"center",lines:1});
 }
 /* ASME A13.1: the legend on its colour field, with the flow arrow beside it.
@@ -1680,17 +1874,23 @@ function paintPipe(A,P,L,G){
   for(let r=0;r<reps;r++){
     const midY=b.y+rowH*(r+0.5);
     A.mark(fg);
-    g.textBaseline="middle";
+    g.textBaseline="alphabetic";
     g.font="700 "+(cap/CAP)+"px "+A.stack;
     const tw=measure(g,legend,num(P.trackMsg,0.02),cap/CAP);
     const px=cap/CAP*Math.min(1,legW*0.92/Math.max(tw,1e-6));
     g.font="700 "+px+"px "+A.stack;
-    drawLine(g,legend,legX+legW*0.5,midY-(sub.length?cap*0.68:0),
+    /* the legend's own ink, centred on the line it belongs on — the cap height
+       is the standard's number, so it is the CAPS that have to sit on centre */
+    const ink=(v,w,size)=>{
+      const r=inkRatio(A.stack,w,[v]);
+      return r?(r.a-r.d)*0.5*size:size*CAP*0.5;
+    };
+    drawLine(g,legend,legX+legW*0.5,midY-(sub.length?cap*0.68:0)+ink(legend,"700",px),
              "center",num(P.trackMsg,0.02),px);
     if(sub.length){
       const spx=px*0.46;
       g.font="400 "+spx+"px "+A.stack;
-      drawLine(g,sub,legX+legW*0.5,midY+cap*0.72,"center",0.02,spx);
+      drawLine(g,sub,legX+legW*0.5,midY+cap*0.72+ink(sub,"400",spx),"center",0.02,spx);
     }
     /* the flow arrow: chevrons sized to the letters, filling the row, and
        kept a stroke width clear of the edge so the round cap is not clipped */
@@ -2846,6 +3046,7 @@ window.ForgeLabel={
   SYM:SYM,SYM_BY:SYM_BY,SIGNAL:SIGNAL,ISOCAT:ISOCAT,PIPEC:PIPEC,DOTC:DOTC,
   MATS:MATS,MARKS:MARKS,FORMATS:FORMATS,STOCK_MM:STOCK_MM,A13:A13,DN:DN,PLACARD:PLACARD,
   a13Of:a13Of,code39:code39,sizeOf:sizeOf,layout:layout,shapeOf:shapeOf,holesOf:holesOf,
+  inkOf:inkOf,isoShape:isoShape,
   innerBox:innerBox,inkOn:inkOn,styleOf:styleOf,fitText:fitText,splitPara:splitPara,
   tableRows:tableRows,pictoCells:pictoCells,CAP:CAP
 };

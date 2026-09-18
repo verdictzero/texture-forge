@@ -372,6 +372,31 @@ Label — warning labels, safety signs, placards, pipe markers, data plates
   from the browser's own fonts, so the readout says which cells are on a glyph
   rather than a path.
 
+  CENTRING, which on a label is most of what "looks right" means. A label is
+  a stack of things centred inside other things — a symbol in a frame, a
+  frame in a cell, a cell in a band, a band in the blank — and an error at
+  any level reads as sloppiness at every level above it, so none of it is
+  done by eye. Two mechanisms do the work:
+
+    Every symbol is rasterised once and its INK BOX measured, because nothing
+    in the catalogue fills its own drawing box exactly and nothing should have
+    to — a flame leans, an exit sign carries a door and an arrow off to one
+    side, a pair of goggles is twice as wide as it is tall. The ink centre
+    then lands on the point asked for and the larger extent fills the size
+    asked for, so every symbol is the same apparent size in the same frame.
+    The exception is declared rather than assumed: the trefoil and the
+    biohazard are three-fold symmetric about a centre disc, so their ink box
+    is legitimately lopsided and they are fitted but never moved.
+
+    Type is centred on its INK rather than on the em square, which is where
+    the middle of a line of capitals actually is. That needs a real cap
+    height, and asking the browser for one at the millimetre sizes a label is
+    set in gets an answer quantised to whole pixels of the font size — a cap
+    that rasterises at 5.60 comes back as 5.00, at every weight. So the ink is
+    measured once per string at a large nominal size on a scratch context and
+    scaled, which takes the signal word from a millimetre off the middle of
+    its panel to two hundredths of one.
+
   Composition: a signal panel, a row of pictogram cells (or a column beside
   the message, or a badge in the panel), a headline and body, a table of
   key/value rows, a barcode and a footer — each one switchable, each one
@@ -2348,7 +2373,19 @@ It also covers the thirteen things that are easy to break silently:
             while a laser mark stays metallic, a photoluminescent sheet glows
             out through a white symbol and not through a green field, and
             every bar of the barcode is still its own bar after rasterising
-            with its ten modules of quiet ground each side
+            with its ten modules of quiet ground each side. Then CENTRING,
+            level by level and in millimetres: every symbol's ink on the point
+            it was placed at, nothing left rattling around its box or hanging
+            out of it, the two anchored symbols symmetric about the axis that
+            earns them the exemption, the ISO triangle's band the same width
+            on all three sides (it is a homothety about the incentre — scale
+            about the middle of the bounding box instead and the base band
+            comes out twice the slants), the prohibition annulus concentric,
+            49 CFR's 12.7 mm line 12.7 mm in on the PERPENDICULAR, a line of
+            capitals centred on its ink rather than its em square, and the
+            running man in the middle of the green sign, door and arrow and
+            all — which he was 12% of his own circle off before any of this
+            was measured
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them

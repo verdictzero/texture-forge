@@ -520,6 +520,27 @@ mode sets real type:
   and not others, and spacing is exactly the kind of thing somebody specified.
   Drawing glyph by glyph off the measured advance is a dozen lines and works
   everywhere.
+- **Centre type on its INK, not on the em square.** `textBaseline:"middle"`
+  centres the em, whose midpoint sits wherever the font's ascent and descent
+  put it and is nowhere near the middle of a line of capitals — a signal word
+  set that way lands a tenth of its panel low. `actualBoundingBoxAscent` is
+  the right question, but it comes back **quantised to whole pixels of the
+  nominal font size** — not of the device, and not of the transform. Asked at
+  an 8 mm font in a context scaled to millimetres it answers on a 1 mm grid: a
+  cap height that rasterises at 5.60 is reported as 5.00, identically at every
+  weight from 400 to 800. So measure once per string at a large nominal size
+  (400 px) on a scratch context of its own, keep the answer as a fraction of
+  the em, and scale it. Same trick for fitting a glyph into a box.
+- **Place a drawn symbol by its ink, not by its box.** Nothing you draw fills
+  its own -1..1 box exactly and nothing should have to, so rasterise each one
+  once into a small offscreen canvas, measure the ink box, and place and scale
+  everything off that. Otherwise every symbol is a different apparent size and
+  some are visibly off centre — in that mode's catalogue the worst were a
+  quarter of their own box out. Where a symbol is *meant* to sit on an axis
+  rather than in the middle of its ink — anything with three-fold symmetry
+  about a centre, like a radiation trefoil — mark it and skip the move, and
+  make that a geometric claim you can test (its mass centroid is on the
+  origin) rather than a note.
 - **A catalogue of vector symbols, plus an escape hatch.** Every pictogram in
   that mode is drawn from paths, because a trefoil made of three 60° sectors IS
   the trefoil and one made from whatever glyph a font carries is a picture of
