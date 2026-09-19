@@ -545,6 +545,50 @@ A `type:"font"` control gives the user a picker plus a Load button that register
 a file straight from its bytes, so it works on the hosted copy too. Faces are
 global: one registered for your mode is available to every other.
 
+`modes/label.js` is the worked example for lettering that has to be *right*
+rather than merely present, and three things in it are worth copying if your
+mode sets real type:
+
+- **Fit the text to the box, do not hope.** `fitText` wraps on words, honours an
+  explicit break, and then shrinks until the block fits both the width and the
+  height — and it hands back the size it landed on, so the readout can quote the
+  cap height in millimetres. A standard that specifies a letter height is
+  specifying a cap height, and cap is about 0.72 of the em in every grotesque a
+  label is ever set in.
+- **Do letter tracking yourself.** `ctx.letterSpacing` exists in some browsers
+  and not others, and spacing is exactly the kind of thing somebody specified.
+  Drawing glyph by glyph off the measured advance is a dozen lines and works
+  everywhere.
+- **Centre type on its INK, not on the em square.** `textBaseline:"middle"`
+  centres the em, whose midpoint sits wherever the font's ascent and descent
+  put it and is nowhere near the middle of a line of capitals — a signal word
+  set that way lands a tenth of its panel low. `actualBoundingBoxAscent` is
+  the right question, but it comes back **quantised to whole pixels of the
+  nominal font size** — not of the device, and not of the transform. Asked at
+  an 8 mm font in a context scaled to millimetres it answers on a 1 mm grid: a
+  cap height that rasterises at 5.60 is reported as 5.00, identically at every
+  weight from 400 to 800. So measure once per string at a large nominal size
+  (400 px) on a scratch context of its own, keep the answer as a fraction of
+  the em, and scale it. Same trick for fitting a glyph into a box.
+- **Place a drawn symbol by its ink, not by its box.** Nothing you draw fills
+  its own -1..1 box exactly and nothing should have to, so rasterise each one
+  once into a small offscreen canvas, measure the ink box, and place and scale
+  everything off that. Otherwise every symbol is a different apparent size and
+  some are visibly off centre — in that mode's catalogue the worst were a
+  quarter of their own box out. Where a symbol is *meant* to sit on an axis
+  rather than in the middle of its ink — anything with three-fold symmetry
+  about a centre, like a radiation trefoil — mark it and skip the move, and
+  make that a geometric claim you can test (its mass centroid is on the
+  origin) rather than a note.
+- **A catalogue of vector symbols, plus an escape hatch.** Every pictogram in
+  that mode is drawn from paths, because a trefoil made of three 60° sectors IS
+  the trefoil and one made from whatever glyph a font carries is a picture of
+  somebody's idea of it. But a catalogue is closed, so any cell will equally
+  take a Unicode character and draw that instead — measured with
+  `actualBoundingBox*` and fitted, because how much of the em a symbol fills
+  varies wildly from one code point to the next. Say which is which in the
+  readout: the glyph is the browser's, and a missing code point is a box.
+
 ## Structures: several faces of one thing
 
 A house is four textures and a diner is three. `Forge.setParam` above is how two

@@ -24,6 +24,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/roof.js         seamless roofing over it
   modes/fence.js        fencing: board, picket, rail, chain link, mesh, iron
   modes/hazard.js       caution striping and industrial floor marking
+  modes/label.js        warning labels, safety signs, placards, data plates
   modes/ruins.js        ruin-stone plating with etched circuit traces
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter, stacked and routed
@@ -37,7 +38,8 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   ADDING-A-MODE.md      how to write another one
   tools/smoke-test.mjs  builds every mode and checks it, seams included
   tools/feature-test.mjs  the resolution ladder, the palette, the wizard,
-                          the 3D building and the grocery fixtures
+                          the 3D building, the grocery fixtures and the
+                          standards the label mode claims to follow
   .nojekyll             stops GitHub Pages ever filtering modes/_template.js
 
 
@@ -307,6 +309,131 @@ Hazard — caution striping and floor marking
 
   Presets: loading bay, forklift aisle, fire door keep-clear, machine guard,
   radiation store, weathered dock plate, fresh repaint, chequer pad.
+
+Label — warning labels, safety signs, placards, pipe markers, data plates
+  A label is not a texture pattern. It is a manufactured object of a known
+  size, carrying artwork laid out to a published standard, applied to a
+  substrate by a named process, and then worn by the place it was bolted to.
+  This mode draws that object. Everything is in millimetres and the readout
+  quotes the dpi, so the same file goes on a model or to a printer.
+
+  The standards it knows:
+
+    ANSI Z535.4    the signal-word panel — the word, its colour pairing and
+                   the safety-alert triangle — over a message panel. Change
+                   the word and its two colours are rewritten with it.
+    ISO 3864-1 /
+      ISO 7010     the four sign geometries: yellow warning triangle, red
+                   prohibition annulus with its 45 degree bar drawn OVER the
+                   symbol, blue mandatory disc, green or red square. The
+                   symbol sits on the inner triangle's centroid, a third of
+                   the way up, which is the most visible thing about a
+                   triangle sign drawn wrong.
+    UN GHS / CLP   the red square-on-point frame with its border a twelfth of
+                   the side, signal word and hazard statement block, with the
+                   pictogram over the wording or beside it.
+    NFPA 704       the four-diamond assembly, blue-red-yellow-white reading
+                   anticlockwise from the left, the 0-4 ratings and the W, OX,
+                   SA and COR special notations.
+    NFPA 70E       the arc flash label and the fields 130.5(H) asks for —
+                   voltage, boundary, incident energy at a working distance,
+                   PPE category. Leave one blank and its row disappears.
+    49 CFR 172     the hazmat placard: 273 mm on a side with a 12.7 mm line
+                   set 12.7 mm in, both scaling with the size, the fourteen
+                   class colour schemes including the striped ones, and a UN
+                   number panel that replaces the written name rather than
+                   sitting on top of it.
+    ASME A13.1     pipe marking: the six colour pairings and the table of
+                   colour-field length and letter height BY PIPE DIAMETER,
+                   which is the part everybody gets wrong. Give it an outside
+                   diameter and it tells you which row you landed in. A full
+                   wrap is the circumference, and the legend repeats around it
+                   so one is always facing you.
+    Code 39        a real barcode, not stripes that look like one: nine
+                   elements a character, three of them wide, start and stop,
+                   and ten narrow modules of quiet ground each side. It scans.
+                   The readout gives the narrow module in millimetres and warns
+                   below 0.19 mm, where a hand scanner gives up.
+
+  The proportions follow the published geometry closely enough to read as the
+  real thing, and the parts that are tables of numbers rather than drawings
+  are those tables. It is still not a certified reproduction: check it against
+  the standard you are held to before it goes on real plant. The readme in
+  every export says so too.
+
+  Symbols: forty-odd hazard pictograms drawn from paths — trefoil (three 60
+  degree blades between 1.5 and 5 times the centre disc, as ISO 361 has it),
+  biohazard, high voltage, flame, skull, corrosive, oxidiser, explosive, gas
+  cylinder, health, environment, laser, hot surface, cryogenic, magnetic
+  field, RF, crush, pinch, entanglement, blade, suspended load, automatic
+  start, pressure, forklift, slip, fall, the PPE set, the prohibitions and the
+  green safe-condition set. Or set a cell to a Unicode glyph and type
+  whatever you like — the catalogue is closed, the mode is not. That one comes
+  from the browser's own fonts, so the readout says which cells are on a glyph
+  rather than a path.
+
+  CENTRING, which on a label is most of what "looks right" means. A label is
+  a stack of things centred inside other things — a symbol in a frame, a
+  frame in a cell, a cell in a band, a band in the blank — and an error at
+  any level reads as sloppiness at every level above it, so none of it is
+  done by eye. Two mechanisms do the work:
+
+    Every symbol is rasterised once and its INK BOX measured, because nothing
+    in the catalogue fills its own drawing box exactly and nothing should have
+    to — a flame leans, an exit sign carries a door and an arrow off to one
+    side, a pair of goggles is twice as wide as it is tall. The ink centre
+    then lands on the point asked for and the larger extent fills the size
+    asked for, so every symbol is the same apparent size in the same frame.
+    The exception is declared rather than assumed: the trefoil and the
+    biohazard are three-fold symmetric about a centre disc, so their ink box
+    is legitimately lopsided and they are fitted but never moved.
+
+    Type is centred on its INK rather than on the em square, which is where
+    the middle of a line of capitals actually is. That needs a real cap
+    height, and asking the browser for one at the millimetre sizes a label is
+    set in gets an answer quantised to whole pixels of the font size — a cap
+    that rasterises at 5.60 comes back as 5.00, at every weight. So the ink is
+    measured once per string at a large nominal size on a scratch context and
+    scaled, which takes the signal word from a millimetre off the middle of
+    its panel to two hundredths of one.
+
+  Composition: a signal panel, a row of pictogram cells (or a column beside
+  the message, or a badge in the panel), a headline and body, a table of
+  key/value rows, a barcode and a footer — each one switchable, each one
+  dimensioned or left to fit. Cut to a rectangle, a rounded rectangle, a
+  circle, a diamond, a triangle, an octagon or a hang tag, with two or four
+  fixing holes or a grommet. A hole pushes the artwork in past itself, the way
+  a real data plate's printing is pulled inside its corner holes.
+
+  Substrate and process are two questions and the mode asks both. Printed
+  vinyl under a laminate, polycarbonate overlay, anodised aluminium,
+  photo-etched stainless, engraved brass, two-ply phenolic, stamped steel,
+  retroreflective sheeting, photoluminescent sheet, card. Applied by screen
+  print, engraving and paint fill, engraving to the core, photo-etching bare
+  or colour-filled, embossing, or laser marking. The two interact: engraving
+  two-ply phenolic cuts through the dark face and finds the pale core, so the
+  letters come out light AND sunk; laser-marking anodised aluminium changes
+  the colour of the oxide and leaves the surface dead flat and still metallic,
+  where printed ink over the same plate reads as the dielectric it is; a
+  photoluminescent sheet glows out through a white symbol and barely through a
+  green field, because the pigment is in the sheet rather than in the ink.
+
+  Wear: scratches at an angle you set, scuffing and abrasion gathering at the
+  edges where the thing was dragged past, ink worn off, dirt — which gathers
+  in an engraved groove and nowhere else, the one thing that makes an engraved
+  plate read as engraved — oil, UV fade that takes the reds first and takes
+  them toward the substrate rather than toward grey, laminate yellowing,
+  lifting at the edges and crazing. With any wear on, the export also packs
+  the artwork as printed, in its own folder, because the clean one is what you
+  send to a printer.
+
+  Presets: DANGER hazardous voltage, WARNING moving parts, CAUTION hot
+  surface, NOTICE authorised personnel, four ISO 7010 signs and a glowing
+  exit, GHS corrosive drum label and a flammable diamond, NFPA 704, arc flash,
+  etched stainless data plate, engraved phenolic legend, engraved brass
+  plaque, class 3 and class 7 placards, natural gas and potable water pipe
+  markers, lockout tag, retroreflective radiation area, laser-marked anodised
+  asset tag, a sheet of Unicode glyph cells, and twenty years on a pump.
 
 Ruins — ruin-stone plating with etched circuit traces
   The Plating Fabricator tool, folded in: seamless stone plating cut into
@@ -2292,6 +2419,34 @@ It also covers the thirteen things that are easy to break silently:
             true depth at either Relief while the normals do not; and it glows
             only where there is a lamp — a dry goods bay has no light in it and
             a chiller case has its canopy
+  label     the standards, asked of themselves: the A13.1 band and cap
+            heights by pipe diameter, 273 mm and 12.7 mm on a placard, Code
+            39's element patterns and the three-of-nine rule, and characters
+            the symbology cannot carry dropped rather than faked. Then the
+            geometry: every band inside the content box and none overlapping,
+            a band switched off gone rather than empty, a fixing hole pushing
+            the artwork in past itself, a fire diamond filling the placard it
+            is printed on, and the four NFPA quadrants sampled off both axes
+            because a sample on the centre line lands in the numeral. Then
+            the physical claims: a printed mark leaves the face flat and an
+            engraved one is 0.3 mm below it, cutting two-ply phenolic finds
+            the pale core, printed ink over aluminium reads as a dielectric
+            while a laser mark stays metallic, a photoluminescent sheet glows
+            out through a white symbol and not through a green field, and
+            every bar of the barcode is still its own bar after rasterising
+            with its ten modules of quiet ground each side. Then CENTRING,
+            level by level and in millimetres: every symbol's ink on the point
+            it was placed at, nothing left rattling around its box or hanging
+            out of it, the two anchored symbols symmetric about the axis that
+            earns them the exemption, the ISO triangle's band the same width
+            on all three sides (it is a homothety about the incentre — scale
+            about the middle of the bounding box instead and the base band
+            comes out twice the slants), the prohibition annulus concentric,
+            49 CFR's 12.7 mm line 12.7 mm in on the PERPENDICULAR, a line of
+            capitals centred on its ink rather than its em square, and the
+            running man in the middle of the green sign, door and arrow and
+            all — which he was 12% of his own circle off before any of this
+            was measured
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them
@@ -2319,3 +2474,6 @@ The envelope, roof, hazard, fence and ruins modes came later: envelope shares
 the house generator so the faces of one building agree, roof and fence are new
 and belong beside it, hazard is new, and ruins is the separate Plating
 Fabricator tool brought in as a mode.
+
+The label mode is the newest, and the odd one out: every other mode draws a
+material, and that one draws a manufactured object with a part number.
