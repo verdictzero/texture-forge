@@ -463,7 +463,7 @@ if (want("threads")) {
      (flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true"));
 
   /* THE CLAIM. Same parameters, both threads, byte for byte. */
-  for (const id of ["factory", "vent", "slab", "hazard"]) {
+  for (const id of ["factory", "vent", "slab", "hazard", "pcb"]) {
     await wp.click(`#modebar-tabs [data-mode="${id}"]`);
     await wsettle();
     await wp.evaluate(m => window.Forge.setParam(m, "size", 256), id);
@@ -4508,6 +4508,578 @@ if (want("label")) {
      /circumference 359 mm/.test(said.pipe), said.pipe.slice(0, 150));
   ok("and a label too coarse to print says so",
      /under 150 dpi/.test(said.thin), said.thin.slice(0, 120));
+}
+
+
+/* ============================ the circuit board ============================
+   Three kinds of claim, and they are checked in three different ways because
+   they are three different kinds of thing.
+
+   The TABLES are arithmetic and are asked of themselves: an 0603 is 1.60 by
+   0.80 mm or it is not, one ounce of copper is 34.8 um or it is not, and
+   IPC-7351's pad construction either comes out where the standard says or it
+   does not.
+
+   The LAYOUT is geometry and is asked of the layout: no two parts may share
+   ground, nothing may stand on the cut line, and — the one that matters most
+   on a single copper layer — no two tracks may cross, because a crossing is
+   a short.
+
+   The PICTURE is measured off the maps the mode actually produced. The board
+   is the size it says it is (measured off the alpha silhouette), a hole with
+   a component over it is opaque and a mounting hole is not, a tented via
+   drills nothing you can see, and the legend is clipped off the mask
+   openings — each of those is a sample taken in millimetres and converted to
+   texels here, so no test has to know what resolution the board came out at. */
+if (want("pcb")) {
+  console.log("\n— the circuit board —");
+  await page.evaluate(() => window.Forge.activate("pcb"));
+  await settle();
+  ok("the pcb mode is loaded", await page.evaluate(() => !!window.ForgePCB));
+
+  /* ---- the tables, asked of themselves ---- */
+  const tab = await page.evaluate(() => {
+    const F = window.ForgePCB;
+    return {
+      oz: [F.ozUm(0.5), F.ozUm(1), F.ozUm(2), F.ozUm(3)],
+      mil: F.MIL,
+      c0402: F.CHIP["0402"].body, c0603: F.CHIP["0603"].body,
+      c0805: F.CHIP["0805"].body, c1206: F.CHIP["1206"].body,
+      tantC: F.TANT.C.body,
+      /* IPC-7351's construction, on an SOIC-8: 6.00 mm lead span, 3.90 mm
+         body across the leads, 0.45 mm lead width, level B fillets */
+      soic: F.leadRow(6.0, 3.9, 0.45, F.FILLET.gull),
+      via: [F.VIA.drill, F.VIA.ring],
+      /* every outline is quoted long side first, and the mode lays it that way */
+      longFirst: Object.keys(F.FORMATS).filter(k => F.FORMATS[k].w < F.FORMATS[k].h),
+      euro: [F.FORMATS.euro.w, F.FORMATS.euro.h],
+      dimm: [F.FORMATS.dimm.w, F.FORMATS.dimm.h],
+      /* the alphabet the legend is set in */
+      glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split("").filter(c => !F.GLY[c]),
+      gw1: F.glyWidth("R", 0), gw3: F.glyWidth("R12", 0), cap: F.GLY_CAP
+    };
+  });
+  ok("copper weight converts at 1 oz/ft² = 1.37 mil = 34.8 µm",
+     tab.oz.join(",") === "17.4,34.8,69.6,104.4" && Math.abs(tab.mil - 0.0254) < 1e-9,
+     tab.oz.join(", ") + " µm");
+  ok("chip bodies are the EIA sizes, exactly",
+     tab.c0402.slice(0, 2).join("x") === "1x0.5" &&
+     tab.c0603.slice(0, 2).join("x") === "1.6x0.8" &&
+     tab.c0805.slice(0, 2).join("x") === "2x1.25" &&
+     tab.c1206.slice(0, 2).join("x") === "3.2x1.6" &&
+     tab.tantC.slice(0, 2).join("x") === "6x3.2",
+     `0402 ${tab.c0402.slice(0,2).join(" × ")} · 1206 ${tab.c1206.slice(0,2).join(" × ")}`);
+  ok("a leaded pad is the lead plus a toe fillet and a heel fillet",
+     Math.abs(tab.soic.len - ((6.0 - 3.9) / 2 + 0.35 + 0.35)) < 1e-9 &&
+     Math.abs(tab.soic.rad - ((6.0 / 2 + 0.35) + (3.9 / 2 - 0.35)) / 2) < 1e-9 &&
+     Math.abs(tab.soic.wid - (0.45 + 0.06)) < 1e-9,
+     `SOIC-8 pad ${tab.soic.len.toFixed(2)} × ${tab.soic.wid.toFixed(2)} mm ` +
+     `at ${tab.soic.rad.toFixed(3)} mm radius`);
+  ok("every outline is stored and laid long side first",
+     tab.longFirst.length === 0 && tab.euro.join("x") === "160x100" &&
+     tab.dimm.join("x") === "133.35x31.75",
+     tab.longFirst.join(", ") || "all " + Object.keys(tab).length + " checked");
+  ok("the legend alphabet carries every letter and digit",
+     tab.glyphs.length === 0 && Math.abs(tab.gw1 - 4.2) < 1e-9 &&
+     Math.abs(tab.gw3 - (2 * 5.4 + 4.2)) < 1e-9 && tab.cap === 7,
+     tab.glyphs.join("") || "A-Z 0-9 all present");
+
+  /* ---- every part in the catalogue is a part, not a placeholder ---- */
+  const cat = await page.evaluate(() => {
+    const F = window.ForgePCB;
+    const bad = [], nopad = [], nodraw = [], noout = [];
+    for (const p of F.PART) {
+      const inst = { p: p, cs: "0603", tc: "B", dia: 6.3, cols: 6, np: 4, sw: 12, sh: 10 };
+      let fp;
+      try { fp = F.footprint(inst); } catch (e) { bad.push(p.id + ": " + e.message); continue; }
+      if (!fp.pads.length) nopad.push(p.id);
+      /* the fall-through in footprint() is a bare 3 mm square with no pads —
+         a kind nobody wrote a case for lands there and looks like a part */
+      if (fp.pads.length === 0 || (fp.bw === 3 && fp.bh === 3 && fp.pads.length === 0))
+        nodraw.push(p.id);
+      /* and it has to know which way is out of every pad it offers */
+      for (const pn of fp.pins)
+        if (!pn.d || (pn.d[0] === 0 && pn.d[1] === 0)) noout.push(p.id);
+      const placed = F.footprint(inst);
+      const inst2 = Object.assign({}, inst);
+      const recs = (function () {
+        const i3 = Object.assign({ x: 0, y: 0, rot: 0, bw: placed.bw, bh: placed.bh,
+          ht: placed.ht, pads: placed.pads.map(q => Object.assign({}, q)),
+          des: "U1", val: "10K" }, { p: p, fp: placed });
+        try { return F.partRecs(i3, {}, 0.035); } catch (e) { return null; }
+      })();
+      if (p.kind !== "tp" && (!recs || recs.length <= placed.pads.length)) nodraw.push(p.id + "(body)");
+    }
+    return { bad: bad, nopad: nopad, nodraw: nodraw, noout: [...new Set(noout)], n: F.PART.length };
+  });
+  ok("every part in the catalogue has a land pattern",
+     cat.bad.length === 0 && cat.nopad.length === 0,
+     cat.bad.concat(cat.nopad).join(", ") || cat.n + " parts, all landed");
+  ok("and a body drawn for it rather than a placeholder square",
+     cat.nodraw.length === 0, cat.nodraw.join(", ") || "all " + cat.n + " drawn");
+  ok("and knows which way is out of each of its pads",
+     cat.noout.length === 0, cat.noout.join(", ") || "every pad has an escape");
+
+  /* ---- one board, laid out and routed, asked about its own geometry ---- */
+  const BASE = {
+    piece: "board", format: "euro", size: 1024, seed: 7351, lam: "fr4",
+    mask: "green", finish: "hasl", cuOz: 1, layers: 2, maskOp: 0.8, maskUm: 25,
+    maskExp: 0.05, slkUm: 12, cCopper: "#b1682f", cSilk: "#e8e8e4", thickMm: 0,
+    traceMil: 8, clearMil: 8, rstyle: "45", chamMm: 0.6, pour: "gnd", pullMm: 0.8,
+    stitchMm: 4, busN: 4, busW: 8, diffN: 2, serp: 0.25, fan: 0.85, nets: 0.6,
+    pwrMul: 3, tent: true, thermV: true, pop: true, dens: 0.6, fill: 0.5,
+    side: "top", chipSz: 1, mount: "m3", htClip: 4, bodge: 0, bank: true,
+    fingers: true, fid: true,
+    wpass: 1, wact: 1, wic: 1, wcore: 1, wpwr: 1, wclk: 1, wopt: 1, wconn: 1,
+    wrf: 0.6, wmisc: 1,
+    legend: "des", textMm: 1, slkMil: 6, boardName: "TEST BOARD", rev: "A",
+    slkOut: true, pbfree: true, esd: true,
+    flux: 0, tarnish: 0, dust: 0, scratch: 0, coat: 0,
+    ledOn: true, ledAmt: 1, cLed: "#ff4a2a", normalStr: 1, aoStr: 0.85, flipG: false
+  };
+  const geo = await page.evaluate(([base]) => {
+    const F = window.ForgePCB;
+    const lay = (o) => {
+      const P = Object.assign({}, base, o);
+      const G = F.boardOf(P, P.size | 0);
+      G.pxPerMm = G.TW / G.Wmm; G.mmPerPx = G.Wmm / G.TW; G.oy = 0;
+      G.seedN = (P.seed | 0) >>> 0; G.wrapField = G.piece === "field";
+      const L = F.layoutBoard(P, G, G.wrapField ? G.Wmm : G.bw,
+                              G.wrapField ? G.Hmm : G.bh, G.wrapField, G.seedN);
+      L.wrap = G.wrapField;
+      F.route(P, G, L);
+      return { P: P, G: G, L: L };
+    };
+    const clashesIn = (ps) => {
+      let c = 0, w2 = 0;
+      for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+        const A = ps[i].court, B = ps[j].court;
+        const ox = Math.min(A[2], B[2]) - Math.max(A[0], B[0]);
+        const oy = Math.min(A[3], B[3]) - Math.max(A[1], B[1]);
+        if (ox > 1e-6 && oy > 1e-6) { c++; w2 = Math.max(w2, Math.min(ox, oy)); }
+      }
+      return { c: c, w: w2 };
+    };
+    const a = lay({});
+    /* THE CROSSING CLAIM IS CHECKED ON MORE THAN ONE BOARD. It is the one
+       thing here that a lucky seed can make true, so it is asked of four
+       seeds on two outlines at two design rules. */
+    const seg0 = (p, q, r, s2) => {
+      const dd = (b, c, d2) => (c[0] - b[0]) * (d2[1] - b[1]) - (c[1] - b[1]) * (d2[0] - b[0]);
+      const same = (u, v) => Math.abs(u[0] - v[0]) < 1e-6 && Math.abs(u[1] - v[1]) < 1e-6;
+      if (same(p, r) || same(p, s2) || same(q, r) || same(q, s2)) return false;
+      const d1 = dd(p, q, r), d2 = dd(p, q, s2), d3 = dd(r, s2, p), d4 = dd(r, s2, q);
+      return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+    };
+    const crossingsIn = (R) => {
+      let c = 0;
+      for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+        const A = R[i].pts, B = R[j].pts;
+        if (Math.abs(A[0][0] - B[0][0]) > 60 && Math.abs(A[0][1] - B[0][1]) > 60) continue;
+        for (let m = 0; m < A.length - 1; m++) for (let n = 0; n < B.length - 1; n++)
+          if (seg0(A[m], A[m + 1], B[n], B[n + 1])) { c++; m = A.length; break; }
+      }
+      return c;
+    };
+    const count = (L) => ({
+      bus: L.routes.filter(r => r.net === "bus").length,
+      fan: L.routes.filter(r => r.net === "fan").length,
+      stitch: L.vias.filter(v => v.gnd).length, vias: L.vias.length });
+    const sweep = [];
+    for (const o of [{ seed: 11 }, { seed: 4242 }, { format: "sbc", seed: 99, traceMil: 5, clearMil: 5 },
+                     { piece: "field", fieldMm: 60, seed: 808, mount: "none", fid: false }])
+      { const r = lay(o);
+        sweep.push({ o: JSON.stringify(o), x: crossingsIn(r.L.routes),
+                     c: clashesIn(r.L.parts).c,
+                     bank: r.L.bank.length, rot: r.L.bank.length ? r.L.bank[0].rot : -1 }); }
+    /* 1. no two parts share ground: courtyards are disjoint rectangles. Asked
+          of the same spread of boards as the crossing check, because the bank
+          runs as a ROW on a wide board and as a COLUMN on a squarer one and
+          only one of those exercises the rotated pitch. */
+    const cl0 = clashesIn(a.L.parts);
+    let clash = cl0.c, worst = cl0.w;
+    const ps = a.L.parts;
+    /* 2. nothing stands on the cut, and nothing hangs off the board */
+    let offBoard = 0;
+    for (const q of ps)
+      if (q.court[0] < 0 || q.court[1] < 0 || q.court[2] > a.L.bw || q.court[3] > a.L.bh)
+        offBoard++;
+    /* 3. NO TWO TRACKS CROSS. One copper layer: a crossing is a short. Tracks
+          that meet at a shared pad are not a crossing, so a shared endpoint is
+          excluded. */
+    const seg = (p, q, r, s2) => {
+      const d = (b, c, d2) => (c[0] - b[0]) * (d2[1] - b[1]) - (c[1] - b[1]) * (d2[0] - b[0]);
+      const same = (u, v) => Math.abs(u[0] - v[0]) < 1e-6 && Math.abs(u[1] - v[1]) < 1e-6;
+      if (same(p, r) || same(p, s2) || same(q, r) || same(q, s2)) return false;
+      const d1 = d(p, q, r), d2 = d(p, q, s2), d3 = d(r, s2, p), d4 = d(r, s2, q);
+      return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+    };
+    let cross = 0;
+    const R = a.L.routes;
+    for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+      const A = R[i].pts, B = R[j].pts;
+      if (Math.abs(A[0][0] - B[0][0]) > 60 && Math.abs(A[0][1] - B[0][1]) > 60) continue;
+      for (let m = 0; m < A.length - 1; m++) for (let n = 0; n < B.length - 1; n++)
+        if (seg(A[m], A[m + 1], B[n], B[n + 1])) { cross++; m = A.length; break; }
+    }
+    /* 4. a 45-degree router turns at 45 degrees and never at an acute angle */
+    let acute = 0, right = 0, tot = 0;
+    for (const r of a.L.routes) for (let k = 1; k < r.pts.length - 1; k++) {
+      const u = [r.pts[k][0] - r.pts[k - 1][0], r.pts[k][1] - r.pts[k - 1][1]];
+      const v = [r.pts[k + 1][0] - r.pts[k][0], r.pts[k + 1][1] - r.pts[k][1]];
+      const lu = Math.hypot(u[0], u[1]), lv = Math.hypot(v[0], v[1]);
+      if (lu < 1e-6 || lv < 1e-6) continue;
+      const c = (u[0] * v[0] + u[1] * v[1]) / (lu * lv);
+      tot++;
+      if (c < -0.1) acute++;
+      if (c < 0.1 && c > -0.1) right++;
+    }
+    /* 5. the weights and the catalogue actually gate what is offered */
+    const noPass = lay({ wpass: 0 }).L.parts.filter(q => q.p.fam === "pass").length;
+    const noCan = lay({ enelyt: false }).L.parts.filter(q => q.p.id === "elyt").length;
+    const noneAt = lay({ wpass: 0, wact: 0, wic: 0, wcore: 0, wpwr: 0, wclk: 0,
+                         wopt: 0, wconn: 0, wrf: 0, wmisc: 0 }).L.parts.length;
+    /* 6. the bank is identical parts on one line at one pitch */
+    const bank = a.L.bank;
+    let bankSame = bank.length < 2, bankLine = bank.length < 2, bankPitch = true;
+    if (bank.length >= 2) {
+      bankSame = bank.every(q => q.p.id === bank[0].p.id && q.rot === bank[0].rot);
+      const dx = bank.map(q => q.x), dy = bank.map(q => q.y);
+      const varx = Math.max.apply(null, dx) - Math.min.apply(null, dx);
+      const vary = Math.max.apply(null, dy) - Math.min.apply(null, dy);
+      bankLine = Math.min(varx, vary) < 0.01;
+      const along = varx > vary ? dx.slice().sort((u, v) => u - v) : dy.slice().sort((u, v) => u - v);
+      const gaps = [];
+      for (let i = 1; i < along.length; i++) gaps.push(along[i] - along[i - 1]);
+      bankPitch = gaps.every(g => Math.abs(g - gaps[0]) < 0.51);
+    }
+    /* 7. decoupling sits within a couple of millimetres of the core it decouples */
+    const dec = a.L.parts.filter(q => q.decap);
+    let decFar = 0;
+    if (a.L.core) for (const q of dec) {
+      const gx = Math.max(0, Math.abs(q.x - a.L.core.x) - a.L.core.cw * 0.5);
+      const gy = Math.max(0, Math.abs(q.y - a.L.core.y) - a.L.core.ch * 0.5);
+      if (Math.hypot(gx, gy) > 2.5) decFar++;
+    }
+    /* 8. a stitching via is part of the plane: it gets no anti-pad. A signal
+          via always does, or it would be shorted to ground. */
+    const A2 = F.assemble(a.P, a.G, a.L);
+    const gndVias = a.L.vias.filter(v => v.gnd).length;
+    let gndAnti = 0;
+    for (const v of a.L.vias) if (v.gnd)
+      for (const r of A2.anti)
+        if (r.t === "c" && Math.abs(r.x - v.x) < 1e-9 && Math.abs(r.y - v.y) < 1e-9) gndAnti++;
+    return { n: ps.length, clash: clash, worst: worst, offBoard: offBoard,
+             routes: a.L.routes.length, cross: cross, acute: acute, right: right, tot: tot,
+             noPass: noPass, noCan: noCan, noneAt: noneAt,
+             bank: bank.length, bankSame: bankSame, bankLine: bankLine, bankPitch: bankPitch,
+             dec: dec.length, decFar: decFar, gndVias: gndVias, gndAnti: gndAnti,
+             cell: a.L.cl.cell, core: a.L.core ? a.L.core.p.id : null, sweep: sweep,
+             ly2: count(lay({ layers: 2 }).L), ly6: count(lay({ layers: 6 }).L) };
+  }, [BASE]);
+  ok("no two parts share ground",
+     geo.clash === 0 && geo.sweep.every(q => q.c === 0),
+     geo.clash || geo.sweep.some(q => q.c)
+       ? `${geo.clash} overlap on the default (worst by ${geo.worst.toFixed(2)} mm), then ` +
+         geo.sweep.filter(q => q.c).map(q => q.c + " on " + q.o).join(", ")
+       : `${geo.n} courtyards on the default and none overlapping on ` +
+         `${geo.sweep.length} more boards · banks ran ` +
+         geo.sweep.map(q => q.bank + (q.rot === 1 ? " down" : " across")).join(", "));
+  ok("and nothing hangs off the board",
+     geo.offBoard === 0, geo.offBoard + " parts past the outline");
+  ok("no two tracks cross — one copper layer, so a crossing is a short",
+     geo.cross === 0 && geo.sweep.every(q => q.x === 0),
+     geo.cross || geo.sweep.some(q => q.x)
+       ? `${geo.cross} on the default, then ` +
+         geo.sweep.filter(q => q.x).map(q => q.x + " on " + q.o).join(", ")
+       : `${geo.routes} tracks on the default and none crossing on ` +
+         geo.sweep.length + " more boards");
+  ok("and the router never turns back on itself",
+     geo.acute === 0 && geo.tot > 50,
+     `${geo.tot} corners, ${geo.right} square, ${geo.acute} acute`);
+  ok("a family at zero weight is gone, and so is an unticked part",
+     geo.noPass === 0 && geo.noCan === 0 && geo.noneAt === 0,
+     `${geo.noPass} passives at zero · ${geo.noCan} cans unticked · ` +
+     `${geo.noneAt} parts with every family off`);
+  ok("the memory bank is identical parts on one line at one pitch",
+     geo.bank >= 2 && geo.bankSame && geo.bankLine && geo.bankPitch,
+     `${geo.bank} parts · same ${geo.bankSame} · in line ${geo.bankLine} · ` +
+     `one pitch ${geo.bankPitch}`);
+  ok("decoupling is within 2.5 mm of the part it decouples",
+     geo.dec > 0 && geo.decFar === 0,
+     `${geo.dec} capacitors on the ${geo.core}, ${geo.decFar} too far`);
+  ok("a stitching via joins the plane and a signal via is isolated from it",
+     geo.gndVias > 0 && geo.gndAnti === 0,
+     `${geo.gndVias} stitching vias, ${geo.gndAnti} of them wrongly cleared`);
+  ok("on more layers a signal goes down instead of along: denser fan-out, more stitching",
+     geo.ly6.fan > geo.ly2.fan * 1.15 && geo.ly6.stitch > geo.ly2.stitch * 1.3,
+     `2 layers: ${geo.ly2.fan} fan-out stubs, ${geo.ly2.stitch} stitching vias · ` +
+     `6 layers: ${geo.ly6.fan}, ${geo.ly6.stitch}`);
+  ok("the claims grid is no coarser than the design rule",
+     geo.cell <= (8 + 8) * 0.0254 * 0.65, `${geo.cell.toFixed(3)} mm cells for an 8/8 rule`);
+
+  /* ---- and now the picture, measured ---- */
+  const build = async (over) => {
+    await page.evaluate(([base, o]) => {
+      const P = Object.assign({}, base, o);
+      for (const k in P) window.Forge.setParam("pcb", k, P[k]);
+      window.Forge.state("pcb").built = false;
+    }, [BASE, over || {}]);
+    await page.click("#pcb--forge");
+    return await settle();
+  };
+  const sampler = `window.__B=(function(){
+    const st=window.Forge.state("pcb"),B=st.B,W=B.W,H=B.H;
+    const G=window.ForgePCB.boardOf(st.P,W);
+    const oy=(H/(W/G.Wmm)-G.Hmm)*0.5;
+    return {st:st,B:B,W:W,H:H,G:G,oy:oy,
+      ix:(mx,my)=>{
+        const k=W/G.Wmm;
+        const x=Math.max(0,Math.min(W-1,Math.round(mx*k-0.5)));
+        const y=Math.max(0,Math.min(H-1,Math.round((my+oy)*k-0.5)));
+        return y*W+x;
+      },
+      alp:i=>B.ALP[i],rgh:i=>B.RGH[i],met:i=>B.MET[i],
+      lum:i=>(B.A[i*3]*0.299+B.A[i*3+1]*0.587+B.A[i*3+2]*0.114)};
+  })();`;
+
+  await build({ format: "euro", size: 1024 });
+  const shape = await page.evaluate(sampler + `(function(){
+    const S=window.__B,B=S.B;
+    /* the silhouette's own bounding box, in texels, then in millimetres */
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,on=0;
+    for(let y=0;y<S.H;y++)for(let x=0;x<S.W;x++){
+      if(B.ALP[y*S.W+x]>128){on++;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
+    }
+    const mm=S.G.Wmm/S.W;
+    return {w:(x1-x0+1)*mm,h:(y1-y0+1)*mm,fill:on/(S.W*S.H),
+      Wmm:S.G.Wmm,Hmm:S.G.Hmm,thick:S.G.thick};
+  })()`);
+  ok("the board is the size it says it is",
+     Math.abs(shape.w - 160) < 0.4 && Math.abs(shape.h - 100) < 0.4,
+     `alpha measures ${shape.w.toFixed(2)} × ${shape.h.toFixed(2)} mm ` +
+     `for a declared ${shape.Wmm} × ${shape.Hmm}`);
+  const planned = await page.evaluate(([base]) => {
+    const p = window.Forge.byId.pcb.plan(Object.assign({}, base, { format: "euro" }));
+    const f = window.Forge.byId.pcb.plan(Object.assign({}, base,
+      { piece: "field", fieldMm: 70 }));
+    return { p: p, f: f };
+  }, [BASE]);
+  ok("and the exported plane is that size in metres",
+     Math.abs(planned.p.w - 0.160) < 1e-9 && Math.abs(planned.p.h - 0.100) < 1e-9 &&
+     planned.p.cutout === true && Math.abs(planned.f.tile - 0.070) < 1e-9 &&
+     planned.f.cutout === false,
+     `${planned.p.w} × ${planned.p.h} m, cut-out ${planned.p.cutout} · ` +
+     `field tiles at ${planned.f.tile} m`);
+
+  /* holes: a mounting hole is a hole, a hole with a part over it is not */
+  const holes = await page.evaluate(sampler + `(function(){
+    const S=window.__B,F=window.ForgePCB,P=S.st.P;
+    const G=S.G;G.pxPerMm=S.W/G.Wmm;G.mmPerPx=G.Wmm/S.W;G.oy=S.oy;
+    G.seedN=(P.seed|0)>>>0;G.wrapField=false;
+    const L=F.layoutBoard(P,G,G.bw,G.bh,false,G.seedN);L.wrap=false;
+    F.route(P,G,L);
+    let mountOpen=0,mount=0;
+    for(const h of L.holes){mount++;if(S.alp(S.ix(h.x,h.y))<40)mountOpen++;}
+    /* thermal vias sit under a package — a leadless part's thermal pad, a
+       regulator's tab — and the package is over them */
+    let under=0,underOpaque=0;
+    for(const v of L.vias){
+      if(!v.thermal)continue;
+      for(const q of L.parts)
+        if(Math.abs(v.x-q.x)<q.bw*0.5-0.05&&Math.abs(v.y-q.y)<q.bh*0.5-0.05){
+          under++;if(S.alp(S.ix(v.x,v.y))>200)underOpaque++;break;}
+    }
+    /* a tented stitching via drills nothing you can see through */
+    let tented=0,tentedOpaque=0;
+    for(const v of L.vias)if(v.gnd&&v.tent){
+      tented++;if(S.alp(S.ix(v.x,v.y))>200)tentedOpaque++;}
+    return {mount:mount,mountOpen:mountOpen,under:under,underOpaque:underOpaque,
+            tented:tented,tentedOpaque:tentedOpaque};
+  })()`);
+  ok("a mounting hole is a hole in the alpha",
+     holes.mount > 0 && holes.mountOpen === holes.mount,
+     `${holes.mountOpen} of ${holes.mount} mounting holes are transparent`);
+  ok("a drill under a component is not — you cannot see through a package",
+     holes.under > 0 && holes.underOpaque === holes.under,
+     `${holes.underOpaque} of ${holes.under} thermal vias under a thermal pad are opaque`);
+  ok("and a tented via is covered rather than drilled through the picture",
+     holes.tented > 0 && holes.tentedOpaque === holes.tented,
+     `${holes.tentedOpaque} of ${holes.tented} tented stitching vias are opaque`);
+
+  /* the mask opening is the pad plus the expansion, measured on the board */
+  await build({ format: "custom", bwMm: 30, bhMm: 24, size: 1024, maskExp: 0.15,
+                finish: "enig", mask: "green", dens: 0.35, legend: "none", pop: false });
+  const exp = await page.evaluate(sampler + `(function(){
+    const S=window.__B,F=window.ForgePCB,P=S.st.P;
+    const G=S.G;G.pxPerMm=S.W/G.Wmm;G.mmPerPx=G.Wmm/S.W;G.oy=S.oy;
+    G.seedN=(P.seed|0)>>>0;G.wrapField=false;
+    const L=F.layoutBoard(P,G,G.bw,G.bh,false,G.seedN);L.wrap=false;
+    F.route(P,G,L);
+    const mm=G.Wmm/S.W;
+    /* Gold pads on a green board: scan across a pad and count the run of
+       METAL, which is the opening, because the copper outside it is under the
+       mask and reads as a dielectric. Only pads with nothing else within the
+       expansion of them are measured — two pads a tenth of a millimetre apart
+       have one merged opening between them, which is what mask expansion DOES
+       and is not something to measure a single pad with. */
+    const all=[],every=[];
+    for(const q of L.parts)for(const pd of q.pads){
+      every.push({x:pd.x,y:pd.y,r:Math.max(pd.w,pd.h)*0.5});
+      if(pd.drill||pd.thermal||pd.w<0.7||pd.h<0.5)continue;
+      all.push(pd);
+    }
+    for(const v of L.vias)every.push({x:v.x,y:v.y,r:v.pad*0.5});
+    for(const f of L.fids)every.push({x:f.x,y:f.y,r:1.0});
+    /* ISOLATED MEANS ISOLATED: no other copper of any kind — a pad of any
+       size, a via, a fiducial — inside the window the scan sweeps. A weaker
+       filter let a 0402 decoupling pad sit at the far end of the sweep and
+       added its own opening to the measurement. */
+    const lone=all.filter(pd=>{
+      const win=pd.w*1.4;
+      return !every.some(o=>(Math.abs(o.x-pd.x)>1e-9||Math.abs(o.y-pd.y)>1e-9)&&
+        Math.abs(o.x-pd.x)<win+o.r&&Math.abs(o.y-pd.y)<pd.h*0.5+o.r);
+    });
+    lone.sort((a,b)=>b.w-a.w);
+    const runs=[];
+    for(const pd of lone.slice(0,16)){
+      let metal=0,open2=0;
+      for(let t=-pd.w*1.4;t<=pd.w*1.4;t+=mm*0.5){
+        const i=S.ix(pd.x+t,pd.y);
+        const m=S.met(i)>170;
+        if(m)metal++;
+        /* not mask: either the finish in the pad, or the ring of bare
+           laminate the expansion exposes around it, which is rough where
+           the gloss mask beside it is not */
+        if(m||S.rgh(i)>110)open2++;
+      }
+      if(metal)runs.push({pad:metal*mm*0.5,open:open2*mm*0.5,w:pd.w});
+    }
+    const med=(a)=>{const b=a.slice().sort((u,v)=>Math.abs(u)-Math.abs(v));
+      return b.length?b[b.length>>1]:Infinity;};
+    return {n:runs.length,all:all.length,lone:lone.length,
+      padErr:med(runs.map(r=>r.pad-r.w)),
+      openErr:med(runs.map(r=>r.open-(r.w+0.30))),
+      w:runs.length?runs[0].w:0};
+  })()`);
+  ok("a pad is drawn at the land size the standard gives it",
+     exp.n >= 4 && Math.abs(exp.padErr) < 0.07,
+     `${exp.n} of ${exp.lone} isolated pads (${exp.all} in all) · median ` +
+     `${exp.padErr.toFixed(3)} mm off a ${exp.w.toFixed(2)} mm pad`);
+  ok("and the mask opening is that pad plus the expansion, both sides",
+     exp.n >= 4 && Math.abs(exp.openErr) < 0.09,
+     `median ${exp.openErr.toFixed(3)} mm off ${(exp.w + 0.30).toFixed(2)} mm ` +
+     `— the pad plus 0.15 mm each side`);
+
+  /* the legend is clipped off the openings — ink on a pad is a defect */
+  await build({ format: "custom", bwMm: 40, bhMm: 30, size: 1024, legend: "both",
+                textMm: 3.5, slkMil: 12, dens: 0.5, pop: false, finish: "hasl",
+                mask: "green", flux: 0, dust: 0, scratch: 0, tarnish: 0 });
+  const clip = await page.evaluate(sampler + `(function(){
+    const S=window.__B,F=window.ForgePCB,P=S.st.P;
+    const G=S.G;G.pxPerMm=S.W/G.Wmm;G.mmPerPx=G.Wmm/S.W;G.oy=S.oy;
+    G.seedN=(P.seed|0)>>>0;G.wrapField=false;
+    const L=F.layoutBoard(P,G,G.bw,G.bh,false,G.seedN);L.wrap=false;
+    F.route(P,G,L);
+    /* inside every pad, the surface has to read as the FINISH — bright metal,
+       low roughness — and never as legend ink, which is matte and dielectric */
+    let n=0,inky=0;
+    for(const q of L.parts)for(const pd of q.pads){
+      if(pd.drill||pd.thermal||Math.min(pd.w,pd.h)<0.5)continue;
+      const i=S.ix(pd.x,pd.y);
+      n++;
+      if(S.met(i)<120||S.rgh(i)>170)inky++;
+      if(n>400)break;
+    }
+    return {n:n,inky:inky,text:P.textMm};
+  })()`);
+  ok("the legend is clipped off the mask openings, even at 3.5 mm text",
+     clip.n > 15 && clip.inky === 0,
+     `${clip.inky} of ${clip.n} pads have ink in them at ${clip.text} mm cap height`);
+
+  /* the seamless field really wraps */
+  await build({ piece: "field", fieldMm: 70, size: 512, mount: "none", fid: false,
+                dens: 0.8, legend: "des", pop: true });
+  const wrapped = await page.evaluate(() => {
+    const cv = window.Forge.makeMap("basecolor");
+    const g = cv.getContext("2d"), W = cv.width, H = cv.height;
+    const d = g.getImageData(0, 0, W, H).data;
+    const at = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+    const diff = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    /* the wrap step against the sharpest interior step: a board is full of hard
+       edges, so the only honest measure is the ratio */
+    let seam = 0, inner = 0;
+    for (let y = 0; y < H; y++) {
+      seam = Math.max(seam, diff(at(W - 1, y), at(0, y)));
+      for (let x = 1; x < W - 1; x++) inner = Math.max(inner, diff(at(x, y), at(x + 1, y)));
+    }
+    for (let x = 0; x < W; x++) seam = Math.max(seam, diff(at(x, H - 1), at(x, 0)));
+    const alp = window.Forge.makeMap("opacity");
+    const ad = alp.getContext("2d").getImageData(0, 0, alp.width, alp.height).data;
+    let opaque = true;
+    for (let i = 0; i < ad.length; i += 4) if (ad[i] < 250) { opaque = false; break; }
+    return { seam: seam, inner: inner, opaque: opaque };
+  });
+  ok("the field wraps: the seam step is no worse than the sharpest interior step",
+     wrapped.seam <= wrapped.inner + 2 && wrapped.opaque,
+     `seam ${wrapped.seam} vs interior ${wrapped.inner}` +
+     (wrapped.opaque ? " · no cut-out" : " · BUT the alpha has holes in it"));
+
+  /* the panel is the board repeated, and the arithmetic is the arithmetic */
+  const pan = await page.evaluate(([base]) => {
+    const F = window.ForgePCB;
+    const P = Object.assign({}, base, { piece: "panel", format: "stamp", panX: 4,
+      panY: 3, railMm: 10, routeMm: 2.4, brk: "tab" });
+    const G = F.boardOf(P, 1024);
+    const cells = F.cellsOf(G);
+    const A = F.panelParts(P, G, { bw: G.bw, bh: G.bh });
+    return { W: G.Wmm, H: G.Hmm, bw: G.bw, bh: G.bh, cells: cells.length,
+      wantW: 4 * G.bw + 3 * 2.4 + 20, wantH: 3 * G.bh + 2 * 2.4 + 20,
+      tabs: A.brd2.length, bites: A.hole.length, offs: F.offsetsOf(G).length,
+      field: F.offsetsOf(Object.assign({}, G, { piece: "field" })).length };
+  }, [BASE]);
+  ok("a panel is the rails plus the boards plus the route gaps",
+     Math.abs(pan.W - pan.wantW) < 1e-9 && Math.abs(pan.H - pan.wantH) < 1e-9 &&
+     pan.cells === 12,
+     `${pan.W} × ${pan.H} mm holds ${pan.cells} × ${pan.bw} × ${pan.bh} mm boards`);
+  ok("every board on it is on breakaway tabs with mouse bites in them",
+     pan.tabs === 12 * 4 && pan.bites > 12 * 4 * 4,
+     `${pan.tabs} tabs, ${pan.bites} drills`);
+  ok("and the passes are handed one offset per board, nine for a wrapping field",
+     pan.offs === 12 && pan.field === 9, `${pan.offs} offsets · field ${pan.field}`);
+
+  /* what the readout says about a resolution that cannot hold the detail */
+  const said = await page.evaluate(([base]) => {
+    const m = window.Forge.byId.pcb;
+    const strip = P => m.readout(P).replace(/<br>/g, "\n").replace(/<[^>]*>/g, "");
+    return {
+      coarse: strip(Object.assign({}, base, { format: "euro", size: 128 })),
+      fine: strip(Object.assign({}, base, { format: "stamp", size: 2048 })),
+      dimm: strip(Object.assign({}, base, { format: "dimm", fingers: true })),
+      tiny: strip(Object.assign({}, base, { format: "euro", size: 256, textMm: 0.5 }))
+    };
+  }, [BASE]);
+  ok("the readout warns when a track is thinner than a texel",
+     /cannot be drawn/.test(said.coarse) && !/cannot be drawn/.test(said.fine),
+     said.coarse.split("\n").filter(l => /cannot be drawn|texels/.test(l))[0] || "(nothing)");
+  ok("and when the legend is below what a fab will screen",
+     /no fab will screen it/.test(said.tiny),
+     said.tiny.split("\n").filter(l => /screen|cap height/.test(l)).join(" · ") || "(nothing)");
+  ok("and it says which edge the gold fingers are on",
+     /edge fingers on the bottom edge/.test(said.dimm),
+     said.dimm.split("\n").filter(l => /finger/.test(l))[0] || "(nothing said)");
+
+  /* the bare board and the populated one are the same board */
+  const vars = await page.evaluate(([base]) => {
+    const m = window.Forge.byId.pcb;
+    const on = m.variants(Object.assign({}, base, { flux: 0.3 })).map(v => v.id);
+    const off = m.variants(Object.assign({}, base, { pop: false, flux: 0, tarnish: 0,
+      dust: 0, scratch: 0 })).map(v => v.id);
+    return { on: on, off: off };
+  }, [BASE]);
+  ok("a populated board offers the bare one beside it, and a bare one does not",
+     vars.on.join(",") === "bare,clean" && vars.off.length === 0,
+     `[${vars.on.join(", ")}] and [${vars.off.join(", ")}]`);
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
