@@ -29,6 +29,7 @@ exports a full PBR set as PNG, individually or all at once as a .zip.
   modes/hull.js         starship aztec hull plating
   modes/greeble.js      machined surface clutter, stacked and routed
   modes/sensor.js       sensor and antenna cluster — AESA, dishes, lenses
+  modes/pcb.js          populated circuit boards, panels, seamless board field
   modes/factory.js      1940s brick factory wall with steel sash windows
   modes/diner.js        chrome-and-neon diner, front, side and back
   modes/grocery.js      supermarket fixtures, stocked — seven of them
@@ -803,6 +804,192 @@ Sensor — sensor and antenna cluster
   displace this if you can and use a strong normal if you cannot. Dimensioned
   in metres and millimetres. Presets: warship mast face, aircraft nose array,
   satellite bus, EO turret cluster, ground station, derelict (stripped).
+
+Circuit board — a populated printed circuit board
+  A board built the way a board is built: a laminate, etched copper on it, a
+  solder mask over the copper with openings only where something has to be
+  soldered, a silkscreen legend printed over that, a surface finish in the
+  openings, and components on top with a solder fillet at every lead. That
+  stack is the whole mode, and it is why the maps come out looking like a board
+  rather than like a green plane with squiggles on it.
+
+  FOUR THINGS IN THE STACK DO MOST OF THE WORK.
+
+  Mask over copper is not the same colour as mask over laminate. The mask is a
+  thin translucent film and it is thinner over a track than over bare laminate,
+  so the tracks read THROUGH it — every photograph of a green board shows them,
+  and a mode that paints the mask flat loses all of it. The opacity is a
+  slider; at zero it is a bare etched board.
+
+  The glass cloth shows. FR-4 is woven E-glass in epoxy, and the yarn pitch of
+  the style it was pressed from is in the table: 7628 runs 44 warp and 32 fill
+  ends per inch, which is 0.577 and 0.794 mm, and 2116 and 1080 are finer. A
+  thin board is pressed from thin cloth, so the weave you can see on a 0.8 mm
+  board is finer than on a 1.6 mm one — which is why that is a property of the
+  laminate and not a slider.
+
+  A pad is a HOLE IN THE MASK, not a shape on top of it. So it sits in a well,
+  the finish in it is a different material from everything around it, the
+  expansion exposes a thin ring of bare laminate round the copper, and the
+  solder standing in the well is proud of the mask rather than level with it.
+  HASL is molten solder levelled by an air knife and comes out domed and
+  uneven; ENIG is a tenth of a micron of gold over five of nickel and comes out
+  flat, which is exactly why fine-pitch parts and anything with a thermal pad
+  ask for it.
+
+  And the legend is clipped off the mask openings, because ink on a pad is a
+  solderability defect and every fab clips it.
+
+  WHAT MAKES IT READ AS A DESIGNED BOARD rather than as noise is the order it
+  is built in, and that order is the design:
+
+    the connectors go on the edge, because that is where the cable is;
+    the power section goes next to its connector, because that is where the
+      current comes in;
+    the core part goes in the middle, because everything has to reach it;
+    its decoupling capacitors go as close to its pins as the assembly rules
+      allow, perpendicular to the package edge, because that is the whole
+      point of them;
+    the crystal goes next to the part it clocks, because a clock trace is an
+      antenna;
+    the memory is a ROW of identical parts at ONE pitch, because it is one bus;
+    THEN the bundles are routed, while there is still clear ground to route
+      through;
+    and only then is the rest of the board filled, so the passives flow round
+      the tracks instead of the tracks failing to find a way through a board
+      already sprinkled with capacitors.
+
+  Doing those last two the other way round cost three of every four bundles,
+  and it is the single ordering decision that changes how the picture reads.
+
+  THE COPPER IS FOUR KINDS OF THING. Bundles — n traces at one pitch, leaving a
+  package together, turning together, at 45 degrees and never at an acute
+  angle. A bundle is tested whole and committed whole, because half a bundle is
+  worse than none: the half that failed leaves its pins looking connected. If
+  eight abreast will not fit it narrows until it does, because four traces
+  going the right way is still a bus. Then short two-pin nets between
+  neighbours, which is most of the copper on a real board — a capacitor to the
+  pin it decouples, a resistor to the gate it pulls. Then fan-out: a stub and a
+  via off every pin nobody bundled, which is why the ground around a processor
+  looks like a field of dots. Then fat copper where the current is.
+
+  NO TWO TRACKS CROSS. There is one copper layer here, so a crossing is a
+  short, and it is the claim the test checks hardest — across four boards at
+  two design rules. Getting it to hold needed three separate fixes: the short
+  nets and the fan-out were testing only the keepout and not the tracks
+  already down; the bundles were testing all their members before marking any
+  of them, so a bundle could cross ITSELF; and the grid of claimed ground was
+  a fixed 0.4 mm, which an 8/8 mil rule quantises to a single cell, so two
+  bundles could pass each other through one cell's worth of slack and come out
+  touching. The grid is now sized off the rule, a bundle marks as it goes on a
+  copy of the grid and puts the copy back if the attempt comes to nothing, and
+  every pass tests its whole path against every bit that matters.
+
+  THE POUR IS DRAWN THE WAY A FAB DRAWS IT: flood the plane, punch the
+  anti-pads out of it at the clearance, put the tracks back, and stitch it
+  together with a via every few millimetres. A stitching via is PART of the
+  plane and gets no anti-pad, which is the only reason it is there; a signal
+  via always gets one, or it would be shorted to ground. A through-hole pad
+  tied to the plane gets a four-spoke thermal relief rather than a flood,
+  because a flooded pad wicks the heat out of the iron and the joint never
+  wets.
+
+  HOW MANY LAYERS THERE ARE CHANGES WHAT IS ON THIS ONE. On a two-layer board
+  a signal has nowhere to go but along this face, so what you see is tracks. On
+  a six-layer board it goes DOWN — the inner signal layers carry it — so what
+  you see is a field of fan-out vias dropping through a plane, and the planes
+  need tying together more often. The first attempt at that also scaled the
+  bundle count, and that part was taken out again: how many bundles get laid is
+  set by how much clear lane there is rather than by the budget, so scaling the
+  budget moved nothing and the control would have been lying about half of what
+  it did. The two effects that are left are measured — six layers gives half
+  again the fan-out stubs and three times the stitching vias of two.
+
+  DESIGN RULES ARE THE UNITS. Track width and clearance in mils, because that
+  is what a fab quotes: 8/8 is cheap, 6/6 standard, 4/4 wants a better process,
+  3/3 is advanced. Copper weight in ounces per square foot, converted properly
+  (1 oz/ft² = 1.37 mil = 34.8 µm). Land patterns are IPC-7351 density level B —
+  the chip passives off the published table, everything leaded constructed the
+  way the standard constructs it, where the pad is the lead plus a toe fillet,
+  a heel fillet and a side fillet and the pad span is the datasheet lead span.
+  Package bodies are EIA and JEDEC and are exact: an 0603 is 1.60 by 0.80 by
+  0.45 mm, and drawing it 1.5 by 0.9 would be drawing a part that does not
+  exist. Reference designator prefixes follow IEEE 315.
+
+  And the readout says what every one of those numbers came out as IN TEXELS,
+  because a 0.203 mm track on a 160 mm board at 1024 px is 1.3 texels and you
+  should be told rather than shown mush. Anything whose body falls under a
+  couple of texels is dropped rather than smudged, and the readout names what
+  went.
+
+  FORTY-FOUR PARTS, each a real one rather than a shape: chip passives from
+  0402 to 2512, MELF, SOD-123, tantalum in all four EIA case codes, resistor
+  arrays, SOT-23 and SOT-23-5, DPAK, SOIC, SSOP, TSSOP, MSOP, LQFP, QFN with a
+  thermal pad, BGA, through-hole DIP, aluminium electrolytic cans with the vent
+  score on the lid and the negative stripe down the sleeve, shielded power
+  inductors, TO-220, fuses, SMD and HC-49 crystals and 7050 oscillators, PLCC
+  and chip LEDs, 1xN and 2xN pin headers, USB-A and USB-C, RJ45, JST, barrel
+  jack, microSD, SMA, screw terminals, tactile and DIP switches, trimmers, RF
+  shield cans, test points and a signal relay. Ten family weights say how much
+  of the board is passives or power or interface or radio; a catalogue of
+  checkboxes says which parts are allowed to answer.
+
+  THE LEGEND IS SINGLE-STROKE GOTHIC, drawn from this file's own alphabet
+  rather than from a typeface — because that is what a screened legend IS, a
+  constant-width stroke at the fab's minimum line width, and a filled typeface
+  at 1 mm would be the wrong object. It also keeps the build on a worker
+  thread, which a page-registered font would not: the feature test compares a
+  worker build against a main-thread build byte for byte and this mode passes
+  it. A designator is offered above its part, then below, then to each side,
+  and dropped if every one of them is under another part — and the board's name
+  block is a keepout reserved before anything is placed, because otherwise the
+  text ends up printed across a connector, which is what it did until it was.
+
+  HEIGHT IS STORED AS ITS SQUARE ROOT in the component pass. A ten-millimetre
+  capacitor can beside a seventy-micron solder fillet cannot share a linear
+  byte — the fillet would land on one of 255 steps and band — so the byte is
+  spent where the detail is and the composite squares it back. The exported
+  height map has the same problem and no such trick available, which is why
+  this mode's readme points at height16.png rather than height.png.
+
+  THREE PIECES from one generator. A whole board, cut out on alpha, at a real
+  outline: Eurocard 3U and 6U, PC/104, mini-ITX, DIMM and SO-DIMM and M.2 and
+  PCIe with hard-gold edge fingers, a castellated module, a coin-cell round
+  board, an LED strip, or any size you like. A PRODUCTION PANEL — the same
+  board four by three on a frame, routed free on breakaway tabs with mouse
+  bites drilled across them so they snap on a line instead of tearing the
+  laminate, with tooling holes and panel fiducials in the rail where they
+  belong and never in a board — or V-SCORED instead, where there is no route
+  gap at all because the boards are contiguous and the groove between them is
+  the only thing there. A score is a cut from both faces leaving about a third
+  of the thickness, so from above it is a groove a few tenths wide with the
+  mask scored off it; every score line is axis-aligned, so the distance from a
+  texel to the nearest one is two one-dimensional fields rather than ten tests
+  on every one of sixteen million texels. And a SEAMLESS FIELD of board interior for
+  greebling something large, where the plane, the tracks and the parts all
+  wrap.
+
+  A hole with a component over it is not a hole you can see through: the
+  silhouette is the board OR whatever is standing on it, or the drills under a
+  QFN's thermal pad read as a bright dot of backdrop straight through a black
+  package. And a tented via is covered rather than drilled through the picture,
+  because tenting is exactly what decides whether there is a hole to see.
+
+  Service life, all of it applied before the components because a component is
+  new relative to the board it was soldered to: flux residue pooling glossy and
+  amber round the joints, tarnish on the exposed finish, dust, handling marks,
+  conformal coating over the lot, and up to four bodge wires, because a board
+  that has been fixed has one.
+
+  Every populated board offers the BARE FAB BOARD beside it in the same
+  archive — every pad, every opening and the whole legend, with nothing
+  soldered to it — and a worn one offers the clean one. Dimensioned in
+  millimetres and mils throughout, so a 160 x 100 mm Eurocard lands in Blender
+  as a 160 x 100 mm Eurocard.
+
+  Presets: motherboard, controller board, memory module, RF front end,
+  castellated module, LED strip, production panel, board field (seamless),
+  salvaged and dusty, bare fab board.
 
 Factory — 1940s brick works, panel or whole building
   Two pieces off one generator. WALL is a seamless panel: three storeys by four
@@ -2386,6 +2573,32 @@ It also covers the thirteen things that are easy to break silently:
             running man in the middle of the green sign, door and arrow and
             all — which he was 12% of his own circle off before any of this
             was measured
+  pcb       three kinds of claim, checked three ways. The TABLES asked of
+            themselves: one ounce of copper is 34.8 um, an 0603 is 1.60 by
+            0.80 mm, and IPC-7351's construction puts an SOIC-8 pad where the
+            standard puts it — 1.75 mm long at a 2.475 mm radius, which is the
+            lead plus a toe fillet and a heel fillet. Every one of the 44 parts
+            in the catalogue has a land pattern, a body drawn for it rather
+            than the fall-through square, and an escape direction on each of
+            its pads (that check is what found the DPAK, which had no
+            footprint at all and was coming out as a featureless 3 mm block).
+            Then the LAYOUT: no two courtyards overlapping, nothing hanging
+            off the outline, the bank identical parts on one line at one pitch,
+            the decoupling within 2.5 mm of the package it decouples, a
+            stitching via joined to the plane where a signal via is isolated
+            from it, and NO TWO TRACKS CROSSING on four boards at two design
+            rules — one copper layer, so a crossing is a short, and that check
+            found three separate ways of making one. Then the PICTURE,
+            measured: the alpha silhouette 160.00 by 100.00 mm for a declared
+            Eurocard, a pad drawn at its land size to three microns and the
+            mask opening that pad plus the expansion on both sides, a mounting
+            hole transparent while a drill under a package is not, a tented via
+            covered rather than drilled through the picture, the legend clipped
+            off every opening even at 3.5 mm text, the field wrapping, and the
+            panel's arithmetic with a tab and its mouse bites on every edge of
+            every board. And the layer count earns its keep: six layers has to
+            come out with half again the fan-out stubs and three times the
+            stitching vias of two
 
   node tools/feature-test.mjs               # all of them
   node tools/feature-test.mjs palette       # one of them
@@ -2414,5 +2627,11 @@ the house generator so the faces of one building agree, roof and fence are new
 and belong beside it, hazard is new, and ruins is the separate Plating
 Fabricator tool brought in as a mode.
 
-The label mode is the newest, and the odd one out: every other mode draws a
+The label mode came next, and it was the odd one out: every other mode draws a
 material, and that one draws a manufactured object with a part number.
+
+The circuit board mode is the newest and it is the other kind of odd one out.
+It draws a manufactured object too, but one with a LAYOUT — so most of the file
+is not rendering at all, it is deciding where things go and what is wired to
+what, in the order a layout engineer would decide it. The rendering is four
+passes over one canvas after that.

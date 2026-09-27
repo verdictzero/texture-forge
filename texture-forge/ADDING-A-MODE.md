@@ -550,6 +550,94 @@ mode sets real type:
   varies wildly from one code point to the next. Say which is which in the
   readout: the glyph is the browser's, and a missing code point is a box.
 
+## A mode that lays something out before it draws it
+
+Most modes decide what a texel is from where the texel is. A few — the label,
+the sensor cluster, the circuit board — decide what the whole picture contains
+first and then draw it, and that changes the shape of the file: `modes/pcb.js`
+is about two thirds placement and routing and one third rendering. Five things
+in it are worth copying.
+
+**Build a record, not a draw call.** Every shape is a plain object — a rounded
+rect, a circle, a stroked polyline, a line of stroke-font text — with its
+bounding box precomputed. One function draws a record, and it takes a `grow`
+so the SAME record can be drawn as the thing and as the clearance around the
+thing. That matters because a board's copper plane is made by flooding it,
+punching each feature's own outline back out of it at the clearance, and then
+drawing the features in again; building the punches from a second, separately
+assembled list is how a fab gets a plane with a hole in the wrong place.
+
+**Carry more than one plane out of each raster pass.** A 4096² RGBA raster is
+67 MB and reading five of them costs more than the whole build. Draw the
+mutually-exclusive layers into different channels of one canvas — with
+`globalCompositeOperation = "lighter"` when they must not overwrite each other
+— and split the channels out once. Four passes there carry eight planes.
+
+**Test the whole of a group before committing any of it.** A bundle of eight
+parallel traces is laid or it is not; half of one is worse than none, because
+the half that failed leaves its pins looking connected. And the members have to
+see each other while the group is being tested, or the group crosses itself. A
+dry run therefore needs somewhere to put its marks: give the claims grid a
+`save()`/`load()` and let the attempt mark as it goes on a copy it can put
+back. Then narrow the group until it fits rather than dropping it — four traces
+going the right way is still a bus.
+
+**Size the claims grid off the rule, not off a round number.** A fixed 0.4 mm
+cell quantises an 0.2 mm track plus its 0.2 mm clearance to one cell, and two
+runs can then pass each other through a single cell's worth of slack and come
+out touching. Derive the cell from whatever separation the mode is trying to
+enforce.
+
+**Order the placement the way the thing is actually designed, and put the
+routing in the middle of it.** On a board the connectors go on the edge, the
+power next to its connector, the core part in the middle, its decoupling as
+close to its pins as the rules allow, the memory as a row at one pitch — and
+then the bundles are routed, and only *then* is the rest filled in. Filling
+first and routing after looks equivalent and is not: it cost three of every
+four bundles, because there was no clear lane left to route through. That one
+decision changes how the picture reads more than any amount of shading.
+
+Two smaller ones from the same file. A pad in a ROW knows which way is out and
+should say so, because guessing it from the pad's position gets the ends of a
+long row wrong — on a wide connector the outermost pad is further out along the
+row than it is across it, and a trace escaping along the row runs straight into
+its neighbour. And when a group of pads has a datasheet dimension for its span,
+derive the pad from the dimension the way the standard does rather than storing
+the answer: IPC-7351's pad is the lead plus a toe fillet, a heel fillet and a
+side fillet, and one function over the span, the body and the lead width lands
+every leaded package in the catalogue on its real land pattern.
+
+### Stroke type, when the type is not somebody's typeface
+
+A silkscreen legend is single-stroke gothic — a constant-width stroke at the
+fab's minimum line width — so a filled typeface set at 1 mm is the wrong
+object however well it is fitted. `modes/pcb.js` carries its own alphabet: A–Z,
+0–9 and punctuation as polylines in a 5 × 7 box, stroked with round ends. It is
+about forty lines, it is the right shape for the job, and it has a second
+benefit worth having in any mode: **a mode that draws its own letters can stay
+on a worker thread**, where one that registers a face against the document
+cannot. The threading test compares a worker build against a main-thread build
+byte for byte, so that is a claim rather than a hope.
+
+### A height range that spans four orders of magnitude
+
+A board's relief runs from 35 µm of copper foil to a ten-millimetre capacitor
+can. Eight bits across that range puts the copper, the mask and the legend on
+the same two or three levels, and an intermediate 8-bit plane carrying
+component heights would band the solder fillets — which are the most visible
+relief on the picture. Store the SQUARE ROOT of the normalised height in that
+plane and square it back in the composite: the byte is then spent where the
+detail is and coarse where nothing is looking. The exported `height.png` has
+the same problem and no such trick available, so say so in the readme and point
+at `height16.png`.
+
+### A hole with something over it is not a hole
+
+If a mode has both a cut-out silhouette and things standing on the surface,
+the alpha is the surface OR whatever is standing on it. Otherwise every drill
+under a package reads as a bright dot of backdrop straight through a black
+part, and any connector overhanging the edge is sliced off at the outline.
+
 ## Structures: several faces of one thing
 
 A house is four textures and a diner is three. `Forge.setParam` above is how two
