@@ -1182,7 +1182,6 @@ Forge.register({
 
   seamless:false,                    // a fixture with two ends, not a material
   backdrops:true,
-  flipPreviewY:true,                 // it stands up: y is up in world terms
   previewSize:240,
   chipSource:150,
   preview:{gain:2.9,amb:1.20,specK:0.50,skyLo:[0.20,0.21,0.24],skyHi:[0.44,0.46,0.50]},

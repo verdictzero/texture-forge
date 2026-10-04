@@ -601,6 +601,118 @@ if (want("gpu")) {
   }
 }
 
+/* ============================ which way up the preview is ============================
+   A texture uploaded straight from a canvas hands GL its first row first, and
+   GL puts that row at t=0 — the BOTTOM of the quad — so a shader that samples
+   it untouched draws every map upside down. For most of the catalogue nobody
+   can tell: gravel, rust and a brick wall all look like themselves turned over.
+   A label does not. Its type reads as mirrored the moment V is flipped, and
+   that is how this was found, after the flip had been a per-mode opt-in that
+   twelve of the twenty-two modes did not take.
+
+   So it is measured, and measured for every mode rather than the one that gave
+   it away: resample the lit preview and the base-colour map to a small grid,
+   and correlate the preview against the map as drawn and against the map
+   turned over. The preview carries lighting and a backdrop that the map does
+   not, so neither number goes near 1 — what is being asked is which of the two
+   wins. Any mode whose picture is symmetric top to bottom would answer neither,
+   so the margin is printed with every line and the thinnest one is reported at
+   the end; if it ever goes slack, the sweep has stopped proving anything. */
+if (want("orient")) {
+  console.log("\n— which way up the lit preview is —");
+  const ids = await page.evaluate(() => window.Forge.modes.map(m => m.id));
+  const margins = [];
+  for (const id of ids) {
+    await page.click(`#modebar-tabs [data-mode="${id}"]`);
+    await settle();
+    /* the smallest size the mode offers — this asks about orientation, not
+       about detail, and twenty-two full-resolution builds is a different test */
+    const small = await page.evaluate(m => {
+      const sel = document.getElementById(m + "--size");
+      if (!sel || !sel.options) return 0;
+      let best = 0;
+      for (const o of sel.options) {
+        const v = +o.value;
+        if (isFinite(v) && v >= 256 && (!best || v < best)) best = v;
+      }
+      if (!best || +sel.value === best) return 0;
+      window.Forge.setParam(m, "size", best);
+      return best;
+    }, id);
+    if (small) { await page.click(`#${id}--forge`); await settle(); }
+    await page.waitForTimeout(200);
+
+    const lit = await page.$eval("#gl", n => !!n.offsetParent);
+    if (!lit) { ok(id + ": the lit preview is on", false, "the 2D fallback is showing"); continue; }
+    const shot = (await page.locator("#gl").screenshot()).toString("base64");
+    const r = await page.evaluate(async png => {
+      const N = 64;
+      const grid = src => {
+        const c = document.createElement("canvas");
+        c.width = c.height = N;
+        const g = c.getContext("2d");
+        g.drawImage(src, 0, 0, N, N);
+        const d = g.getImageData(0, 0, N, N).data, out = new Float64Array(N * N);
+        for (let i = 0; i < N * N; i++)
+          out[i] = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) / 255;
+        return out;
+      };
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej;
+                                        img.src = "data:image/png;base64," + png; });
+      const prev = grid(img), base = grid(window.Forge.makeMap("basecolor", 512));
+      const over = new Float64Array(N * N);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) over[y * N + x] = base[(N - 1 - y) * N + x];
+      const corr = (a, b) => {
+        let ma = 0, mb = 0;
+        for (let i = 0; i < a.length; i++) { ma += a[i]; mb += b[i]; }
+        ma /= a.length; mb /= b.length;
+        let n = 0, da = 0, db = 0;
+        for (let i = 0; i < a.length; i++) {
+          const u = a[i] - ma, v = b[i] - mb;
+          n += u * v; da += u * u; db += v * v;
+        }
+        return n / Math.sqrt(Math.max(da * db, 1e-12));
+      };
+      return { same: corr(prev, base), over: corr(prev, over) };
+    }, shot);
+
+    margins.push({ id, m: r.same - r.over });
+    ok(id + ": the preview is the same way up as the map", r.same > r.over,
+       "as drawn " + r.same.toFixed(3) + ", turned over " + r.over.toFixed(3));
+  }
+  margins.sort((a, b) => a.m - b.m);
+  const thin = margins[0] || { id: "-", m: 0 };
+  ok("every mode's picture is lopsided enough for the sweep to mean something",
+     thin.m > 0.08, "thinnest margin " + thin.m.toFixed(3) + " on " + thin.id);
+
+  /* And one claim that does not depend on a correlation at all: the ANSI
+     signal panel is the top band of the label, so it is the top band of the
+     preview, and it is the one colour on that label nothing else is near. */
+  await page.click(`#modebar-tabs [data-mode="label"]`);
+  await settle();
+  await page.waitForTimeout(200);
+  const band = (await page.locator("#gl").screenshot()).toString("base64");
+  const red = await page.evaluate(async png => {
+    const img = new Image();
+    await new Promise(res => { img.onload = res; img.src = "data:image/png;base64," + png; });
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext("2d");
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let top = 0, bot = 0;
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+      const i = (y * c.width + x) * 4;
+      if (d[i] > 90 && d[i] > d[i + 1] * 1.8 && d[i] > d[i + 2] * 1.8)
+        (y < c.height / 2 ? top++ : bot++);
+    }
+    return { top, bot };
+  }, band);
+  ok("the DANGER panel is at the top of the lit preview", red.top > red.bot * 4,
+     red.top + " red texels in the top half, " + red.bot + " in the bottom");
+}
+
 /* ============================ geometry out ============================
    The exporter's contract is that a mode's plan() is in METRES and the glTF
    it produces is at true scale — so this checks the numbers rather than that

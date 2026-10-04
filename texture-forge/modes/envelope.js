@@ -47,7 +47,6 @@ Forge.register({
 
   seamless:false,                    // one face of a house, not a repeating panel
   backdrops:true,
-  flipPreviewY:true,
   previewSize:Shell.PREVIEW_W,
   chipSource:150,
 

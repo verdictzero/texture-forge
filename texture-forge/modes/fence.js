@@ -1873,7 +1873,6 @@ Forge.register({
 
   seamless:true,
   backdrops:true,
-  flipPreviewY:true,
   previewSize:256,
   chipSource:144,
   preview:{gain:3.05,amb:1.18,specK:0.52,skyLo:[0.19,0.22,0.27],skyHi:[0.44,0.50,0.60]},

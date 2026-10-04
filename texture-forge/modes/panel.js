@@ -720,7 +720,6 @@ Forge.register({
   busyLabel:"Rolling…",
   seamless:true,
   previewSize:256,
-  flipPreviewY:true,
   preview:{gain:3.0,amb:1.10,specK:0.55,skyLo:[0.16,0.19,0.23],skyHi:[0.34,0.38,0.44]},
   channels:CHANNELS,
 
@@ -829,7 +828,6 @@ Forge.register({
   busyLabel:"Riveting…",
   seamless:false,
   backdrops:true,
-  flipPreviewY:true,
   previewSize:224,
   preview:{gain:3.0,amb:1.10,specK:0.5,skyLo:[0.16,0.19,0.23],skyHi:[0.34,0.38,0.44]},
   channels:CHANNELS,
@@ -947,7 +945,6 @@ Forge.register({
   busyLabel:"Casting…",
   seamless:false,
   backdrops:true,
-  flipPreviewY:true,
   previewSize:224,
   preview:{gain:3.0,amb:1.18,specK:0.5,skyLo:[0.19,0.21,0.25],skyHi:[0.40,0.44,0.51]},
   channels:CHANNELS,

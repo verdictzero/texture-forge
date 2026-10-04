@@ -1995,6 +1995,13 @@ Notes worth knowing:
 - If a download does not start, click the orange Save button that appears next
   to it — that path cannot be blocked by the browser.
 
+- The first row of every map is its TOP, in the files, in the channel chips
+  and in the lit preview alike. There is nothing to set: a mode that is an
+  elevation puts the sky at row 0 and the ground at the last one, and a mode
+  seen from above picks whichever axis it likes because nothing in the picture
+  disagrees. The preview used to need each mode to say so and twelve of them
+  did not, which nobody could see on gravel and anybody could see on a label.
+
 
 THE UNLIT BAKE
 --------------
@@ -2317,7 +2324,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the thirteen things that are easy to break silently:
+It also covers the twenty-two things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -2334,6 +2341,17 @@ It also covers the thirteen things that are easy to break silently:
             never offered as a fast path. It runs over a mode that writes its
             own emissive ramp and one that does not, because the bake only
             reaches the GPU in the second case
+  orient    the lit preview shows every mode's picture the same way up as the
+            map it was made from. GL hands the first row of a canvas to the
+            BOTTOM of the quad, so a preview that samples it untouched is
+            upside down, and on gravel or rust nobody can tell. The sweep
+            resamples the preview and the base colour to a small grid and
+            correlates the one against the other as drawn and turned over, for
+            every mode, and the thinnest margin of the twenty-two is reported
+            as well — a mode symmetric top to bottom would answer neither
+            way, and the sweep would quietly stop proving anything. Then one
+            claim that is not a correlation at all: the ANSI signal panel is
+            the top band of a label, so it is the top band of its preview
   model     a mode's plan() is in METRES whatever it counts in — a house is
             about eight metres wide, not eight — and the glTF a building
             produces stands on the ground with its roof closing the gable
@@ -2606,6 +2624,12 @@ It also covers the thirteen things that are easy to break silently:
             true depth at either Relief while the normals do not; and it glows
             only where there is a lamp — a dry goods bay has no light in it and
             a chiller case has its canopy
+  linked    a set of panels cut off one quilt: every panel of the set carries
+            the same border in every channel, the windows really do move
+            between them, every cut is on one height scale, and one press
+            packs the whole set — a folder per panel, each a whole export of
+            its own, with the pixels agreeing with the folder names and the
+            panel you were looking at still on screen afterwards
   label     the standards, asked of themselves: the A13.1 band and cap
             heights by pipe diameter, 273 mm and 12.7 mm on a placard, Code
             39's element patterns and the three-of-nine rule, and characters

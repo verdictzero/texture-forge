@@ -32,9 +32,9 @@
    texel of a 1024 map — and a value-noise cell that small does not read
    as grain, it reads as square blocks.
 
-   ORIENTATION. These modes are elevations with flipPreviewY set: image
-   row 0 is the TOP of the wall, so "up the wall" is y−1. A mode drawn
-   the other way up passes up:+1.
+   ORIENTATION. These modes are elevations: image row 0 is the TOP of the
+   wall, so "up the wall" is y−1. A mode drawn the other way up passes
+   up:+1.
    ===================================================================== */
 "use strict";
 

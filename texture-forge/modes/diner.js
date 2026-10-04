@@ -775,7 +775,6 @@ Forge.register({
   busyLabel:"Building…",
   seamless:false,
   backdrops:true,
-  flipPreviewY:true,
   previewSize:224,
   chipSource:140,
   preview:{gain:2.9,amb:1.2,specK:0.5,skyLo:[0.20,0.22,0.26],skyHi:[0.42,0.47,0.55]},

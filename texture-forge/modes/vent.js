@@ -774,7 +774,6 @@ Forge.register({
   actionLabel:"Cut the vent",
   busyLabel:"Cutting…",
   previewSize:256,
-  flipPreviewY:true,                    // louvres and drip lips care which way is up
   preview:{gain:3.1,amb:1.06,specK:0.5,skyLo:[0.15,0.17,0.21],skyHi:[0.33,0.37,0.44]},
 
   channels:[

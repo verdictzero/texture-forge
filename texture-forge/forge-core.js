@@ -668,11 +668,24 @@ function cpuMap(st,key,w,h){
 /* ============================ lit preview ============================
    One GGX shader for every mode. Tiling modes repeat the UV and composite
    over nothing; cut-out modes (a facade) blend against the chosen backdrop
-   with the base-colour alpha and add an emissive pass. */
+   with the base-colour alpha and add an emissive pass.
+
+   V IS ALWAYS FLIPPED. A texture uploaded straight from a canvas arrives
+   with row 0 first, and GL puts row 0 at t=0 — the BOTTOM of the quad — so
+   sampling it untouched draws every map upside down. That used to be a
+   per-mode opt-in, which meant the preview of a mode that forgot it
+   disagreed with its own channel chips, with the 2D fallback and with the
+   files it exports. Nobody notices on gravel. On a label it reads as
+   mirrored type, and the normal map disagrees with it too: the green axis
+   still points up the image while the picture has been turned over, so the
+   relief is lit from the wrong side of every edge. There is no texture
+   anybody wants shown the wrong way up, so the flip is unconditional and
+   the sky gradient rides on it — vUv.y is then largest at the bottom of
+   the quad, which is where a sky is palest. */
 
 const VS=[
-"attribute vec2 p;varying vec2 vUv;uniform float uRep;uniform float uFlip;",
-"void main(){vec2 t=(p*0.5+0.5)*uRep;if(uFlip>0.5)t.y=uRep-t.y;vUv=t;gl_Position=vec4(p,0.0,1.0);}"
+"attribute vec2 p;varying vec2 vUv;uniform float uRep;",
+"void main(){vec2 t=(p*0.5+0.5)*uRep;t.y=uRep-t.y;vUv=t;gl_Position=vec4(p,0.0,1.0);}"
 ].join("\n");
 const FS=[
 "precision highp float;varying vec2 vUv;",
@@ -726,7 +739,7 @@ function initGL(){
   const loc=gl.getAttribLocation(prog,"p");
   gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
   for(const k of["uB","uN","uO","uE"])tex[k]=gl.createTexture();
-  for(const k of["uB","uN","uO","uE","uL","uRep","uFlip","uGain","uAmb","uSpecK","uSkyLo","uSkyHi","uBg"])
+  for(const k of["uB","uN","uO","uE","uL","uRep","uGain","uAmb","uSpecK","uSkyLo","uSkyHi","uBg"])
     uloc[k]=gl.getUniformLocation(prog,k);
   gl.uniform1i(uloc.uB,0);gl.uniform1i(uloc.uN,1);gl.uniform1i(uloc.uO,2);gl.uniform1i(uloc.uE,3);
   /* stand-in for modes with no emissive channel */
@@ -790,7 +803,6 @@ function drawGL(){
   fitCanvas(glc);
   gl.viewport(0,0,glc.width,glc.height);
   gl.uniform1f(uloc.uRep,(flagsOf(active).seamless&&canRepeat)?tileN:1);
-  gl.uniform1f(uloc.uFlip,m.flipPreviewY?1:0);
   gl.uniform3f(uloc.uL,light[0],light[1],0.72);
   gl.uniform1f(uloc.uGain,pv.gain||3.0);
   gl.uniform1f(uloc.uAmb,pv.amb||1.1);

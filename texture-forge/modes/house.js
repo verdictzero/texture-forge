@@ -31,7 +31,6 @@ Forge.register({
   busyLabel:"Building…",
   seamless:false,
   backdrops:true,
-  flipPreviewY:true,
   previewSize:200,
   chipSource:120,                    // a facade chip does not need 176 px of source
   preview:{gain:3.0,amb:1.2,specK:0.5,skyLo:[0.20,0.22,0.26],skyHi:[0.42,0.47,0.55]},

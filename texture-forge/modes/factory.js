@@ -1028,7 +1028,6 @@ Forge.register({
   actionLabel:"Lay wall",
   busyLabel:"Laying…",
   previewSize:256,
-  flipPreviewY:true,                    // it is a wall: y is up in world terms
   preview:{gain:3.0,amb:1.12,specK:0.55,skyLo:[0.16,0.19,0.23],skyHi:[0.34,0.38,0.44]},
 
   channels:[

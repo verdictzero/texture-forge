@@ -45,7 +45,6 @@ Forge.register({ id:"mymode", label:"My mode", /* … */ });
 |---|---|---|
 | `seamless` | `false` | output tiles: shows the 1×/2×/4× buttons, repeats in the preview, mipmaps the textures |
 | `backdrops` | `false` | show the dark/sky/checker buttons — for modes whose output has an alpha cut-out |
-| `flipPreviewY` | `false` | flip V in the lit preview (a facade is drawn with y up in world terms) |
 | `previewSize` | none | width in px of the cheap build made while a slider is dragged; omit for no drag preview |
 | `chipSource` | `176` | source width the channel chips are rendered at |
 | `height16` | `true` | offer the 16-bit height PNG and include it in the zip |
@@ -56,6 +55,12 @@ Forge.register({ id:"mymode", label:"My mode", /* … */ });
 ```js
 preview:{gain:3.2,amb:1.15,specK:0.55,skyLo:[0.13,0.15,0.19],skyHi:[0.30,0.34,0.42]}
 ```
+
+ROW 0 IS THE TOP, everywhere: in the buffers, in the channel chips, in the
+exported files and in the lit preview. There is no flag to turn that over and
+no reason to want one — a mode that is an elevation draws the sky at row 0 and
+the ground at the last row, and a mode seen from above picks whichever axis it
+likes because nothing in the picture disagrees.
 
 VARIANTS: THE SAME TEXTURE WITH A FEATURE TAKEN OUT. A hull run needs the
 plating with windows in it *and* the plain plating to put between the window
