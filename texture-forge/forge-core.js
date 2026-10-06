@@ -1048,6 +1048,24 @@ async function packBuild(st,files,dir,say){
   }
   files.push({name:dir+fileBase(st)+"_readme.txt",
     data:new TextEncoder().encode(readmeText(st))});
+  /* WHATEVER THE MODE KNOWS THAT IS NOT A PICTURE. Some output is only half a
+     deliverable as pixels: a glyph atlas without the cell map and the advance
+     widths is a texture of shapes rather than a font, and nothing in a PNG can
+     carry that. So a mode may declare `extras(P, info)` and hand back text
+     files to pack beside its maps — the same `info` its readme gets, so the
+     two cannot disagree about what was built.
+
+     Text only, deliberately. A mode that wanted to pack an image would be
+     writing a channel, and channels already have a place to go. */
+  if(st.mode.extras){
+    let xs=[];
+    try{xs=st.mode.extras(st.P,infoOf(st))||[];}
+    catch(err){console.error("extras() failed in "+st.mode.id,err);}
+    for(const f of xs){
+      if(!f||!f.name||f.text==null)continue;
+      files.push({name:dir+f.name,data:new TextEncoder().encode(String(f.text))});
+    }
+  }
   /* GEOMETRY. Every mode already knows how big the thing it drew really is —
      it prints it in the readout — so the zip carries a plane at that size
      with these maps already wired to it, rather than a paragraph telling you
@@ -1124,15 +1142,21 @@ async function downloadZip(){
     setBar(0);setStatus("Zip failed — "+((err&&err.message)||err));console.error(err);
   }finally{btn.disabled=false;}
 }
-function readmeText(st){
+/* ONE DESCRIPTION OF THE BUILD, because two things are told about it now — the
+   readme and any extra files the mode packs — and a mode whose readme and whose
+   data file disagree about the size of what was built is worse than either. */
+function infoOf(st){
   const B=st.B;
-  let txt=st.mode.readme(st.P,{
+  return {
     W:B.W,H:B.H,hMin:B.hMin,hMax:B.hMax,
     /* whatever the build recorded about itself, for a mode whose readme wants
        to say what came out rather than only what was asked for */
     census:B.census||null,
     normalNote:st.P.flipG?"DirectX (green down)":"OpenGL (green up)"
-  });
+  };
+}
+function readmeText(st){
+  let txt=st.mode.readme(st.P,infoOf(st));
   /* a palettised basecolor that does not say so is a file somebody re-exports
      six months later wondering why the colours will not match */
   const pal=window.Palette&&Palette.describe();

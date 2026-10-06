@@ -395,8 +395,30 @@ fileBase(P,W,H)   // -> "street_cross_1963_2048"; the runtime appends _<channel>
 readme(P,info)    // -> the text file packed into the zip
 ```
 
-`info` is `{W,H,hMin,hMax,normalNote}`, where `normalNote` is already phrased
-as "OpenGL (green up)" or "DirectX (green down)" from `P.flipG`.
+`info` is `{W,H,hMin,hMax,census,normalNote}`, where `normalNote` is already
+phrased as "OpenGL (green up)" or "DirectX (green down)" from `P.flipG`, and
+`census` is whatever your `build` put in `B.census` — a plain object, so it
+crosses a worker thread intact.
+
+### When pixels are only half the deliverable
+
+Some output means nothing on its own. A glyph atlas without the cell map and the
+advance widths is a texture of shapes rather than a font, and no PNG can carry
+that. So a mode may declare `extras`, and the files it returns are packed beside
+its maps:
+
+```js
+extras(P,info)    // -> [{name:"glyphs.json", text:"…"}, …]
+```
+
+`info` is the same object `readme` gets, and that is the point of it: a data file
+and a readme that disagree about what was built is worse than either. Text only
+— a mode that wanted to pack an image would be writing a channel, and channels
+already have somewhere to go.
+
+Keep the names plain (`glyphs.json`, not `<fileBase>_glyphs.json`): they sit
+inside the build's own folder, next to `model.gltf`, which is named the same way
+and for the same reason.
 
 ---
 
@@ -655,13 +677,19 @@ every leaded package in the catalogue on its real land pattern.
 
 A silkscreen legend is single-stroke gothic — a constant-width stroke at the
 fab's minimum line width — so a filled typeface set at 1 mm is the wrong
-object however well it is fitted. `modes/pcb.js` carries its own alphabet: A–Z,
-0–9 and punctuation as polylines in a 5 × 7 box, stroked with round ends. It is
-about forty lines, it is the right shape for the job, and it has a second
-benefit worth having in any mode: **a mode that draws its own letters can stay
-on a worker thread**, where one that registers a face against the document
-cannot. The threading test compares a worker build against a main-thread build
-byte for byte, so that is a claim rather than a hope.
+object however well it is fitted. `modes/lib/stroke.js` is that alphabet: A–Z,
+0–9 and punctuation as polylines in a 5 × 7 box, y down, stroked with round
+ends, published as `window.ForgeStroke`. It is about forty lines and it is the
+right shape for the job.
+
+Two modes use it and neither could use a typeface. `pcb` screens its legends at
+the fab's own line width. `glyph` has to print the Latin character each invented
+glyph stands for, and a key sheet captioned in somebody's grotesque looks
+nothing like the thing it is keying. Both get a second benefit worth having in
+any mode: **a mode that draws its own letters can stay on a worker thread**,
+where one that registers a face against the document cannot. The threading test
+compares a worker build against a main-thread build byte for byte, so that is a
+claim rather than a hope.
 
 ### A height range that spans four orders of magnitude
 

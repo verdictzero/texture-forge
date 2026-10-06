@@ -463,7 +463,7 @@ if (want("threads")) {
      (flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true"));
 
   /* THE CLAIM. Same parameters, both threads, byte for byte. */
-  for (const id of ["factory", "vent", "slab", "hazard", "pcb"]) {
+  for (const id of ["factory", "vent", "slab", "hazard", "pcb", "glyph"]) {
     await wp.click(`#modebar-tabs [data-mode="${id}"]`);
     await wsettle();
     await wp.evaluate(m => window.Forge.setParam(m, "size", 256), id);
@@ -4643,6 +4643,339 @@ if (want("label")) {
    drills nothing you can see, and the legend is clipped off the mask
    openings — each of those is a sample taken in millimetres and converted to
    texels here, so no test has to know what resolution the board came out at. */
+/* ============================ the constructed script ============================
+   The glyph mode invents an alphabet and then sets English in it, so almost
+   everything worth checking about it is a claim about the ALPHABET rather than
+   about the picture: that it is complete, that no two signs in it are the same
+   sign, that it comes out the same way twice, and that the controls which say
+   they change its structure actually do. The pixels get checked too, but they
+   are the smaller half. */
+if (want("glyph")) {
+  console.log("\n— the glyph mode: a constructed writing system —");
+  await page.click('#modebar-tabs [data-mode="glyph"]');
+  await settle();
+  const base = {
+    piece: "chart", script: "rune", seed: 1963, origin: "alien", drift: 0.5,
+    famAmt: 0.7, complex: 0.5, ruleNum: true, handAuto: true, size: 512,
+    Wmm: 420, Hmm: 297, text: "THE QUICK BROWN FOX", track: 0.04, captions: true
+  };
+
+  /* ---- complete, and distinct, for every script and both origins ---- */
+  const sweep = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    const all = (F.LETTERS + F.DIGITS + F.PUNCT).split("");
+    const out = { n: 0, missing: [], over: [], worst: 0, where: "", solo: 0 };
+    for (const script of F.SCRIPT_KEYS)
+      for (const origin of ["alien", "reform"])
+        for (const famAmt of [0, 0.5, 1])
+          for (let seed = 1; seed <= 4; seed++) {
+            const A = window.ForgeGlyph.alphabetOf({ ...b, script, origin, famAmt, seed });
+            out.n++;
+            out.solo += A.forcedSolo;
+            const miss = all.filter(c => !A.G[c]);
+            if (miss.length) out.missing.push(script + "/" + origin + "/" + seed + ": " + miss.join(""));
+            if (A.worst > 1) out.over.push(script + "/" + origin + "/fam" + famAmt +
+                                           "/" + seed + " " + A.worstPair);
+            if (A.worst > out.worst) { out.worst = A.worst; out.where = script + "/" + origin + " " + A.worstPair; }
+          }
+    return out;
+  }, base);
+  ok("every script fills the whole character set", !sweep.missing.length,
+     sweep.missing.slice(0, 4).join("; ") || sweep.n + " alphabets, 47 signs in each");
+  ok("no two signs in an alphabet are confusable", !sweep.over.length,
+     sweep.over.slice(0, 4).join("; ") ||
+     "closest pair anywhere " + (sweep.worst * 100).toFixed(1) + "% of the limit, on " + sweep.where);
+
+  /* ---- the same parameters give the same alphabet, and the piece is not one
+     of those parameters: the key sheet has to key the plate ---- */
+  const det = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    const of = p => { const P = { ...b, ...p }; return F.glyphsJSON(P, F.sizeOf(P), F.alphabetOf(P)); };
+    const chart = of({ piece: "chart" });
+    const plate = of({ piece: "plate", Wmm: 300, Hmm: 200 });
+    const atlas = of({ piece: "atlas" });
+    of({ script: "xeno", seed: 77 });                 /* evict the memo */
+    const again = of({ piece: "chart" });
+    const other = of({ seed: 1964 });
+    return { pieceSame: chart === plate && chart === atlas, stable: chart === again,
+             seedMoves: chart !== other, len: chart.length };
+  }, base);
+  ok("the alphabet does not depend on which piece is being drawn",
+     det.pieceSame, "chart, plate and atlas agree — so the key sheet keys the plate");
+  ok("the same parameters give the same alphabet twice", det.stable,
+     det.stable ? (det.len / 1024).toFixed(0) + " KB of glyph data, byte identical" : "the memo is keyed wrong");
+  ok("a different seed gives a different alphabet", det.seedMoves);
+
+  /* ---- families: the switch is a claim you can test ---- */
+  const fam = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    /* a member built on its family's skeleton SHARES ITS STROKE OBJECTS */
+    const shared = A => {
+      let n = 0;
+      for (const Fm of F.FAMILIES)
+        for (let i = 1; i < Fm.chars.length; i++) {
+          const a = A.G[Fm.chars[0]], c = A.G[Fm.chars[i]];
+          if (a && c && c.s.length > a.s.length && c.s[0] === a.s[0]) n++;
+        }
+      return n;
+    };
+    return { off: shared(F.alphabetOf({ ...b, famAmt: 0, script: "lapid" })),
+             on:  shared(F.alphabetOf({ ...b, famAmt: 1, script: "lapid" })),
+             most: 26 - F.FAMILIES.length };
+  }, base);
+  ok("at zero, no letter is built on a relative's skeleton", fam.off === 0,
+     fam.off ? fam.off + " still shared" : "every letter its own form");
+  ok("at one, the relatives share one", fam.on >= fam.most - 3,
+     fam.on + " of a possible " + fam.most + " marked members");
+
+  /* ---- what you write most, you write with the least ---- */
+  const freq = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    let common = 0, rare = 0, n = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const A = F.alphabetOf({ ...b, script: "lapid", famAmt: 0, seed });
+      /* SEGMENTS, not stroke objects: a lattice walk is one polyline however
+         many steps it took, so counting objects hides the whole relationship */
+      for (let i = 0; i < 8; i++) {
+        common += A.G[F.FREQ[i]].n;
+        rare += A.G[F.FREQ[25 - i]].n;
+      }
+      n += 8;
+    }
+    return { common: common / n, rare: rare / n };
+  }, base);
+  ok("common letters come out simpler than rare ones", freq.rare > freq.common + 0.5,
+     "the eight commonest average " + freq.common.toFixed(2) +
+     " segments, the eight rarest " + freq.rare.toFixed(2));
+
+  /* ---- a reform is a reform: can you still see where it came from? ---- */
+  const kin = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    /* identify each glyph by whichever Latin skeleton it is nearest, drawn in
+       the same hand — which is what "it is still recognisably an A" means */
+    const score = drift => {
+      let hit = 0, n = 0;
+      for (let seed = 1; seed <= 3; seed++) {
+        const P = { ...b, script: "lapid", origin: "reform", drift, famAmt: 0,
+                    ruleNum: false, seed };
+        const A = F.alphabetOf(P), H = A.H, lat = {};
+        for (const ch of F.LETTERS) {
+          const s = F.reformOf(ch, H, () => 0.99, 0, 0);
+          if (s) lat[ch] = F.sigOf(s, H);
+        }
+        for (const ch of F.LETTERS) {
+          if (!A.G[ch] || !lat[ch]) continue;
+          const cs = F.sigOf(A.G[ch].s, H);
+          let best = null, bv = Infinity;
+          for (const c in lat) { const d = F.diffOf(cs, lat[c]); if (d < bv) { bv = d; best = c; } }
+          n++; if (best === ch) hit++;
+        }
+      }
+      return hit / Math.max(1, n);
+    };
+    return { near: score(0), far: score(1) };
+  }, base);
+  ok("a reform at no drift is still readable as the Latin it came from",
+     kin.near >= 0.8, Math.round(kin.near * 100) + "% of letters identify as their own ancestor");
+  ok("and at full drift it is not", kin.far <= 0.55 && kin.near - kin.far >= 0.3,
+     Math.round(kin.far * 100) + "% — against " + Math.round(100 / 26) + "% by chance, so the ancestry fades without vanishing");
+
+  /* ---- the numerals are a rule, not a set of shapes ---- */
+  const num = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    const A = F.alphabetOf({ ...b, script: "lapid", ruleNum: true });   /* quinary */
+    const n = d => A.G[String(d)].s.length;
+    const off = F.alphabetOf({ ...b, script: "lapid", ruleNum: false, origin: "reform" });
+    return { rule: A.H.num, steps: [1, 2, 3, 4].map(n),
+             five: n(5), rising: n(1) < n(2) && n(2) < n(3) && n(3) < n(4),
+             differs: JSON.stringify(A.G["7"].s) !== JSON.stringify(off.G["7"].s) };
+  }, base);
+  ok("under the quinary rule each unit adds a stroke", num.rising,
+     "1 to 4 take " + num.steps.join(", ") + " strokes; five is one bar and nothing in the lower register (" + num.five + ")");
+  ok("switching the rule off gives different digits", num.differs);
+
+  /* ---- the atlas cell map is the one thing an engine must be able to assume ---- */
+  await page.evaluate(() => {
+    for (const [k, v] of [["piece", "atlas"], ["size", 512], ["script", "rune"],
+                          ["seed", 1963], ["marking", "print"], ["cellPad", 0.1]])
+      window.Forge.setParam("glyph", k, v);
+  });
+  await page.click("#glyph--forge");
+  await settle();
+  const cells = await page.evaluate(() => {
+    const S = 512, cv = window.Forge.makeMap("opacity", S);
+    const d = cv.getContext("2d").getImageData(0, 0, S, S).data;
+    const cell = S / 16;
+    const ink = code => {
+      const cx = (code & 15) * cell, cy = (code >> 4) * cell;
+      let n = 0;
+      for (let y = 0; y < cell; y++)
+        for (let x = 0; x < cell; x++)
+          if (d[(((cy + y) | 0) * S + ((cx + x) | 0)) * 4] > 128) n++;
+      return n;
+    };
+    const filled = [];
+    for (let c = 33; c < 127; c++) if (ink(c) > 0) filled.push(c);
+    return { A: ink(65), a: ink(97), Z: ink(90), nine: ink(57), space: ink(32),
+             at: ink(64), brace: ink(123), filled: filled.length };
+  });
+  ok("the glyph for a code point is in the cell the readme says it is",
+     cells.A > 0 && cells.Z > 0 && cells.nine > 0,
+     "A has " + cells.A + " ink texels in cell (1,4), Z " + cells.Z + ", 9 " + cells.nine);
+  ok("lower case draws the same glyph as upper", cells.a === cells.A && cells.a > 0,
+     "a and A are " + cells.a + " and " + cells.A + " texels");
+  ok("a cell the alphabet has no sign for is empty",
+     cells.space === 0 && cells.at === 0 && cells.brace === 0,
+     "space, @ and { are blank; " + cells.filled + " of 94 printable code points filled");
+
+  /* ---- the alphabet travels with the picture ---- */
+  const ex = await page.evaluate(b => {
+    const m = window.Forge.byId.glyph;
+    const files = m.extras({ ...b, piece: "atlas" }, { W: 512, H: 512 });
+    const by = {};
+    for (const f of files) by[f.name] = f.text;
+    const out = { names: files.map(f => f.name) };
+    try {
+      const j = JSON.parse(by["glyphs.json"]);
+      const chars = Object.keys(j.glyphs);
+      out.n = chars.length;
+      out.cellsRight = chars.every(c => {
+        const g = j.glyphs[c];
+        return g.codePoint === c.charCodeAt(0) &&
+               g.atlasCell[0] === (g.codePoint & 15) && g.atlasCell[1] === (g.codePoint >> 4);
+      });
+      out.advances = chars.every(c => j.glyphs[c].advance > 0);
+      out.strokes = chars.every(c => j.glyphs[c].strokes.length > 0);
+    } catch (e) { out.jsonErr = String(e.message); }
+    const svg = by["glyphs.svg"] || "";
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    out.svgErr = doc.getElementsByTagName("parsererror").length > 0;
+    out.groups = doc.querySelectorAll("g[id^='glyph-']").length;
+    return out;
+  }, base);
+  ok("the archive carries the alphabet as data and as vectors",
+     ex.names.join(",") === "glyphs.json,glyphs.svg", ex.names.join(", "));
+  ok("glyphs.json parses and holds every sign", !ex.jsonErr && ex.n === 47 && ex.strokes,
+     ex.jsonErr || ex.n + " glyphs, every one with strokes");
+  ok("every glyph's atlas cell agrees with its code point", !!ex.cellsRight);
+  ok("every glyph carries an advance, which is what makes the atlas proportional",
+     !!ex.advances);
+  ok("glyphs.svg is well formed, one named group per sign",
+     !ex.svgErr && ex.groups === 47, "parser error: " + ex.svgErr + ", " + ex.groups + " groups");
+
+  /* ---- the seamless field: the seam has to fall between two glyphs ---- */
+  await page.evaluate(() => {
+    for (const [k, v] of [["piece", "field"], ["size", 512], ["script", "seal"],
+                          ["marking", "incise"], ["rows", 6], ["tileM", 3]])
+      window.Forge.setParam("glyph", k, v);
+  });
+  await page.click("#glyph--forge");
+  await settle();
+  const seam = await page.evaluate(() => {
+    const S = 512, cv = window.Forge.makeMap("height", S);
+    const d = cv.getContext("2d").getImageData(0, 0, S, S).data;
+    const at = (x, y) => d[((y % S) * S + (x % S)) * 4];
+    let wrapX = 0, wrapY = 0, inner = 0;
+    for (let y = 0; y < S; y++) wrapX += Math.abs(at(S - 1, y) - at(0, y));
+    for (let x = 0; x < S; x++) wrapY += Math.abs(at(x, S - 1) - at(x, 0));
+    /* the baseline is the ordinary step between neighbouring columns, which is
+       what a seam has to be no worse than */
+    for (let y = 0; y < S; y += 3)
+      for (let x = 0; x < S - 1; x += 3) inner += Math.abs(at(x, y) - at(x + 1, y));
+    const n = Math.ceil(S / 3) * Math.ceil((S - 1) / 3);
+    return { wrapX: wrapX / S, wrapY: wrapY / S, inner: inner / n };
+  });
+  ok("the field wraps left to right", seam.wrapX <= seam.inner * 2 + 1.5,
+     "seam " + seam.wrapX.toFixed(2) + " against " + seam.inner.toFixed(2) + " between any two columns");
+  ok("and top to bottom", seam.wrapY <= seam.inner * 2 + 1.5,
+     "seam " + seam.wrapY.toFixed(2));
+
+  /* ---- say what cannot be held, rather than showing mush ---- */
+  const warn = await page.evaluate(b => {
+    const m = window.Forge.byId.glyph;
+    const P = { ...b, piece: "chart", script: "broad", famAmt: 1, text: "X" };
+    const hit = t => /under a texel|too small to tell/.test(t);
+    return { small: hit(m.readout({ ...P, size: 128 })),
+             big: hit(m.readout({ ...P, size: 4096 })),
+             sample: m.readout({ ...P, size: 128 }).replace(/<[^>]+>/g, "") };
+  }, base);
+  ok("the readout warns when the resolution cannot hold the hairline",
+     warn.small && !warn.big, warn.sample.slice(-80));
+
+  /* ---- the ways of setting a line that nothing else here goes down ---- */
+  for (const [script, dir, note] of [["seal", "ttb", "columns, right to left"],
+                                     ["lapid", "bous", "boustrophedon, every second line mirrored"],
+                                     ["flow", "rtl", "right to left, joined"]]) {
+    await page.evaluate(([sc, d]) => {
+      for (const [k, v] of [["piece", "plate"], ["size", 512], ["script", sc], ["dir", d],
+                            ["marking", "incise"], ["material", "granite"],
+                            ["Wmm", 300], ["Hmm", 220], ["translit", true], ["holes", 4]])
+        window.Forge.setParam("glyph", k, v);
+    }, [script, dir]);
+    await page.click("#glyph--forge");
+    await settle();
+    const drew = await page.evaluate(() => {
+      const S = 256;
+      const d = window.Forge.makeMap("height", S)
+        .getContext("2d").getImageData(0, 0, S, S).data;
+      const a = window.Forge.makeMap("opacity", S)
+        .getContext("2d").getImageData(0, 0, S, S).data;
+      /* LOOK WHERE THE WRITING IS. The plate's bevelled edge and its four
+         fixing holes give a height span of the full range and tens of
+         thousands of clear texels whether or not a single glyph was drawn, so
+         a check on those passes an empty plate. The middle of the panel holds
+         the inscription and nothing else — not the border rule, not the
+         transliteration along the bottom — and what is cut into it is whatever
+         differs from the level the face mostly sits at. */
+      const lo = Math.round(S * 0.2), hi = Math.round(S * 0.8);
+      const hist = new Uint32Array(256);
+      for (let y = lo; y < hi; y++)
+        for (let x = lo; x < hi; x++) hist[d[(y * S + x) * 4]]++;
+      let face = 0;
+      for (let v = 1; v < 256; v++) if (hist[v] > hist[face]) face = v;
+      let cut = 0;
+      for (let y = lo; y < hi; y++)
+        for (let x = lo; x < hi; x++)
+          if (Math.abs(d[(y * S + x) * 4] - face) > 12) cut++;
+      let holes = 0;
+      for (let i = 0; i < a.length; i += 4) if (a[i] < 128) holes++;
+      return { cut: cut, holes: holes, of: (hi - lo) * (hi - lo) };
+    });
+    ok("set " + note + ", it still cuts an inscription",
+       drew.cut > drew.of * 0.01 && drew.holes > 20,
+       drew.cut + " texels of the middle " + drew.of + " stand off the face, and the " +
+       "fixing holes clear " + drew.holes);
+  }
+
+  /* ---- the companion cut: an atlas and its key are one deliverable ---- */
+  const cuts = await page.evaluate(b => {
+    const m = window.Forge.byId.glyph;
+    const of = p => {
+      const P = { ...b, ...p };
+      return { v: m.variants(P).map(c => c.id + ":" + JSON.stringify(c.set)),
+               root: m.variantRoot(P).id };
+    };
+    return { atlas: of({ piece: "atlas" }), chart: of({ piece: "chart" }),
+             plate: of({ piece: "plate" }), off: of({ piece: "atlas", pairCut: false }) };
+  }, base);
+  ok("an atlas packs its key sheet and a key sheet packs its atlas",
+     cuts.atlas.v[0] === 'chart:{"piece":"chart"}' &&
+     cuts.chart.v[0] === 'atlas:{"piece":"atlas"}' &&
+     cuts.plate.v[0] === 'chart:{"piece":"chart"}' &&
+     cuts.atlas.root === "atlas",
+     cuts.atlas.v.concat(cuts.chart.v).join(" / "));
+  ok("and the switch that does it is one the user can see", !cuts.off.v.length,
+     "pairCut off packs the flat archive it always did");
+
+  await page.evaluate(() => {
+    for (const [k, v] of [["piece", "chart"], ["size", 512], ["script", "rune"],
+                          ["dir", "auto"], ["marking", "incise"]])
+      window.Forge.setParam("glyph", k, v);
+  });
+  await page.click("#glyph--forge");
+  await settle();
+}
+
 if (want("pcb")) {
   console.log("\n— the circuit board —");
   await page.evaluate(() => window.Forge.activate("pcb"));

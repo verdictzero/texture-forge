@@ -436,6 +436,110 @@ Label — warning labels, safety signs, placards, pipe markers, data plates
   markers, lockout tag, retroreflective radiation area, laser-marked anodised
   asset tag, a sheet of Unicode glyph cells, and twenty years on a pump.
 
+Glyph — a constructed writing system, keyed to English
+  Invents an ALPHABET and then sets English in it. Every glyph stands for one
+  Latin character, so one seed gives a script you can write in, a key sheet
+  saying which glyph is which, and a font atlas an engine can look characters
+  up in. The atlas, the key and an inscription all read one generator, so the
+  key really is the key to the plate rather than a second drawing of it.
+
+  What makes it read as writing rather than as squiggles is that the shapes
+  are all obviously made by the same hand, out of the same few moves, by
+  somebody who had reasons. Five of those are modelled.
+
+  One construction. Nine of them, and the whole alphabet is built on the one
+  the script names: a stave with twigs cut across the grain, a walk on a 3 x 4
+  lattice, right angles with terminal pads, spokes and arcs about a centre at
+  a fixed number of stations, lobes entered and left on a baseline so a word
+  joins up, pendants hanging from a headline bar, a frame with the marks
+  inside it, wedges pressed at four angles, or a 5 x 3 field of dots.
+
+  One hand. Stroke weight, pen contrast and angle, slant, curvature, and what
+  happens at a free end — square, round, seriffed, flagged, padded or barbed.
+  Contrast is a broad nib done properly: the width of each segment follows the
+  sine of the angle between it and the pen, so a stroke across the nib is the
+  full weight and one along it is a hairline. Terminals go on FREE ends only —
+  an endpoint that meets another stroke is a joint, and decorating those is
+  what makes invented lettering look like decorated line soup.
+
+  Frequency. Common letters get fewer strokes than rare ones, which is true of
+  every script that evolved rather than being designed in an afternoon.
+
+  Families. The 26 letters are nine voicing pairs, three leftovers and the
+  five vowels; relatives share a skeleton and differ by a mark, and the member
+  you write most often is the one with nothing added. A slider says how many
+  families share, in an order that starts with the pairs — a pair costs one
+  marked form and buys the clearest relationship in the language, where five
+  vowels on one skeleton is a real abugida and a lot to ask of a reader. At
+  zero nothing shares, and that is a claim the test checks.
+
+  A numeral rule. Digits are never arbitrary: tallies in groups of five with
+  the fifth struck across the other four, two registers of five, a dial with
+  its pointer at one of ten stations, or four bits in a field. The readme
+  states the rule, so the numbers in an inscription are countable rather than
+  decorative. Zero is a different kind of sign in every rule, because a mark
+  meaning none was invented separately everywhere it was invented at all.
+
+  ALIEN, OR OURS LATER. Those are two different fictions and it does both. An
+  invented script owes Latin nothing. A reformed one starts from the same
+  single-stroke Latin skeleton the circuit board screens its legends in, and
+  drifts: short strokes are dropped, vertices snap onto the hand's own
+  lattice, the construction's idiom arrives, and forms turn over. At no drift
+  it is a stylised Latin anyone can read; at full drift the test can still
+  identify a third of it against chance of one in twenty-six, which is about
+  right for a script that was ours once.
+
+  NO TWO SIGNS ARE THE SAME SIGN. Every candidate is rasterised and compared
+  against every sign already in the alphabet — and against its mirror and its
+  half turn, because b/d confusion is a real defect and an invented alphabet
+  has no excuse for it. What is measured is how much of the ink DIFFERS, not
+  how much overlaps: a family mark is a few per cent of a glyph, so overlap
+  throws away exactly the pairs the design intends, and holding the set to a
+  floor on difference is also what forces a distinguishing mark to be big
+  enough to see. A member no mark can save leaves its family and takes its own
+  form, and the readout counts those.
+
+  Four pieces. The KEY SHEET is every glyph over the Latin character it stands
+  for, laid out at one cell size, with the figures and points after the
+  letters and the inscription set once in each alphabet so the sheet checks
+  against itself. The ATLAS is 16 x 16 cells, the glyph for code point c in
+  cell (c mod 16, c div 16), lower case aliasing upper, ink in the alpha — one
+  scale and one baseline across every cell, or the advances would mean
+  nothing. A PLATE is an inscription on something. A FIELD is a seamless wall
+  of writing, each line holding a whole number of glyphs and scaled by a per
+  cent or two to fill the tile, so the seam falls between two glyphs rather
+  than through one.
+
+  Set left to right, right to left, in columns, or boustrophedon — where every
+  second line turns back and its glyphs are mirrored, which is what the word
+  means. Words separated by a gap, an interpunct or a rule. Letters joined
+  along the baseline or under a headline bar that runs across a whole word.
+
+  Ten substrates from granite to a lit glass panel, and eight processes. Those
+  are not each other inverted: carving in RELIEF does not cut the letter, it
+  cuts the ground away and leaves the letter standing on the original face, so
+  the letter is the face and the ground is fresh material — the opposite way
+  round from an incised one. A punch displaces material to a lip. An inlay is
+  a third metal, flush. Abrasion takes the proud marks first and leaves a
+  recessed one alone, which is exactly why anything meant to last was cut in,
+  and patina is not grime: it takes the metalness with it.
+
+  The archive carries glyphs.json — the hand, the families, the numeral rule,
+  and per glyph the code point, atlas cell, advance, ink box, which family it
+  is in and what mark it wears — and glyphs.svg, the same outlines as vectors
+  with one named group per glyph and the baseline at the group origin. Without
+  those the atlas is a picture of a font rather than a font. Exporting a plate
+  or an atlas also packs the matching key sheet, since neither is usable
+  without it.
+
+  It draws BOTH alphabets itself, the invented one by construction and the
+  Latin captions from modes/lib/stroke.js, so the whole mode runs on a worker
+  thread. A mode that reached for a registered typeface could not.
+
+  Presets: cut in granite, the key sheet, a font atlas, a bronze dedication,
+  a terminal display, a clay tablet, a xenoglyph warning, a wall of writing,
+  reformed English on anodised aluminium, and a cursive hand on vellum.
+
 Ruins — ruin-stone plating with etched circuit traces
   The Plating Fabricator tool, folded in: seamless stone plating cut into
   staggered rectangular and L-shaped plates, with circuit traces routed across
@@ -1890,7 +1994,17 @@ three came with no licence FILE — terms unknown, not terms granted. Their term
 also govern what you do with a texture you export with them, not just whether
 the files ship. Copying them in beside index.html would publish all six.
 
-So a face arrives one of three ways instead:
+TWO MODES NEED NO FACE AT ALL, and that is worth more than a workaround. A
+silkscreen legend is single-stroke gothic because the fab screens it in one pass
+at a line width it specifies, and the key sheet in the glyph mode has to print
+the Latin character each invented glyph stands for — captioned in somebody's
+grotesque it looks nothing like the thing it is keying. So both draw their
+letters from modes/lib/stroke.js, an alphabet of polylines in a 5 x 7 box. The
+second benefit is the larger one: A MODE THAT DRAWS ITS OWN LETTERS CAN STAY ON
+A WORKER THREAD, where a face registered against the document is invisible to a
+worker and would come back quietly different rather than merely late.
+
+For everything that does want a real face, it arrives one of three ways:
 
   dropped in     the reliable one. "Load…" beside the face picker takes a
                  .ttf/.otf/.woff and registers it straight from its bytes.
@@ -1971,6 +2085,16 @@ a paint alpha decal and material ID (hazard), material ID / emissive / opacity
 Each zip also contains a 16-bit height PNG and
 a readme giving the real-world size of the tile so displacement comes out true
 to life.
+
+SOME OUTPUT IS ONLY HALF A DELIVERABLE AS PIXELS, so a mode may pack text files
+of its own beside its maps. The glyph mode is the case that earned it: a font
+atlas without the cell map and the advance widths is a texture of shapes rather
+than a font, and no PNG can carry that — so it packs glyphs.json (the hand, the
+families, the numeral rule, and per glyph the code point, atlas cell, advance,
+ink box, family and mark) and glyphs.svg (the same outlines as vectors, one
+named group per glyph). Both are generated from the same alphabet the build
+drew from rather than from a second idea of it, and both get the same
+description of the build that the readme does, so the two cannot disagree.
 
 File names carry the mode, seed and size, so exports from different sessions
 never collide: street_cross_1963_2048_normal.png, panel_1947_1024_orm.png,
@@ -2324,7 +2448,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the twenty-two things that are easy to break silently:
+It also covers the twenty-three things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -2658,6 +2782,40 @@ It also covers the twenty-two things that are easy to break silently:
             running man in the middle of the green sign, door and arrow and
             all — which he was 12% of his own circle off before any of this
             was measured
+  glyph     almost everything worth checking here is a claim about the
+            ALPHABET rather than about the picture. Over every script, both
+            origins, three family settings and four seeds — 240 alphabets —
+            each one is COMPLETE (a hole in an alphabet is the one defect no
+            styling recovers from) and no two signs in it are closer than the
+            confusability floor, with the closest pair anywhere reported. Then
+            that the alphabet does not depend on which piece is being drawn,
+            so the key sheet really does key the plate; that the same
+            parameters give the same alphabet byte for byte and a different
+            seed does not; that at zero no letter is built on a relative's
+            skeleton and at one they nearly all are; that the eight commonest
+            letters come out simpler than the eight rarest; and that each unit
+            adds a stroke under the quinary rule while switching the rule off
+            changes the digits. The REFORM is checked the way the fiction
+            claims: each glyph is identified by whichever Latin skeleton it is
+            nearest, and at no drift four in five letters identify as their own
+            ancestor while at full drift that collapses — but stays well above
+            the one in twenty-six you would get by guessing, which is what a
+            script that was ours once should look like. Then the pixels: the
+            glyph for a code point is in the cell the readme says it is, lower
+            case draws the same ink as upper to the texel, a cell the alphabet
+            has no sign for is empty, the seamless field's seam is no worse
+            than the step between any two of its columns in either axis, and
+            the readout says the hairline is under a texel at 128 px and does
+            not say it at 4096. glyphs.json parses with all 47 signs, every
+            atlas cell agreeing with its code point and every advance positive;
+            glyphs.svg is well-formed XML with one named group per sign. Then
+            that each way of setting a line — columns, boustrophedon, joined
+            right to left — still cuts an inscription, measured in the MIDDLE
+            of the panel against the level the face mostly sits at, because a
+            plate's bevelled edge and its fixing holes answer yes to every
+            cruder question whether or not a glyph was drawn. And that an
+            atlas packs its key sheet, a key sheet packs its atlas, and the
+            switch that does it is one the user can see
   pcb       three kinds of claim, checked three ways. The TABLES asked of
             themselves: one ounce of copper is 34.8 um, an 0603 is 1.60 by
             0.80 mm, and IPC-7351's construction puts an SOIC-8 pad where the
