@@ -408,13 +408,16 @@ that. So a mode may declare `extras`, and the files it returns are packed beside
 its maps:
 
 ```js
-extras(P,info)    // -> [{name:"glyphs.json", text:"…"}, …]
+extras(P,info)    // -> [{name:"glyphs.json", text:"…"},
+                  //     {name:"Something.ttf", data:someUint8Array}, …]
 ```
 
 `info` is the same object `readme` gets, and that is the point of it: a data file
-and a readme that disagree about what was built is worse than either. Text only
-— a mode that wanted to pack an image would be writing a channel, and channels
-already have somewhere to go.
+and a readme that disagree about what was built is worse than either. An entry is
+`{name, text}` for something a person might read or `{name, data}` for bytes — a
+font file being the case that wants bytes. Not an image either way: a mode that
+wanted to pack one would be writing a channel, and channels already have
+somewhere to go.
 
 Keep the names plain (`glyphs.json`, not `<fileBase>_glyphs.json`): they sit
 inside the build's own folder, next to `model.gltf`, which is named the same way
@@ -690,6 +693,30 @@ any mode: **a mode that draws its own letters can stay on a worker thread**,
 where one that registers a face against the document cannot. The threading test
 compares a worker build against a main-thread build byte for byte, so that is a
 claim rather than a hope.
+
+### And when the letters should leave as a font
+
+`modes/lib/truetype.js` writes the bytes of a .ttf from closed polygon outlines:
+`ForgeTTF.build({unitsPerEm, ascender, descender, glyphs, cmap, …})`. A texture
+of letter shapes is a picture of a font; what makes it a font is that you can
+type in it, and the glyph mode packs one in every archive through `extras`.
+
+The thing worth knowing is why turning strokes into a font does not need a
+polygon clipper. TrueType fills with the NONZERO WINDING rule, so a letter can be
+handed over as a pile of overlapping rectangles, discs and triangles — one per
+stroke segment, one per joint — and the rasteriser unions them for free, as long
+as every piece winds the same way. The writer turns every contour to face the
+same way so a caller cannot get that wrong. The cost is that nothing can have a
+counter: an inner contour wound the other way would be straightened out and
+filled in. Stroked work never needs one.
+
+The test for a font is the browser. It is either loadable or it is not, and
+nothing short of handing it to a real font engine tells you which — so the suite
+builds the file, installs it through `FontFace`, types a letter with it and
+compares the coverage against the same letter the mode draws. That one comparison
+covers every table in the file and the whole outlining path at once: a wrong
+`cmap` gives the wrong glyph, wrong metrics put it in the wrong place, and a
+drifting outliner shows up as ink that does not match.
 
 ### A height range that spans four orders of magnitude
 

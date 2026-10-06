@@ -4853,8 +4853,10 @@ if (want("glyph")) {
     out.groups = doc.querySelectorAll("g[id^='glyph-']").length;
     return out;
   }, base);
-  ok("the archive carries the alphabet as data and as vectors",
-     ex.names.join(",") === "glyphs.json,glyphs.svg", ex.names.join(", "));
+  ok("the archive carries the alphabet as data, as vectors and as a font",
+     ex.names.length === 3 && ex.names[0] === "glyphs.json" &&
+     ex.names[1] === "glyphs.svg" && /^Forge[A-Za-z0-9]+\.ttf$/.test(ex.names[2]),
+     ex.names.join(", "));
   ok("glyphs.json parses and holds every sign", !ex.jsonErr && ex.n === 47 && ex.strokes,
      ex.jsonErr || ex.n + " glyphs, every one with strokes");
   ok("every glyph's atlas cell agrees with its code point", !!ex.cellsRight);
@@ -4946,6 +4948,113 @@ if (want("glyph")) {
        drew.cut + " texels of the middle " + drew.of + " stand off the face, and the " +
        "fixing holes clear " + drew.holes);
   }
+
+  /* ---- the font. THE TEST IS THE BROWSER. A font file is either loadable or
+     it is not, and nothing short of handing one to a real font engine tells
+     you which — so this builds the .ttf, gives it to the page through
+     FontFace, and then renders a letter with it and compares the result
+     against the same letter drawn by the mode. That one comparison covers
+     every table in the file AND the whole stroke-to-outline path at once: if
+     the cmap is wrong the wrong glyph comes out, if the metrics are wrong it
+     lands in the wrong place, and if the outlining has drifted from the
+     drawing the ink does not match. ---- */
+  const font = await page.evaluate(async b => {
+    const F = window.ForgeGlyph;
+    const P = { ...b, script: "lapid", seed: 1963, piece: "atlas" };
+    const A = F.alphabetOf(P);
+    const bytes = F.fontOf(P, A);
+    if (!bytes) return { err: "fontOf returned nothing" };
+    const nm = F.fontName(P, A);
+    const face = new FontFace(nm.family, bytes.buffer.slice(
+      bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    try { await face.load(); } catch (e) { return { err: "the browser refused it: " + e.message }; }
+    document.fonts.add(face);
+
+    const CAP = 220, S = 420;
+    const cv = () => { const c = document.createElement("canvas"); c.width = c.height = S; return c; };
+    const grid = d => { const g = new Float64Array(S * S);
+      for (let i = 0; i < S * S; i++) g[i] = d[i * 4 + 3] / 255; return g; };
+    /* the font's cap is 700 of a 1000 em, so a cap of CAP px is this size */
+    const px = CAP / (F.FONT_CAP / F.FONT_UPM);
+    const out = { err: null, chars: [] };
+    for (const ch of ["A", "E", "S", "5", "?"]) {
+      const gl = A.G[ch];
+      if (!gl) continue;
+      const ca = cv(), cb = cv();
+      const ga = ca.getContext("2d"), gb = cb.getContext("2d");
+      ga.fillStyle = "#000"; ga.strokeStyle = "#000";
+      F.drawGlyphAt(ga, gl, A.H, 60, 300, CAP, {});
+      gb.fillStyle = "#000";
+      gb.font = px + 'px "' + nm.family + '"';
+      gb.textBaseline = "alphabetic";
+      gb.fillText(ch, 60, 300);
+      const a = grid(ga.getImageData(0, 0, S, S).data);
+      const c = grid(gb.getImageData(0, 0, S, S).data);
+      let inter = 0, uni = 0, na = 0, nc = 0;
+      for (let i = 0; i < a.length; i++) {
+        inter += Math.min(a[i], c[i]); uni += Math.max(a[i], c[i]);
+        na += a[i]; nc += c[i];
+      }
+      out.chars.push({ ch: ch, iou: uni ? inter / uni : 0, drawn: na, typed: nc,
+                       advPx: gb.measureText(ch).width, want: gl.adv * CAP });
+    }
+    /* the alias and the word space, which only the cmap and hmtx can get right */
+    const g0 = cv().getContext("2d");
+    g0.font = px + 'px "' + nm.family + '"';
+    out.alias = g0.measureText("a").width === g0.measureText("A").width &&
+                g0.measureText("a").width > 0;
+    out.space = g0.measureText(" ").width;
+    out.wantSpace = 0.34 * CAP;
+    out.bytes = bytes.length;
+    return out;
+  }, base);
+  ok("the browser accepts the generated font", !font.err, font.err || font.bytes + " bytes");
+  if (!font.err) {
+    const worst = font.chars.reduce((a, c) => c.iou < a.iou ? c : a, font.chars[0]);
+    ok("a letter typed in the font is the letter the mode draws",
+       font.chars.every(c => c.iou > 0.9),
+       "worst overlap " + worst.iou.toFixed(3) + " on " + worst.ch + " (" +
+       font.chars.map(c => c.ch + " " + c.iou.toFixed(3)).join(", ") + ")");
+    const adv = font.chars.reduce((a, c) => Math.max(a, Math.abs(c.advPx - c.want)), 0);
+    ok("and it advances by the width the metrics promise", adv < 1.5,
+       "worst advance error " + adv.toFixed(2) + " px at a " + 220 + " px cap");
+    ok("lower case types the same glyph as upper", !!font.alias);
+    ok("the word space carries its advance",
+       Math.abs(font.space - font.wantSpace) < 1.5,
+       font.space.toFixed(1) + " px against " + font.wantSpace.toFixed(1));
+  }
+
+  /* ---- flat is flat, and that is the whole claim ---- */
+  await page.evaluate(() => {
+    for (const [k, v] of [["piece", "atlas"], ["size", 512], ["script", "lapid"],
+                          ["flat", true], ["marking", "incise"], ["material", "granite"]])
+      window.Forge.setParam("glyph", k, v);
+  });
+  await page.click("#glyph--forge");
+  await settle();
+  const dead = await page.evaluate(() => {
+    const S = 256, get = k => window.Forge.makeMap(k, S)
+      .getContext("2d").getImageData(0, 0, S, S).data;
+    const n = get("normal"), h = get("height"), a = get("ao"), o = get("opacity");
+    let flatN = true, flatH = true, whiteAO = true, ink = 0;
+    for (let i = 0; i < S * S * 4; i += 4) {
+      if (n[i] !== 128 || n[i + 1] !== 128 || n[i + 2] !== 255) flatN = false;
+      if (h[i] !== h[0]) flatH = false;
+      if (a[i] !== 255) whiteAO = false;
+      if (o[i] > 128) ink++;
+    }
+    return { flatN: flatN, flatH: flatH, whiteAO: whiteAO, ink: ink };
+  });
+  ok("a flat sheet has no relief in it at all",
+     dead.flatN && dead.flatH && dead.whiteAO,
+     "normal " + (dead.flatN ? "flat" : "NOT flat") + ", height " +
+     (dead.flatH ? "empty" : "NOT empty") + ", AO " + (dead.whiteAO ? "white" : "NOT white"));
+  /* 47 glyphs in 16 px cells is not much ink, so the number is small on
+     purpose — what is being checked is that stripping the material did not
+     strip the writing with it */
+  ok("and the ink is still there", dead.ink > 300,
+     dead.ink + " ink texels across 47 glyphs in 16 px cells");
+  await page.evaluate(() => window.Forge.setParam("glyph", "flat", false));
 
   /* ---- the companion cut: an atlas and its key are one deliverable ---- */
   const cuts = await page.evaluate(b => {

@@ -524,19 +524,45 @@ Glyph — a constructed writing system, keyed to English
   recessed one alone, which is exactly why anything meant to last was cut in,
   and patina is not grime: it takes the metalness with it.
 
-  The archive carries glyphs.json — the hand, the families, the numeral rule,
-  and per glyph the code point, atlas cell, advance, ink box, which family it
-  is in and what mark it wears — and glyphs.svg, the same outlines as vectors
-  with one named group per glyph and the baseline at the group origin. Without
-  those the atlas is a picture of a font rather than a font. Exporting a plate
-  or an atlas also packs the matching key sheet, since neither is usable
-  without it.
+  AND IT LEAVES AS A FONT. Every archive carries a .ttf of the alphabet.
+  Install it and the script is in every text field and every design tool on the
+  machine, at any size, which is the one thing no atlas however well documented
+  ever is. Cap height is 700 of a 1000-unit em, where a grotesque puts it, so it
+  sets alongside other faces at the same point size; lower case is MAPPED to the
+  same glyphs rather than copied, because the script has no case. It is a .ttf
+  rather than a .otf because that is what it honestly is — both are OpenType,
+  both install and render identically, and the difference is only whether the
+  outlines inside are quadratic or cubic. These are polygons, which the
+  quadratic format holds exactly.
+
+  Turning the alphabet into a font means outlining it, because a font holds
+  filled contours and these glyphs are stroked centre lines. That normally
+  wants a polygon clipper to union the offsets; here it does not, because
+  TrueType fills with the NONZERO WINDING rule — so each stroke is stamped as a
+  rectangle per segment, a disc at each joint and round cap and a triangle per
+  wedge, all wound the same way, and the rasteriser unions the pile for free at
+  every size. The cost is that nothing can have a counter, and nothing stroked
+  needs one.
+
+  FLAT is the dead output: ink and nothing else. No substrate under it, no
+  relief in it, no weather on it — a flat normal because the surface is flat, an
+  empty height field, white AO, and the base colour the ink over the page colour
+  with the coverage in the alpha. It is what you want behind an atlas you are
+  going to type with, and it builds in a quarter of the time because there are
+  no blurs and no noise fields in it at all.
+
+  The archive also carries glyphs.json — the hand, the families, the numeral
+  rule, the measured em box the atlas was laid out on, and per glyph the code
+  point, atlas cell, advance, ink box, which family it is in and what mark it
+  wears — and glyphs.svg, the same outlines as vectors with one named group per
+  glyph and the baseline at the group origin. Exporting a plate or an atlas also
+  packs the matching key sheet, since neither is usable without it.
 
   It draws BOTH alphabets itself, the invented one by construction and the
   Latin captions from modes/lib/stroke.js, so the whole mode runs on a worker
   thread. A mode that reached for a registered typeface could not.
 
-  Presets: cut in granite, the key sheet, a font atlas, a bronze dedication,
+  Presets: cut in granite, the key sheet, a flat font sheet, a bronze dedication,
   a terminal display, a clay tablet, a xenoglyph warning, a wall of writing,
   reformed English on anodised aluminium, and a cursive hand on vellum.
 
@@ -1994,6 +2020,14 @@ three came with no licence FILE — terms unknown, not terms granted. Their term
 also govern what you do with a texture you export with them, not just whether
 the files ship. Copying them in beside index.html would publish all six.
 
+AND ONE MODE MAKES THEM. The glyph mode packs a .ttf of its invented alphabet in
+every archive: install it and the script is available everywhere on the machine
+that a face is. modes/lib/truetype.js is the writer — headers, a cmap and a glyf
+table, no hinting and no layout tables — and the trick that makes it short is
+that TrueType fills with the nonzero winding rule, so stroked letters can be
+stamped as a pile of overlapping rectangles and discs and unioned by the
+rasteriser instead of by a polygon clipper.
+
 TWO MODES NEED NO FACE AT ALL, and that is worth more than a workaround. A
 silkscreen legend is single-stroke gothic because the fab screens it in one pass
 at a line width it specifies, and the key sheet in the glyph mode has to print
@@ -2086,15 +2120,18 @@ Each zip also contains a 16-bit height PNG and
 a readme giving the real-world size of the tile so displacement comes out true
 to life.
 
-SOME OUTPUT IS ONLY HALF A DELIVERABLE AS PIXELS, so a mode may pack text files
-of its own beside its maps. The glyph mode is the case that earned it: a font
-atlas without the cell map and the advance widths is a texture of shapes rather
-than a font, and no PNG can carry that — so it packs glyphs.json (the hand, the
-families, the numeral rule, and per glyph the code point, atlas cell, advance,
-ink box, family and mark) and glyphs.svg (the same outlines as vectors, one
-named group per glyph). Both are generated from the same alphabet the build
-drew from rather than from a second idea of it, and both get the same
-description of the build that the readme does, so the two cannot disagree.
+SOME OUTPUT IS ONLY HALF A DELIVERABLE AS PIXELS, so a mode may pack files of
+its own beside its maps — text for something a person might read, bytes for
+anything else. The glyph mode is the case that earned it: a font atlas without
+the cell map and the advance widths is a texture of shapes rather than a font,
+and no PNG can carry that. So it packs glyphs.json (the hand, the families, the
+numeral rule, the measured em box, and per glyph the code point, atlas cell,
+advance, ink box, family and mark), glyphs.svg (the same outlines as vectors,
+one named group per glyph), and a .ttf of the whole alphabet, which is the only
+form of it you can actually type in. All three are generated from the same
+alphabet the build drew from rather than from a second idea of it, and all three
+get the same description of the build that the readme does, so none of them can
+disagree with another.
 
 File names carry the mode, seed and size, so exports from different sessions
 never collide: street_cross_1963_2048_normal.png, panel_1947_1024_orm.png,
@@ -2815,7 +2852,22 @@ It also covers the twenty-three things that are easy to break silently:
             plate's bevelled edge and its fixing holes answer yes to every
             cruder question whether or not a glyph was drawn. And that an
             atlas packs its key sheet, a key sheet packs its atlas, and the
-            switch that does it is one the user can see
+            switch that does it is one the user can see. THE FONT is checked by
+            the browser, because a font file is either loadable or it is not and
+            nothing short of handing one to a real font engine tells you which:
+            the suite builds the .ttf, installs it through FontFace, types a
+            letter with it and compares the coverage against the same letter the
+            mode draws. That one comparison covers every table in the file and
+            the whole stroke-to-outline path at once — a wrong cmap gives the
+            wrong glyph, wrong metrics put it in the wrong place, and an
+            outliner that has drifted from the drawing shows up as ink that does
+            not match. Nine tenths overlap is the floor and it lands above it on
+            every letter tried; the advance it types by is within a sixth of a
+            pixel of the advance the metrics promise at a 220 px cap, lower case
+            types the same glyph as upper, and the word space carries its own
+            width. And flat is flat: the normal map is the flat constant
+            everywhere, the height field has one value in it, the AO is white,
+            and the ink is still there
   pcb       three kinds of claim, checked three ways. The TABLES asked of
             themselves: one ounce of copper is 34.8 um, an 0603 is 1.60 by
             0.80 mm, and IPC-7351's construction puts an SOIC-8 pad where the

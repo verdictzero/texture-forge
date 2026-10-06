@@ -1055,15 +1055,19 @@ async function packBuild(st,files,dir,say){
      files to pack beside its maps — the same `info` its readme gets, so the
      two cannot disagree about what was built.
 
-     Text only, deliberately. A mode that wanted to pack an image would be
-     writing a channel, and channels already have a place to go. */
+     An entry is `{name, text}` for something a person might read or
+     `{name, data}` for bytes — a font file being the case that wants bytes.
+     Not an image either way: a mode that wanted to pack one would be writing a
+     channel, and channels already have somewhere to go. */
   if(st.mode.extras){
     let xs=[];
     try{xs=st.mode.extras(st.P,infoOf(st))||[];}
     catch(err){console.error("extras() failed in "+st.mode.id,err);}
     for(const f of xs){
-      if(!f||!f.name||f.text==null)continue;
-      files.push({name:dir+f.name,data:new TextEncoder().encode(String(f.text))});
+      if(!f||!f.name)continue;
+      const data=(f.data instanceof Uint8Array)?f.data
+                :(f.text!=null)?new TextEncoder().encode(String(f.text)):null;
+      if(data)files.push({name:dir+f.name,data:data});
     }
   }
   /* GEOMETRY. Every mode already knows how big the thing it drew really is —

@@ -194,34 +194,34 @@ for(const F of FAMILIES)
             Monumental Latin used the interpunct and no gap at all.
      mono   every glyph on one advance, as a machine script is. */
 const SCRIPTS={
-  rune   :{label:"Carved runic — stave and twigs",build:"stave", aw:0.52,wt:0.115,con:0.00,pen:0,
+  rune   :{label:"Carved runic — stave and twigs",short:"Runic",build:"stave", aw:0.52,wt:0.115,con:0.00,pen:0,
            slant:0, curve:0.00,term:"butt", joint:"miter",join:"none",num:"tally",  sep:"dot", dir:"ltr",mono:false,
            note:"A stave with twigs off it, because that is what you can cut across the grain of wood or in stone with two strokes."},
-  lapid  :{label:"Angular lapidary",             build:"trail", aw:0.62,wt:0.105,con:0.25,pen:25,
+  lapid  :{label:"Angular lapidary",             short:"Lapidary",build:"trail", aw:0.62,wt:0.105,con:0.25,pen:25,
            slant:0, curve:0.08,term:"serif",joint:"miter",join:"none",num:"quinary",sep:"dot", dir:"ltr",mono:false,
            note:"A walk on a lattice, seriffed at the free ends — an inscription cut with a flat chisel."},
-  broad  :{label:"Broad-nib formal hand",        build:"trail", aw:0.66,wt:0.155,con:0.80,pen:30,
+  broad  :{label:"Broad-nib formal hand",        short:"Broadnib",build:"trail", aw:0.66,wt:0.155,con:0.80,pen:30,
            slant:6, curve:0.45,term:"flag", joint:"round",join:"none",num:"quinary",sep:"gap", dir:"ltr",mono:false,
            note:"The same lattice, written rather than cut: a broad nib held at thirty degrees, so a stroke across it is fat and one along it is a hairline."},
-  flow   :{label:"Cursive, joined at the line",  build:"lobe",  aw:0.58,wt:0.105,con:0.55,pen:35,
+  flow   :{label:"Cursive, joined at the line",  short:"Cursive",build:"lobe",  aw:0.58,wt:0.105,con:0.55,pen:35,
            slant:11,curve:0.90,term:"round",joint:"round",join:"base",num:"quinary",sep:"gap", dir:"ltr",mono:false,
            note:"Lobes above and below a baseline, entered and left at the line, so the letters of a word run into one another without lifting the pen."},
-  veda   :{label:"Headline bar script",          build:"bar",   aw:0.60,wt:0.120,con:0.35,pen:0,
+  veda   :{label:"Headline bar script",          short:"Headline",build:"bar",   aw:0.60,wt:0.120,con:0.35,pen:0,
            slant:0, curve:0.35,term:"butt", joint:"round",join:"head",num:"quinary",sep:"gap", dir:"ltr",mono:false,
            note:"Pendants hanging from a headline, and the headline runs unbroken across a whole word — so a word is one object and a space is a real gap in the bar."},
-  xeno   :{label:"Radial xenoglyph",             build:"radial",aw:0.80,wt:0.095,con:0.00,pen:0,
+  xeno   :{label:"Radial xenoglyph",             short:"Xeno",build:"radial",aw:0.80,wt:0.095,con:0.00,pen:0,
            slant:0, curve:1.00,term:"round",joint:"round",join:"none",num:"ring",   sep:"rule",dir:"rtl",mono:true,
            note:"Spokes and arcs about a centre at a fixed number of stations. Nothing here is on a human axis, which is the point."},
-  seal   :{label:"Sealed block",                 build:"box",   aw:0.86,wt:0.105,con:0.15,pen:0,
+  seal   :{label:"Sealed block",                 short:"Seal",build:"box",   aw:0.86,wt:0.105,con:0.15,pen:0,
            slant:0, curve:0.10,term:"butt", joint:"miter",join:"none",num:"tally",  sep:"gap", dir:"ttb",mono:true,
            note:"Every sign in its own frame with the marks inside it, set in columns. A seal script: the box is the glyph as much as the strokes are."},
-  wedge  :{label:"Impressed wedge",              build:"wedge", aw:0.70,wt:0.130,con:0.00,pen:0,
+  wedge  :{label:"Impressed wedge",              short:"Wedge",build:"wedge", aw:0.70,wt:0.130,con:0.00,pen:0,
            slant:0, curve:0.00,term:"butt", joint:"miter",join:"none",num:"tally",  sep:"gap", dir:"ltr",mono:false,
            note:"Clusters of wedges pressed at four angles. Deep at the head and feathering to the tail, because that is what a stylus leaves in wet clay."},
-  circuit:{label:"Circuit gothic",               build:"ortho", aw:0.60,wt:0.090,con:0.00,pen:0,
+  circuit:{label:"Circuit gothic",               short:"Circuit",build:"ortho", aw:0.60,wt:0.090,con:0.00,pen:0,
            slant:0, curve:0.00,term:"dot",  joint:"miter",join:"none",num:"binary", sep:"rule",dir:"ltr",mono:true,
            note:"Right angles and terminal pads, drawn the way a layout tool draws a net. A script for people who learned to write from a schematic."},
-  matrix :{label:"Machine dot matrix",           build:"dots",  aw:0.58,wt:0.145,con:0.00,pen:0,
+  matrix :{label:"Machine dot matrix",           short:"Matrix",build:"dots",  aw:0.58,wt:0.145,con:0.00,pen:0,
            slant:0, curve:0.00,term:"butt", joint:"round",join:"none",num:"binary", sep:"gap", dir:"ltr",mono:true,
            note:"A five by three field of dots, on or off. The least a machine can print and still be read, and the only construction here with no strokes in it at all."}
 };
@@ -769,6 +769,12 @@ function markFor(i,a,H){
    Zero is always a DIFFERENT KIND OF SIGN, never the rule applied to nothing,
    because a mark meaning "none" was invented separately everywhere it was
    invented at all — and because an empty glyph is a hole in the line. */
+/* HOW FAR APART TWO UNIT STROKES HAVE TO STAND. A numeral rule you read by
+   counting is only readable while the things being counted are separate, and
+   what decides that is not a fraction of the glyph box but the stroke weight.
+   A clear gap of nearly a whole weight between them, which is what the eye
+   needs to count without stopping to look. */
+function unitPitch(H){return H.wt*1.9;}
 function numeralOf(d,H,rng){
   const aw=H.aw,s=[];
   const rule=H.num;
@@ -779,29 +785,32 @@ function numeralOf(d,H,rng){
     s.push(L([[aw*0.5-0.22,0.72],[aw*0.5+0.22,0.28]]));
     return s;
   }
+  const pitch=unitPitch(H);
   if(rule==="tally"){
     /* groups of five, the fifth struck across the other four */
     const groups=[];
     let left=d;
     while(left>0){groups.push(Math.min(5,left));left-=Math.min(5,left);}
-    let x=aw*0.12;
+    let x=pitch*0.6;
     for(const gn of groups){
       const bars=Math.min(4,gn);
-      for(let i=0;i<bars;i++)s.push(L([[x+i*0.085,0.12],[x+i*0.085,0.88]]));
-      if(gn===5)s.push(L([[x-0.03,0.82],[x+bars*0.085,0.18]]));
-      x+=bars*0.085+0.13;
+      for(let i=0;i<bars;i++)s.push(L([[x+i*pitch,0.12],[x+i*pitch,0.88]]));
+      if(gn===5)s.push(L([[x-pitch*0.35,0.82],[x+(bars-1)*pitch+pitch*0.35,0.18]]));
+      x+=bars*pitch+pitch*0.7;
     }
     return s;
   }
   if(rule==="quinary"){
     /* upper register: how many fives. lower register: the remainder. */
     const fives=Math.floor(d/5),ones=d%5;
-    for(let i=0;i<fives;i++)s.push(L([[aw*0.14,0.22+i*0.12],[aw*0.86,0.22+i*0.12]]));
-    for(let i=0;i<ones;i++){
-      const x=aw*(0.18+i*0.16);
-      s.push(L([[x,0.56],[x,0.92]]));
-    }
-    if(!ones)s.push(D(aw*0.5,0.80,H.wt*0.8));
+    const x0=pitch*0.6;
+    for(let i=0;i<ones;i++)s.push(L([[x0+i*pitch,0.56],[x0+i*pitch,0.92]]));
+    if(!ones)s.push(D(x0,0.80,H.wt*0.9));
+    /* the register bar spans whatever the register below it came out as,
+       rather than a fixed slice of a box the ticks may already be wider than */
+    const span=Math.max(pitch,(Math.max(1,ones)-1)*pitch);
+    for(let i=0;i<fives;i++)
+      s.push(L([[x0-H.wt*0.7,0.24+i*0.15],[x0+span+H.wt*0.7,0.24+i*0.15]]));
     return s;
   }
   if(rule==="ring"){
@@ -1177,6 +1186,7 @@ function alphabetOf(P){
      share. They come in the order they are declared, vowels first, because
      that is the group where sharing shows. */
   const shareN=Math.round(clamp(num(P.famAmt,0.7),0,1)*FAMILIES.length);
+  const ruleNum=bool(P.ruleNum,true);
   const G={},sig={},cls={},order=[];
   let worst=0,worstPair="";
   /* accept a glyph, or say why not. `make(a)` is tried for a = 0, 1, 2 … and
@@ -1243,7 +1253,8 @@ function alphabetOf(P){
       const fb=bandFit(BUILDERS[H.build](H,3,rngFor(seed,"fallback:"+ch)),H);
       rec=judge(fb);
     }
-    G[ch]={s:rec.s,mark:rec.s.mark||null,fam:rec.s.fam||null,fi:rec.s.fi};
+    G[ch]={s:rec.s,mark:rec.s.mark||null,fam:rec.s.fam||null,fi:rec.s.fi,
+           plain:kind==="digit"&&ruleNum};
     sig[ch]=rec.sig;
     cls[ch]=kind;
     order.push(ch);
@@ -1308,7 +1319,6 @@ function alphabetOf(P){
     }
   }
   /* ---- the digits ---- */
-  const ruleNum=bool(P.ruleNum,true);
   for(let d=0;d<10;d++){
     const ch=String(d);
     accept(ch,"digit",[{tries:6,make:a=>{
@@ -1438,6 +1448,47 @@ function endsOf(s,wt){
   });
 }
 
+/* ============================ terminals ============================
+   What goes on a FREE end — one not shared with another stroke. Worked out in
+   GLYPH space and handed back as primitives rather than drawn, for two
+   reasons. The font writer needs the same shapes as outlines and a second
+   copy of this arithmetic would drift from the first. And a slanted face is a
+   sheared upright, serifs and all: computing the decoration after the shear,
+   as drawing it directly would, gives a slanted script upright serifs on
+   sloped stems, which is not what any italic has ever done. */
+function terminalPrims(gl,H){
+  /* A COUNTING MARK IS NOT A LETTER STROKE. The hand's terminals belong to the
+     letters; a tally bar wearing serifs is two and a half weights wide at both
+     ends and merges with the bar beside it, so four of them come out as a
+     filled rectangle and the whole point of a numeral rule — that you can
+     count it — is gone. Real scripts treat their figures separately too. */
+  if(gl.plain)return [];
+  if(H.term==="butt"||H.term==="round")return [];
+  const ends=gl.ends||(gl.ends=endsOf(gl.s,H.wt));
+  const out=[],w=H.wt;
+  for(const e of ends){
+    let dx=e.p[0]-e.q[0],dy=e.p[1]-e.q[1];
+    const len=Math.hypot(dx,dy)||1;
+    dx/=len;dy/=len;
+    const nx=-dy,ny=dx;
+    if(H.term==="dot")
+      out.push({t:"disc",c:[e.p[0],e.p[1]],r:w*0.95});
+    else if(H.term==="serif")
+      out.push({t:"seg",a:[e.p[0]+nx*w*1.15,e.p[1]+ny*w*1.15],
+                        b:[e.p[0]-nx*w*1.15,e.p[1]-ny*w*1.15],w:w*0.72});
+    else if(H.term==="flag"){
+      const a=Math.atan2(dy,dx)+Math.PI*0.62;
+      out.push({t:"seg",a:[e.p[0],e.p[1]],
+                        b:[e.p[0]+Math.cos(a)*w*2.0,e.p[1]+Math.sin(a)*w*2.0],w:w*0.78});
+    }else if(H.term==="barb"){
+      const a=Math.atan2(-dy,-dx)+Math.PI*0.28;
+      out.push({t:"seg",a:[e.p[0],e.p[1]],
+                        b:[e.p[0]+Math.cos(a)*w*1.8,e.p[1]+Math.sin(a)*w*1.8],w:w*0.7});
+    }
+  }
+  return out;
+}
+
 /* the transform from glyph space to the canvas. (x,y) is the left of the
    advance on the BASELINE, `size` is the cap height in canvas units. */
 function xformer(x,y,size,H,gl,mirror){
@@ -1446,12 +1497,17 @@ function xformer(x,y,size,H,gl,mirror){
   return (px,py)=>[x+(gl.ox+px+(1-py)*tn)*size,y+(py-1)*size];
 }
 /* The width this segment gets: the full weight where it runs across the nib,
-   a hairline where it runs along it. `ax`/`ay` are a delta in CANVAS units —
-   the slant and any mirroring have already been applied, and both change the
-   angle a stroke meets the pen at — while `size` is the cap height, which is
-   what the weight is a fraction of. Passing 1 for that draws the whole script
-   at a fifth of a pixel, which does not look like a thin stroke on screen: it
-   looks like the arcs and the stems are missing and only the dots came out. */
+   a hairline where it runs along it. `ax`/`ay` are a delta in GLYPH units and
+   `size` is the cap height, which is what the weight is a fraction of —
+   passing 1 for that draws the whole script at a fifth of a pixel, which does
+   not look like a thin stroke on screen but like the arcs and the stems are
+   missing and only the dots came out.
+
+   THE ANGLE IS TAKEN BEFORE THE SHEAR, deliberately. Measuring it after would
+   make a slanted script's contrast axis rotate with the slant, so the same
+   letter drawn upright and drawn italic would have its thicks and thins in
+   different places — and the font writer, which has no shear to measure
+   after, could not agree with the canvas about any of it. */
 function segWidth(H,ax,ay,size){
   const base=H.wt*size;
   if(H.con<0.02)return base;
@@ -1513,7 +1569,8 @@ function drawGlyphAt(g,gl,H,x,y,size,o){
           const a0=lerp(st.a0,st.a1,i/n),a1=lerp(st.a0,st.a1,(i+1)/n);
           const p=T(st.c[0]+Math.cos(a0)*st.r,st.c[1]+Math.sin(a0)*st.r);
           const q=T(st.c[0]+Math.cos(a1)*st.r,st.c[1]+Math.sin(a1)*st.r);
-          g.lineWidth=segWidth(H,q[0]-p[0],q[1]-p[1],size);
+          g.lineWidth=segWidth(H,Math.cos(a1)-Math.cos(a0),
+                                 Math.sin(a1)-Math.sin(a0),size);
           g.beginPath();g.moveTo(p[0],p[1]);g.lineTo(q[0],q[1]);g.stroke();
         }
       }
@@ -1528,8 +1585,9 @@ function drawGlyphAt(g,gl,H,x,y,size,o){
       g.stroke();
     }else{
       const seq=st.cl?pts.concat([pts[0]]):pts;
+      const raw=st.cl?st.p.concat([st.p[0]]):st.p;
       for(let i=1;i<seq.length;i++){
-        g.lineWidth=segWidth(H,seq[i][0]-seq[i-1][0],seq[i][1]-seq[i-1][1],size);
+        g.lineWidth=segWidth(H,raw[i][0]-raw[i-1][0],raw[i][1]-raw[i-1][1],size);
         g.beginPath();g.moveTo(seq[i-1][0],seq[i-1][1]);
         bowTo(g,seq[i-1],seq[i],st.bow);
         g.stroke();
@@ -1537,35 +1595,17 @@ function drawGlyphAt(g,gl,H,x,y,size,o){
     }
   }
   /* ---- terminals ---- */
-  if(H.term==="butt"||H.term==="round")return;
-  const ends=gl.ends||(gl.ends=endsOf(gl.s,H.wt));
+  const tp=terminalPrims(gl,H);
+  if(!tp.length)return;
   g.lineCap="round";g.lineJoin="round";
-  for(const e of ends){
-    const p=T(e.p[0],e.p[1]),q=T(e.q[0],e.q[1]);
-    let dx=p[0]-q[0],dy=p[1]-q[1];
-    const len=Math.hypot(dx,dy)||1;
-    dx/=len;dy/=len;
-    const nx=-dy,ny=dx,w=H.wt*size;
-    if(H.term==="dot"){
-      g.beginPath();g.arc(p[0],p[1],w*0.95,0,TAU);g.fill();
-    }else if(H.term==="serif"){
-      g.lineWidth=w*0.72;
-      g.beginPath();
-      g.moveTo(p[0]+nx*w*1.15,p[1]+ny*w*1.15);
-      g.lineTo(p[0]-nx*w*1.15,p[1]-ny*w*1.15);
-      g.stroke();
-    }else if(H.term==="flag"){
-      const a=Math.atan2(dy,dx)+Math.PI*0.62;
-      g.lineWidth=w*0.78;
-      g.beginPath();g.moveTo(p[0],p[1]);
-      g.lineTo(p[0]+Math.cos(a)*w*2.0,p[1]+Math.sin(a)*w*2.0);
-      g.stroke();
-    }else if(H.term==="barb"){
-      const a=Math.atan2(-dy,-dx)+Math.PI*0.28;
-      g.lineWidth=w*0.7;
-      g.beginPath();g.moveTo(p[0],p[1]);
-      g.lineTo(p[0]+Math.cos(a)*w*1.8,p[1]+Math.sin(a)*w*1.8);
-      g.stroke();
+  for(const pr of tp){
+    if(pr.t==="disc"){
+      const c=T(pr.c[0],pr.c[1]);
+      g.beginPath();g.arc(c[0],c[1],Math.max(0.3,pr.r*size),0,TAU);g.fill();
+    }else{
+      const a=T(pr.a[0],pr.a[1]),b=T(pr.b[0],pr.b[1]);
+      g.lineWidth=pr.w*size;
+      g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.stroke();
     }
   }
 }
@@ -2083,6 +2123,13 @@ function build(P,io){
   const mat=matOf(P),MKp=markOf(P);
   const piece=G.piece;
   const wrap=piece==="field";
+  /* FLAT IS A DIFFERENT DELIVERABLE, not a setting of this one. A font sheet
+     wants ink and nothing else: no substrate under it, no relief in it, no
+     weather on it, and a normal map that says the surface is flat because it
+     is. Everything below that reads a material or a process is skipped rather
+     than turned down, which is also why a flat build is about four times as
+     fast — there are no blurs and no noise fields in it at all. */
+  const flat=bool(P.flat,false);
 
   /* HOW BIG THE THING REALLY IS, in millimetres across the texture. The chart
      and the plate say so themselves. A seamless field is however much wall one
@@ -2139,13 +2186,13 @@ function build(P,io){
   const md=clamp(num(P.markDepth,1),0,4);
   const bevPx=Math.max(1,Math.round(clamp(num(P.bevelMm,0.6),0,20)*pxPerMm));
   const blur=wrap?(f,r)=>blurWrap(f,TW,r):(f,r)=>blurClamp(f,TW,TH,r);
-  const edge=blur(SIL,bevPx);
+  const edge=flat?null:blur(SIL,bevPx);
   /* A SOFT MARK IS A BLURRED MARK, and the lip of a punched one is what the
      blur has that the mark has not — material pushed out to the rim. Both come
      off one pass, which is why they are worked out together. */
   const softPx=Math.max(1,Math.round((0.12+MKp.soft*0.9)*Math.max(1,pxPerMm*0.9)));
-  const relS=blur(REL,softPx);
-  const rim=blur(SIL,Math.max(2,Math.round(Math.min(10,Wmm*0.05)*pxPerMm)));
+  const relS=flat?null:blur(REL,softPx);
+  const rim=flat?null:blur(SIL,Math.max(2,Math.round(Math.min(10,Wmm*0.05)*pxPerMm)));
   io.progress(0.30);
 
   const subC=hex2rgb((P.subAuto===false)?str(P.cSub,mat.sub):mat.sub);
@@ -2154,6 +2201,9 @@ function build(P,io){
   const inlayC=hex2rgb(str(P.cInlay,"#b89a4e"));
   const inkC=MKp.ink==="core"?coreC:MKp.ink==="face"?subC
             :(str(P.marking,"incise")==="inlay"?inlayC:ownC);
+  /* flat has no process, so the mark cannot take its colour from one: it is
+     the ink colour on the substrate colour, which is what ink on paper is */
+  const inkFlat=hex2rgb(str(P.cInk,"#101214"));
   const gndC=MKp.ground==="core"?coreC:subC;
   const glowC=hex2rgb(str(P.cGlow,"#7fe3ff"));
   const emit=MKp.emit?clamp(num(P.emitAmt,0.8),0,1):0;
@@ -2181,6 +2231,28 @@ function build(P,io){
   const wantDirt=grime>0||(inkIsLow(MKp)&&MKp.dirt>0);
   const band=Math.max(4,Math.round(49152/TW));
   let y=0;
+
+  /* ---- ink on paper, and nothing else ---- */
+  function passFlat(){
+    const end=Math.min(TH,y+band);
+    for(;y<end;y++){
+      for(let x=0;x<TW;x++){
+        const i=y*TW+x,cov=COV[i];
+        Ab[i*3]  =lerp(subC[0],inkFlat[0],cov);
+        Ab[i*3+1]=lerp(subC[1],inkFlat[1],cov);
+        Ab[i*3+2]=lerp(subC[2],inkFlat[2],cov);
+        RGH[i]=128;MET[i]=0;AOc[i]=255;HGT[i]=0;EMI[i]=0;
+        ALP[i]=clamp(piece==="atlas"?cov:Math.max(SIL[i],cov*SIL[i]),0,1)*255;
+      }
+    }
+    if(y<TH){io.progress(0.30+y/TH*0.65);setTimeout(passFlat,0);}
+    else{
+      for(let i=0;i<N;i++){NRM[i*3]=128;NRM[i*3+1]=128;NRM[i*3+2]=255;}
+      io.progress(1);
+      io.done({A:Ab,NRM:NRM,RGH:RGH,MET:MET,AO:AOc,HGT:HGT,hMin:0,hMax:1e-9,
+               ALP:ALP,EMI:EMI,census:censusOf()});
+    }
+  }
 
   function pass1(){
     const end=Math.min(TH,y+band);
@@ -2334,14 +2406,226 @@ function build(P,io){
              ALP:ALP,EMI:EMI,
              /* what the build actually made, for the readme — a plain object,
                 which is the one non-buffer thing that crosses a worker */
-             census:{glyphs:A.order.length,strokes:A.strokes,worst:A.worst,
-                     worstPair:A.worstPair,forcedSolo:A.forcedSolo,
-                     shareN:A.shareN,thin:A.thin,Wmm:Wmm}});
+             census:censusOf()});
+  }
+
+  function censusOf(){
+    return {glyphs:A.order.length,strokes:A.strokes,worst:A.worst,
+            worstPair:A.worstPair,forcedSolo:A.forcedSolo,
+            shareN:A.shareN,thin:A.thin,Wmm:Wmm,flat:flat};
   }
 
   io.progress(0.04);
-  setTimeout(pass1,0);
+  setTimeout(flat?passFlat:pass1,0);
 }
+
+/* ============================ outlines, and a font ============================
+
+   A font does not hold strokes. It holds CLOSED FILLED CONTOURS, and every
+   glyph in this mode is a centre line with a width — so the alphabet has to be
+   outlined before any of it can become a .ttf.
+
+   Outlining a stroke properly means offsetting it either side, joining the
+   offsets at every corner, capping the ends, and then taking the BOOLEAN UNION
+   of all of that so overlapping pieces do not cancel. The union is the hard
+   part and it is also, here, unnecessary: TrueType fills with the NONZERO
+   WINDING rule, so a pile of overlapping closed shapes all wound the same way
+   fills exactly as their union. Which means a stroke can be stamped —
+   a rectangle for each segment, a disc at each joint and round cap, a triangle
+   for each wedge — and the rasteriser does the union for free, at every size,
+   for nothing. modes/lib/truetype.js turns every contour the same way round so
+   that is a property of the file rather than a hope about the caller.
+
+   What this costs: no counters. A shape with a real hole in it cannot be made
+   this way. Nothing here has one — the middle of a stroked frame is empty
+   because no stamp covers it, not because a hole was cut — so the price is
+   nil and the alternative is a polygon clipper.
+
+   THE SAME ARITHMETIC AS THE CANVAS, deliberately. Segment widths come from
+   `segWidth` on glyph-space deltas and terminals from `terminalPrims`, both
+   shared with the drawing path, and whether an end is capped follows the same
+   rule the canvas follows. The test proves it rather than trusting it: it
+   builds the font, hands it to the browser through FontFace, renders a letter
+   and compares the coverage against the same letter drawn by the mode. */
+/* FLATTEN TO A TOLERANCE, not to a fixed number of steps. A disc is a disc
+   whatever its radius, so a fixed step spends the same forty points on a
+   terminal dot as on a full ring — and since every joint of every stroke of
+   every glyph gets one, that is what turns a 20 KB font into a 170 KB one with
+   nothing to show for it. The sagitta of a chord subtending 2t on a circle of
+   radius r is r(1 - cos t), so solving that for the error we are willing to
+   carry gives the step directly. Four thousandths of a cap height is under
+   three font units, which is invisible at any size anyone sets type at. */
+const FLAT_TOL=0.0025;
+const arcStep=r=>(r>FLAT_TOL)
+  ? Math.min(Math.PI*0.5,2*Math.acos(Math.max(-1,1-FLAT_TOL/r))) : Math.PI*0.5;
+function discPoly(cx,cy,r){
+  if(!(r>1e-6))return null;
+  const n=clamp(Math.ceil(TAU/arcStep(r)),6,28);
+  const p=[];
+  for(let i=0;i<n;i++){
+    const a=i/n*TAU;
+    p.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]);
+  }
+  return p;
+}
+function segPoly(a,b,w){
+  let dx=b[0]-a[0],dy=b[1]-a[1];
+  const len=Math.hypot(dx,dy);
+  if(!(len>1e-9)||!(w>1e-9))return null;
+  const nx=-dy/len*w*0.5,ny=dx/len*w*0.5;
+  return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]];
+}
+/* every stroke as polylines: an arc sampled, a bowed segment subdivided along
+   the same quadratic the canvas draws, everything else as it stands */
+function polysOf(st){
+  if(st.k==="A"){
+    const n=clamp(Math.ceil(Math.abs(st.a1-st.a0)/arcStep(st.r)),4,96);
+    const p=[];
+    for(let i=0;i<=n;i++){
+      const a=lerp(st.a0,st.a1,i/n);
+      p.push([st.c[0]+Math.cos(a)*st.r,st.c[1]+Math.sin(a)*st.r]);
+    }
+    return [{p:p,cl:Math.abs(st.a1-st.a0)>=TAU-1e-6}];
+  }
+  if(st.k!=="L")return [];
+  if(!st.bow)return [{p:st.p,cl:!!st.cl}];
+  const seq=st.cl?st.p.concat([st.p[0]]):st.p;
+  const out=[seq[0]];
+  for(let i=1;i<seq.length;i++){
+    const a=seq[i-1],b=seq[i];
+    const mx=(a[0]+b[0])*0.5,my=(a[1]+b[1])*0.5;
+    const cx=mx-(b[1]-a[1])*st.bow,cy=my+(b[0]-a[0])*st.bow;
+    for(let t=1;t<=6;t++){
+      const u=t/6,v=1-u;
+      out.push([v*v*a[0]+2*v*u*cx+u*u*b[0],v*v*a[1]+2*v*u*cy+u*u*b[1]]);
+    }
+  }
+  return [{p:out,cl:!!st.cl}];
+}
+function outlineOf(gl,H){
+  const out=[];
+  const put=p=>{if(p&&p.length>=3)out.push(p);};
+  /* the canvas gives every segment a round cap once the pen is being modelled,
+     because each one is stroked on its own; flat, the cap is whatever the hand
+     asked for. Same rule here or the two disagree at every stem end. */
+  const flat=H.con<0.02;
+  const capped=!flat||H.term==="round";
+  const strokePoly=(pts,closed,w0)=>{
+    const n=pts.length;
+    if(n<2){if(n===1)put(discPoly(pts[0][0],pts[0][1],(w0||H.wt)*0.5));return;}
+    const segs=closed?n:n-1,ws=[];
+    for(let i=0;i<segs;i++){
+      const a=pts[i],b=pts[(i+1)%n];
+      const w=w0!==undefined?w0:segWidth(H,b[0]-a[0],b[1]-a[1],1);
+      ws.push(w);
+      put(segPoly(a,b,w));
+    }
+    /* A JOINT ONLY NEEDS FILLING IN WHERE THE PATH ACTUALLY TURNS — on a
+       flattened arc every joint is a few degrees and the two rectangles
+       already overlap across it, so stamping a disc at each one is pure
+       weight, and there are more of those joints in a font than everything
+       else put together.
+
+       EXCEPT UNDER A PEN, where every joint needs one. With contrast, adjacent
+       segments of the same curve are drawn at DIFFERENT WIDTHS and meet in a
+       step rather than a notch however gently the path turns — and the canvas
+       never shows those steps because it strokes each segment separately with
+       a round cap, which IS a disc at every joint. Skip them and a ring comes
+       out of the font visibly spiked against a smooth one on screen. So the
+       rule is the canvas's own rule, and a monoline hand still pays for
+       nothing. */
+    for(let i=closed?0:1;i<(closed?n:n-1);i++){
+      const a=pts[(i-1+n)%n],b=pts[i],c=pts[(i+1)%n];
+      const w=Math.max(ws[(i-1+segs)%segs],ws[i%segs]);
+      if(!flat){put(discPoly(b[0],b[1],w*0.5));continue;}
+      const t0=Math.atan2(b[1]-a[1],b[0]-a[0]),t1=Math.atan2(c[1]-b[1],c[0]-b[0]);
+      let d=Math.abs(t1-t0);
+      if(d>Math.PI)d=TAU-d;
+      /* the notch left unfilled is w/2 * (1 - cos(d/2)) */
+      if(w*0.5*(1-Math.cos(d*0.5))>FLAT_TOL*0.5)put(discPoly(b[0],b[1],w*0.5));
+    }
+    if(!closed&&capped){
+      put(discPoly(pts[0][0],pts[0][1],ws[0]*0.5));
+      put(discPoly(pts[n-1][0],pts[n-1][1],ws[segs-1]*0.5));
+    }
+  };
+  for(const st of gl.s){
+    if(st.k==="D"){put(discPoly(st.c[0],st.c[1],st.r));continue;}
+    if(st.k==="W"){
+      const a=st.p[0],b=st.p[1];
+      let dx=b[0]-a[0],dy=b[1]-a[1];
+      const len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len*st.w*0.5,ny=dx/len*st.w*0.5;
+      put([[a[0]+nx,a[1]+ny],[b[0],b[1]],[a[0]-nx,a[1]-ny]]);
+      continue;
+    }
+    for(const seg of polysOf(st))strokePoly(seg.p,seg.cl);
+  }
+  for(const pr of terminalPrims(gl,H)){
+    if(pr.t==="disc")put(discPoly(pr.c[0],pr.c[1],pr.r));
+    else strokePoly([pr.a,pr.b],false,pr.w);
+  }
+  return out;
+}
+
+/* A FONT FILE, which is the only form of this alphabet you can actually type
+   in. Installed, it is available in every text field and every design tool on
+   the machine at any size — which no atlas, however well documented, ever is.
+
+   Cap height is 700 of a 1000-unit em, which is where a grotesque puts it, so
+   this sets alongside other faces at the same point size instead of coming out
+   half as tall. Lower case is MAPPED to the same glyphs rather than copied:
+   the script has no case, and two code points pointing at one glyph costs one
+   more cmap segment and not one more outline. */
+const FONT_UPM=1000,FONT_CAP=700;
+/* A FONT NAME IS A NAME, not a description. The script rows carry a sentence
+   because the picker needs one, but a family called "Forge Carved runic stave
+   and twigs 1963" is a menu entry nobody can read and a PostScript name of
+   sixty characters. So each row carries a word as well. */
+function fontName(P,A){
+  const label=(A.H.S.short||A.H.S.label).replace(/[^A-Za-z0-9]+/g,"");
+  const family="Forge "+label+" "+(P.seed|0);
+  return {family:family,ps:("Forge"+label+(P.seed|0)).slice(0,58)+"-Regular"};
+}
+function fontOf(P,A){
+  if(!window.ForgeTTF)return null;
+  const H=A.H,K=FONT_CAP;
+  const fx=x=>x*K,fy=y=>(1-y)*K;
+  const nm=fontName(P,A);
+  /* .notdef is stamped as four bars rather than drawn as a ring, because a
+     ring needs a counter and nothing in this writer has one */
+  const w=Math.round(A.em.maxAdv*K),t=Math.round(K*0.08);
+  const box=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+  const glyphs=[{name:".notdef",advance:w,contours:[
+    box(t,0,w-t,t),box(t,K-t,w-t,K),box(t,0,2*t,K),box(w-2*t,0,w-t,K)]}];
+  const cmap=[[32,1]];
+  glyphs.push({name:"space",advance:Math.round(WORDGAP*K),contours:[]});
+  let gid=2;
+  for(const ch of A.order){
+    const gl=A.G[ch];
+    glyphs.push({
+      name:"g"+ch.charCodeAt(0),
+      advance:Math.round(gl.adv*K),
+      contours:outlineOf(gl,H).map(c=>c.map(q=>[fx(gl.ox+q[0]),fy(q[1])]))
+    });
+    cmap.push([ch.charCodeAt(0),gid]);
+    if(ch>="A"&&ch<="Z")cmap.push([ch.toLowerCase().charCodeAt(0),gid]);
+    gid++;
+  }
+  return ForgeTTF.build({
+    unitsPerEm:FONT_UPM,
+    ascender:Math.max(Math.round((1-A.em.top)*K),K+40),
+    descender:Math.min(Math.round((1-A.em.bot)*K),-120),
+    lineGap:Math.round(K*0.12),
+    capHeight:K,xHeight:Math.round(K*0.72),
+    family:nm.family,style:"Regular",psName:nm.ps,
+    full:nm.family,version:"Version 1.000",
+    uid:nm.family+" "+(A.reform?"reformed":"invented")+" seed "+(P.seed|0),
+    maker:"Texture Forge",
+    glyphs:glyphs,cmap:cmap
+  });
+}
+const fontFile=(P,A)=>fontName(P,A).ps.replace(/-Regular$/,"")+".ttf";
 
 /* ============================ reporting ============================
    WHAT CAP HEIGHT THE GLYPHS ACTUALLY LAND AT, which is the number every
@@ -2543,9 +2827,9 @@ Forge.register({
     {id:"key",label:"The key sheet",set:{piece:"chart",script:"lapid",origin:"alien",
       material:"vellum",marking:"print",Wmm:420,Hmm:297,cInk:"#1a1c20",captions:true,
       cellRule:true,chip:0.05,grime:0.08,patina:0,abrade:0.05,cornerMm:2}},
-    {id:"atlas",label:"Font atlas",set:{piece:"atlas",script:"circuit",origin:"alien",
-      material:"polymer",marking:"print",cInk:"#f4f6f8",cellPad:0.12,chip:0,grime:0,
-      patina:0,abrade:0,fade:0}},
+    {id:"atlas",label:"Font sheet — flat",set:{piece:"atlas",script:"circuit",origin:"alien",
+      flat:true,material:"polymer",subAuto:false,cSub:"#ffffff",cInk:"#101214",
+      cellPad:0.12,chip:0,grime:0,patina:0,abrade:0,fade:0}},
     {id:"bronze",label:"Bronze dedication",set:{piece:"plate",script:"lapid",origin:"reform",
       drift:0.3,material:"bronze",marking:"relief",Wmm:500,Hmm:320,patina:0.85,grime:0.5,
       abrade:0.3,chip:0.1,holes:4,border:true,borderMm:4,translit:true}},
@@ -2660,13 +2944,20 @@ Forge.register({
       {type:"readout",id:"type"}
     ]},
     {title:"The surface",rows:[
+      {type:"checks",items:[
+        {id:"flat",label:"Flat — ink only, no substrate, relief or weather",value:false}]},
+      {type:"note",html:"<b>Flat</b> is the font sheet: the ink in the base colour and "+
+        "the alpha, a flat normal, no height and no wear. It is what you want behind an "+
+        "atlas you are going to type with, and it builds in a quarter of the time. The "+
+        "<b>.ttf</b> is in the archive either way — it comes off the alphabet, not off "+
+        "the picture.",need:"flat"},
       {id:"material",type:"select",label:"Substrate",value:"granite",
        options:MAT_KEYS.map(k=>[k,MATS[k].name])},
-      {id:"marking",type:"select",label:"Process",value:"incise",
+      {id:"marking",type:"select",label:"Process",value:"incise",need:"dressed",
        options:MARK_KEYS.map(k=>[k,MARKS[k].name])},
-      {id:"markDepth",label:"Process depth",min:0,max:8,step:0.05,value:1},
+      {id:"markDepth",label:"Process depth",min:0,max:8,step:0.05,value:1,need:"dressed"},
       {id:"thickMm",label:"Thickness (0 follows the substrate)",unit:"mm",
-       min:0,max:120,step:0.5,value:0},
+       min:0,max:120,step:0.5,value:0,need:"dressed"},
       {id:"bevelMm",label:"Edge bevel",unit:"mm",min:0,max:20,step:0.1,value:0.6,need:"sheet"},
       {id:"cornerMm",label:"Corner radius",unit:"mm",min:0,max:120,step:1,value:4,need:"sheet"},
       {id:"marginMm",label:"Margin",unit:"mm",min:0,max:200,step:1,value:14,need:"plate"},
@@ -2674,8 +2965,8 @@ Forge.register({
       {id:"holes",label:"Fixing holes",min:0,max:4,step:2,value:0,need:"sheet"},
       {id:"holeMm",label:"Hole diameter",unit:"mm",min:1,max:60,step:0.5,value:8,need:"sheet"},
       {id:"holeInMm",label:"Hole inset",unit:"mm",min:2,max:200,step:1,value:16,need:"sheet"},
-      {id:"grainAmt",label:"Surface grain",min:0,max:2,step:0.05,value:1},
-      {id:"grainAng",label:"Grain direction",unit:"deg",min:0,max:180,step:1,value:0},
+      {id:"grainAmt",label:"Surface grain",min:0,max:2,step:0.05,value:1,need:"dressed"},
+      {id:"grainAng",label:"Grain direction",unit:"deg",min:0,max:180,step:1,value:0,need:"dressed"},
       {type:"checks",items:[
         {id:"border",label:"Border rule round the inscription",value:true,need:"plate"},
         {id:"subAuto",label:"Substrate colour follows the material",value:true}]},
@@ -2684,12 +2975,12 @@ Forge.register({
         {id:"cInlay",value:"#b89a4e"},{id:"cGlow",value:"#7fe3ff"}]},
       {id:"inlayMet",label:"Inlay metalness",min:0,max:1,step:0.01,value:0.85,need:"inlay"},
       {id:"emitAmt",label:"Glow",min:0,max:1,step:0.01,value:0.8,need:"lume"},
-      {type:"note",html:"<b>Carved in relief</b> is the one process that is not the "+
+      {type:"note",need:"dressed",html:"<b>Carved in relief</b> is the one process that is not the "+
         "others inverted: it does not cut the letter, it cuts the <i>ground</i> away and "+
         "leaves the letter standing on the original face — so the letter is the face and "+
         "the ground is fresh material, the opposite way round from an incised one."}
     ]},
-    {title:"Weathering",rows:[
+    {title:"Weathering",need:["dressed"],rows:[
       {id:"chip",label:"Chipped arris",min:0,max:1,step:0.01,value:0.25},
       {id:"grime",label:"Grime",min:0,max:1,step:0.01,value:0.3},
       {id:"patina",label:"Patina",min:0,max:1,step:0.01,value:0.3},
@@ -2710,14 +3001,17 @@ Forge.register({
 
   needs:function(P){
     const piece=str(P.piece,"chart"),out=[piece];
+    out.push(bool(P.flat,false)?"flat":"dressed");
     if(piece==="chart"||piece==="plate")out.push("sheet");
     if(piece!=="atlas")out.push("words");
     if(piece==="field")out.push("tile");
     if(str(P.origin,"alien")==="reform")out.push("reform");
     if(!bool(P.handAuto,true))out.push("hand");
     const mk=str(P.marking,"incise");
-    if(mk==="inlay")out.push("inlay");
-    if(mk==="lume")out.push("lume");
+    if(!bool(P.flat,false)){
+      if(mk==="inlay")out.push("inlay");
+      if(mk==="lume")out.push("lume");
+    }
     if(piece==="plate"){
       const S=scriptOf(P),d=str(P.dir,"auto")==="auto"?S.dir:str(P.dir,S.dir);
       if(d==="ttb")out.push("ttb");
@@ -2729,7 +3023,7 @@ Forge.register({
     const G=sizeOf(P),A=alphabetOf(P);
     const cap=capPxOf(P,G,A);
     const thin=A.thin*cap,mark=A.markSize*cap;
-    const bits=[PIECEN[G.piece]+" · "+G.TW+" × "+G.TH+" px"];
+    const bits=[(bool(P.flat,false)?"flat ":"")+PIECEN[G.piece]+" · "+G.TW+" × "+G.TH+" px"];
     if(G.Wmm>0)bits.push(G.Wmm.toFixed(0)+" × "+G.Hmm.toFixed(0)+" mm at "+
       Math.round(G.dpi)+" dpi");
     if(G.piece==="field")bits.push(clamp(num(P.tileM,3),0.25,16).toFixed(2)+" m across · "+
@@ -2859,8 +3153,15 @@ Forge.register({
     const G=sizeOf(P,info&&info.W?info.W:0);
     if(info&&info.W){G.TW=info.W;G.TH=info.H;}
     const A=alphabetOf(P);
-    return [{name:"glyphs.json",text:glyphsJSON(P,G,A)},
-            {name:"glyphs.svg", text:glyphsSVG(P,G,A)}];
+    const out=[{name:"glyphs.json",text:glyphsJSON(P,G,A)},
+               {name:"glyphs.svg", text:glyphsSVG(P,G,A)}];
+    /* AND THE FONT, which is the only form of this you can type in. It is in
+       every archive rather than behind a switch: it is derived from the
+       alphabet and not from the picture, so it costs a few milliseconds and a
+       few kilobytes whichever piece was forged. */
+    const ttf=fontOf(P,A);
+    if(ttf)out.push({name:fontFile(P,A),data:ttf});
+    return out;
   },
 
   readme:function(P,info){
@@ -2869,6 +3170,10 @@ Forge.register({
     const A=alphabetOf(P),H=A.H;
     const mat=matOf(P),MKp=markOf(P);
     const cen=info.census||{};
+    /* what the build recorded if it recorded anything, what was asked for
+       otherwise — the readme is also generated for a build that has not been
+       run, and a flat sheet described as patinated bronze is worse than terse */
+    const isFlat=(cen.flat!==undefined)?!!cen.flat:bool(P.flat,false);
     const cap=capPxOf(P,G,A);
     const Wmm=cen.Wmm||(G.Wmm>0?G.Wmm:200);
     const relief=(info.hMax-info.hMin)*Wmm;
@@ -2981,18 +3286,44 @@ Forge.register({
         "each alphabet at the bottom so the sheet can be checked against itself.","");
       else out.push("The inscription reads: "+JSON.stringify(String(P.text||"")),"");
     }
+    const nm=fontName(P,A);
+    out.push("THE FONT",
+      fontFile(P,A)+" is this alphabet as an installable font, named \""+nm.family+"\".",
+      "Install it and the script is available in every text field and every design tool",
+      "on the machine, at any size — which is the one thing no atlas, however well",
+      "documented, ever is. Cap height is 700 of a 1000-unit em, where a grotesque puts",
+      "it, so it sets alongside other faces at the same point size instead of coming out",
+      "half as tall. Lower case is MAPPED to the same glyphs rather than copied, because",
+      "the script has no case. Space is "+(WORDGAP*FONT_CAP).toFixed(0)+" units.",
+      "",
+      "It is a .ttf rather than a .otf because that is what it honestly is: both are",
+      "OpenType and both install and render identically, and the difference is only",
+      "whether the outlines inside are quadratic or cubic. These are polygons, which the",
+      "quadratic format holds exactly.",
+      "",
+      "The glyphs are STROKES, and a font holds filled outlines — so each stroke is",
+      "stamped as a rectangle per segment, a disc at each real corner and round cap, and",
+      "a triangle per wedge, all wound the same way. TrueType fills with the nonzero",
+      "winding rule, so that pile fills exactly as its union with no polygon clipping",
+      "anywhere. There is no hinting and no kerning in it; set it with the tracking you",
+      "like.",
+      "");
     out.push("THE SURFACE",
-      "Substrate: "+mat.name+", "+(num(P.thickMm,0)>0?num(P.thickMm,0):mat.thick).toFixed(2)+
-        " mm thick.",
-      "Process: "+MKp.name+(MKp.depth!==0
+      (isFlat
+        ?"FLAT: ink only. No substrate under it, no relief in it and no weather on it — "+
+         "the normal map is flat because the surface is, the height field is empty, and "+
+         "the base colour is the ink over the page colour with the coverage in the alpha."
+        :"Substrate: "+mat.name+", "+(num(P.thickMm,0)>0?num(P.thickMm,0):mat.thick).toFixed(2)+
+         " mm thick."),
+      isFlat?"":"Process: "+MKp.name+(MKp.depth!==0
         ?(", leaving the marks "+Math.abs(MKp.depth*clamp(num(P.markDepth,1),0,4)).toFixed(2)+
           " mm "+(MKp.depth<0?"into":"proud of")+" the face")
         :", level with the face")+".",
-      "The mark takes the colour of "+({core:"what the tool found under the face",
+      isFlat?"":"The mark takes the colour of "+({core:"what the tool found under the face",
         face:"the face itself",own:"the material the process brought with it"}[MKp.ink])+
         ", and the ground is "+({core:"fresh material, because relief carving cuts the "+
           "ground away rather than the letter",face:"the face"}[MKp.ground])+".",
-      "Total relief in this build: "+relief.toFixed(3)+" mm.",
+      isFlat?"":"Total relief in this build: "+relief.toFixed(3)+" mm.",
       "");
     out.push("FILES",
       "basecolor.png  sRGB albedo.",
@@ -3000,7 +3331,7 @@ Forge.register({
       "roughness.png  Linear grey.",
       "metallic.png   Linear grey.",
       "ao.png         Linear grey ambient occlusion.",
-      "emissive.png   "+(MKp.emit?"The lit marks.":"Black — nothing here glows."),
+      "emissive.png   "+((MKp.emit&&!isFlat)?"The lit marks.":"Black — nothing here glows."),
       "height.png     Linear grey, 0-1 spanning "+(info.hMax-info.hMin).toFixed(5)+
         " in texture-width units ("+relief.toFixed(3)+" mm).",
       "height16.png   The same field at 16 bits — use this one.",
@@ -3013,8 +3344,13 @@ Forge.register({
       "               it is in, what mark it wears and its strokes.",
       "glyphs.svg     The same outlines as vectors, one named group per glyph, baseline at",
       "               the group origin. Centre lines, so outline the strokes before",
-      "               building a font from them.");
-    return out.join("\n");
+      "               building a font from them — or just install the .ttf, which is",
+      "               those strokes already outlined.",
+      fontFile(P,A).padEnd(15).slice(0,15)+(fontFile(P,A).length>14?"\n               ":"")+
+        "The alphabet as an installable font. See THE FONT above.");
+    /* the flat branches above drop lines rather than printing empty ones, and a
+       readme with three blank lines in the middle of a paragraph reads as a bug */
+    return out.filter((l,i)=>l!==""||out[i-1]!=="").join("\n");
   }
 });
 
@@ -3027,6 +3363,8 @@ window.ForgeGlyph={
   BUILDERS:BUILDERS,inkOf:inkOf,numeralOf:numeralOf,reformOf:reformOf,
   sizeOf:sizeOf,capPxOf:capPxOf,atlasCell:atlasCell,fieldRows:fieldRows,
   tokensOf:tokensOf,breakRun:breakRun,fitBlock:fitBlock,runWidth:runWidth,
+  drawGlyphAt:drawGlyphAt,outlineOf:outlineOf,terminalPrims:terminalPrims,
+  fontOf:fontOf,fontName:fontName,fontFile:fontFile,FONT_CAP:FONT_CAP,FONT_UPM:FONT_UPM,
   glyphsJSON:glyphsJSON,glyphsSVG:glyphsSVG,chartLayout:chartLayout
 };
 
