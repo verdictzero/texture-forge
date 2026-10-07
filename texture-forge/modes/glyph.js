@@ -221,6 +221,12 @@ const SCRIPTS={
   circuit:{label:"Circuit gothic",               short:"Circuit",build:"ortho", aw:0.60,wt:0.090,con:0.00,pen:0,
            slant:0, curve:0.00,term:"dot",  joint:"miter",join:"none",num:"binary", sep:"rule",dir:"ltr",mono:true,
            note:"Right angles and terminal pads, drawn the way a layout tool draws a net. A script for people who learned to write from a schematic."},
+  node   :{label:"Node and ring — formal inscription",short:"Node",build:"node", aw:0.56,wt:0.070,con:0.00,pen:0,
+           slant:0, curve:0.60,term:"round",joint:"round",join:"none",num:"ring",   sep:"dot", dir:"ltr",mono:false,sym:0.85,
+           note:"An axis with rings at its nodes and lens-shaped arms in mirrored pairs. Compass-and-straightedge formal: the symmetry is what reads as designed rather than written."},
+  sigil  :{label:"Sigil — sparse, asymmetric",      short:"Sigil",build:"node", aw:0.64,wt:0.055,con:0.00,pen:0,
+           slant:0, curve:0.85,term:"dot",  joint:"round",join:"none",num:"ring",   sep:"rule",dir:"ltr",mono:false,sym:0.12,
+           note:"The same axis and rings with the symmetry taken off and the weight taken down — one arm to a node instead of two, which is the difference between a formal hand and a mark somebody made."},
   matrix :{label:"Machine dot matrix",           short:"Matrix",build:"dots",  aw:0.58,wt:0.145,con:0.00,pen:0,
            slant:0, curve:0.00,term:"butt", joint:"round",join:"none",num:"binary", sep:"gap", dir:"ltr",mono:true,
            note:"A five by three field of dots, on or off. The least a machine can print and still be read, and the only construction here with no strokes in it at all."}
@@ -348,7 +354,12 @@ function handOf(P){
     dir:  str(P.dir ,"auto")==="auto"?S.dir :str(P.dir ,S.dir),
     sep:  str(P.sep ,"auto")==="auto"?S.sep :str(P.sep ,S.sep),
     num:  S.num,
-    mono: S.mono
+    mono: S.mono,
+    /* HOW MUCH OF THE ALPHABET IS MIRRORED about its own axis. Only the node
+       construction reads it, because it is the only one with an axis to mirror
+       about — but it belongs with the hand rather than with the script, since
+       it is the dial between a formal inscription and a mark somebody made. */
+    sym:  auto?(S.sym===undefined?0.5:S.sym):clamp(num(P.symAmt,0.85),0,1)
   };
   /* the alphabet's own mark vocabulary and where it hangs them */
   const mk=marksFor(H.build);
@@ -376,6 +387,34 @@ function handOf(P){
 const L=(p,bow,cl)=>({k:"L",p:p,bow:bow||0,cl:!!cl});
 const A=(cx,cy,r,a0,a1)=>({k:"A",c:[cx,cy],r:r,a0:a0,a1:a1});
 const W=(x0,y0,x1,y1,w)=>({k:"W",p:[[x0,y0],[x1,y1]],w:w});
+const S=(x0,y0,x1,y1,w)=>({k:"S",p:[[x0,y0],[x1,y1]],w:w});
+
+/* A LENS: pointed at both ends, widest in the middle. Not a stroke with caps
+   on it — a SHAPE, and the difference is the whole character of the thing.
+   A monoline stroke reads as drawn with a tool of fixed width; a lens reads as
+   CUT, because that is what a chisel entering and leaving a cut actually
+   leaves, and it is the form half the formal inscriptional traditions are
+   built out of (the leaf, the almond, the vesica).
+
+   The profile is a sine raised to three quarters rather than a true circular
+   lens. A circular one is all middle and then stops, which comes out blunt;
+   this is fuller than a needle at the ends and still comes to a point. */
+function lensPts(a,b,w,n){
+  let dx=b[0]-a[0],dy=b[1]-a[1];
+  const len=Math.hypot(dx,dy);
+  if(!(len>1e-9)||!(w>1e-9))return null;
+  n=n||16;
+  const nx=-dy/len,ny=dx/len,h=w*0.5;
+  const up=[],dn=[];
+  for(let i=0;i<=n;i++){
+    const t=i/n,r=h*Math.pow(Math.sin(Math.PI*t),0.75);
+    const px=a[0]+dx*t,py=a[1]+dy*t;
+    up.push([px+nx*r,py+ny*r]);
+    if(i>0&&i<n)dn.push([px-nx*r,py-ny*r]);
+  }
+  dn.reverse();
+  return up.concat(dn);
+}
 const D=(x,y,r)=>({k:"D",c:[x,y],r:r});
 
 /* HOW MUCH THERE IS TO DRAW. Counting stroke OBJECTS is the obvious measure
@@ -401,6 +440,15 @@ function inkOf(s,wt){
   const add=(x,y)=>{if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;};
   for(const st of s){
     if(st.k==="L"||st.k==="W")for(const q of st.p)add(q[0],q[1]);
+    else if(st.k==="S"){
+      /* a lens bulges sideways at its middle, which neither end knows about */
+      const a=st.p[0],b=st.p[1];
+      add(a[0],a[1]);add(b[0],b[1]);
+      const dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len*st.w*0.5,ny=dx/len*st.w*0.5;
+      const mx=(a[0]+b[0])*0.5,my=(a[1]+b[1])*0.5;
+      add(mx+nx,my+ny);add(mx-nx,my-ny);
+    }
     else if(st.k==="A"){
       /* the extremes of an arc are its ends plus whichever axis crossings it
          sweeps through — taking just the ends understates a half circle by
@@ -657,8 +705,93 @@ function cDots(H,n,rng){
   return take.map(c=>D(c[0],c[1],r));
 }
 
+/* AN AXIS WITH RINGS AT ITS NODES, and arms in mirrored pairs.
+
+   This is the construction behind the whole family of FORMAL inscriptional
+   scripts — the ones that read as carved by someone with a straightedge and a
+   compass rather than written by someone in a hurry. Four things do it, and
+   none of them is a letterform:
+
+     an axis        One vertical stroke the whole glyph hangs off, so every
+                    sign in the alphabet has the same spine and a line of them
+                    has a rhythm you can see from across a room.
+     rings          Small circles at the junctions and at the ends of arms.
+                    A ring is a TERMINATION, not a decoration: it says this
+                    stroke stops here on purpose. Alchemical and astronomical
+                    notation is built almost entirely out of this one move.
+     lens arms      Pointed at both ends and widest in the middle, which is
+                    what a chisel entering and leaving a cut leaves. It is the
+                    single element that most separates "carved" from "drawn".
+     symmetry       Mirrored about the axis. Bilateral symmetry is what reads
+                    as DESIGNED, and asymmetry is what reads as handwritten —
+                    so how much of the alphabet is symmetric is the dial
+                    between a formal script and a cursive one, and it is a
+                    control rather than a constant. */
+function cNode(H,n,rng){
+  const aw=H.aw,cx=aw*0.5,s=[];
+  /* a ring is a few stroke weights across, or it reads as a blob at one end
+     and a hole at the other */
+  const rr=clamp(H.wt*2.0,0.048,0.14);
+  const top=pick(rng,[0,0,0,0.13]),bot=pick(rng,[1,1,1,0.87]);
+  s.push(L([[cx,top],[cx,bot]]));
+  const sym=rng()<H.sym;
+  const hs=shuffled(rng,[0.13,0.29,0.45,0.61,0.77,0.92]).slice(0,clamp(n-1,1,4));
+  hs.sort((a,b)=>a-b);
+  for(const h of hs){
+    const kind=pick(rng,["lens","lens","arm","arc","arc","hook","bead","cross"]);
+    if(kind==="bead"){s.push(A(cx,h,rr,0,TAU));continue;}
+    /* REACH IS IN CAP HEIGHTS, not in advances. Scaled by the advance it is
+       circular — the advance follows the ink, so a narrow glyph stays narrow
+       and the whole alphabet comes out as beads threaded on a wire. Measured
+       against the cap, an arm is as long as the eye expects an arm to be and
+       the advance widens to hold it. */
+    const reach=0.20+rng()*0.22;
+    const dy=pick(rng,[-0.10,0,0,0.10]);
+    if(kind==="cross"){
+      /* a bar straight through the axis: symmetric by its nature, and the one
+         element that reads at a distance */
+      s.push(L([[cx-reach,h],[cx+reach,h]]));
+      if(rng()<0.45){s.push(A(cx-reach,h,rr,0,TAU));s.push(A(cx+reach,h,rr,0,TAU));}
+      continue;
+    }
+    /* a symmetric glyph puts the element on both sides of the axis; an
+       asymmetric one picks a side */
+    const sides=sym?[-1,1]:[pick(rng,[-1,1])];
+    for(const side of sides){
+      const ex=cx+side*reach,ey=clamp(h+dy,0.05,0.95);
+      if(kind==="lens"){
+        /* a lens as wide as it is long is a blob, so the width follows the
+           arm it is drawn along */
+        s.push(S(cx,h,ex,ey,Math.min(H.wt*3.2,reach*0.46)));
+      }else if(kind==="arm"){
+        s.push(L([[cx,h],[ex,ey]]));
+        s.push(A(ex,ey,rr,0,TAU));
+      }else if(kind==="arc"){
+        /* a bow off the axis, kept inside the band so one sign does not set
+           the em box for the whole alphabet */
+        const r=Math.min(reach*0.85,h-0.03,0.97-h,0.27);
+        if(r>0.04){
+          const a0=side>0?-Math.PI*0.5:Math.PI*0.5;
+          s.push(A(cx,h,r,a0,a0+Math.PI));
+        }else s.push(L([[cx,h],[ex,h]]));
+      }else{
+        s.push(L([[cx,h],[ex,h],[ex,clamp(h+0.17,0.04,0.98)]],H.curve*0.45));
+      }
+    }
+  }
+  /* a crown or a foot closes the figure, which is what makes one sign of a
+     formal script look finished rather than interrupted */
+  if(n>=4&&rng()<0.55){
+    const atTop=rng()<0.5,y=atTop?top:bot,r=0.30;
+    s.push(A(cx,y,r,atTop?Math.PI:0,atTop?TAU:Math.PI));
+  }else if(rng()<0.4){
+    s.push(A(cx,rng()<0.5?top:bot,rr,0,TAU));
+  }
+  return s;
+}
+
 const BUILDERS={stave:cStave,trail:cTrail,ortho:cOrtho,radial:cRadial,
-                lobe:cLobe,bar:cBar,box:cBox,wedge:cWedge,dots:cDots};
+                lobe:cLobe,bar:cBar,box:cBox,wedge:cWedge,dots:cDots,node:cNode};
 
 /* ============================ sit on the line ============================
    SIT ON THE BASELINE AND REACH THE CAP LINE. A walk on a lattice can quite
@@ -695,6 +828,7 @@ function bandFit(s,H){
   return s.map(st=>{
     if(st.k==="D")return D(st.c[0],my(st.c[1]),st.r);
     if(st.k==="W")return W(st.p[0][0],my(st.p[0][1]),st.p[1][0],my(st.p[1][1]),st.w);
+    if(st.k==="S")return S(st.p[0][0],my(st.p[0][1]),st.p[1][0],my(st.p[1][1]),st.w);
     if(st.k==="A")return st;                    /* a walk never emits one */
     return L(st.p.map(q=>[q[0],my(q[1])]),st.bow,st.cl);
   });
@@ -890,6 +1024,12 @@ function idiomise(s,H,rng){
       let hit=false;
       for(const st of s){
         if(st.k==="D"){if(Math.hypot(st.c[0]-px,st.c[1]-py)<near)hit=true;}
+        else if(st.k==="S"||st.k==="W"){
+          for(let t=0;t<=8&&!hit;t++){
+            const qx=lerp(st.p[0][0],st.p[1][0],t/8),qy=lerp(st.p[0][1],st.p[1][1],t/8);
+            if(Math.hypot(qx-px,qy-py)<near)hit=true;
+          }
+        }
         else if(st.k==="A"){
           for(let t=0;t<=12&&!hit;t++){
             const a=lerp(st.a0,st.a1,t/12);
@@ -912,6 +1052,7 @@ function idiomise(s,H,rng){
     const out=[];
     for(const st of s){
       if(st.k==="D"){out.push(W(st.c[0],st.c[1],st.c[0]+0.1,st.c[1]+0.1,H.wt*1.3));continue;}
+      if(st.k==="S"){out.push(W(st.p[0][0],st.p[0][1],st.p[1][0],st.p[1][1],st.w));continue;}
       if(st.k==="A"){
         for(let t=0;t<3;t++){
           const a0=lerp(st.a0,st.a1,t/3),a1=lerp(st.a0,st.a1,(t+1)/3);
@@ -943,6 +1084,15 @@ function idiomise(s,H,rng){
                                    (st.k==="D"?D(lerp(aw*0.22,aw*0.78,st.c[0]/aw),
                                                  lerp(0.20,0.80,st.c[1]),st.r*0.8):st));
     out.unshift(L([[aw*0.05,0.03],[aw*0.95,0.03],[aw*0.95,0.97],[aw*0.05,0.97]],0,true));
+    return out;
+  }
+  if(H.build==="node"){
+    /* the construction's signature move applied to strokes that came from
+       somewhere else: hang them off an axis and ring every free end */
+    const rr=clamp(H.wt*1.8,0.042,0.13);
+    const out=s.slice();
+    out.unshift(L([[aw*0.5,0],[aw*0.5,1]]));
+    for(const e of endsOf(s,H.wt))out.push(A(e.p[0],e.p[1],rr,0,TAU));
     return out;
   }
   if(H.build==="stave"){
@@ -1004,6 +1154,7 @@ function flipX(s,aw){
     if(st.k==="A")return A(aw-st.c[0],st.c[1],st.r,Math.PI-st.a1,Math.PI-st.a0);
     if(st.k==="D")return D(aw-st.c[0],st.c[1],st.r);
     if(st.k==="W")return W(aw-st.p[0][0],st.p[0][1],aw-st.p[1][0],st.p[1][1],st.w);
+    if(st.k==="S")return S(aw-st.p[0][0],st.p[0][1],aw-st.p[1][0],st.p[1][1],st.w);
     return L(st.p.map(q=>[aw-q[0],q[1]]),st.bow,st.cl);
   });
 }
@@ -1015,6 +1166,7 @@ function rotQ(s,aw){
     if(st.k==="A")return A(m(st.c)[0],m(st.c)[1],st.r,st.a0+Math.PI*0.5,st.a1+Math.PI*0.5);
     if(st.k==="D")return D(m(st.c)[0],m(st.c)[1],st.r);
     if(st.k==="W")return W(m(st.p[0])[0],m(st.p[0])[1],m(st.p[1])[0],m(st.p[1])[1],st.w);
+    if(st.k==="S")return S(m(st.p[0])[0],m(st.p[0])[1],m(st.p[1])[0],m(st.p[1])[1],st.w);
     return L(st.p.map(m),st.bow,st.cl);
   });
 }
@@ -1088,6 +1240,14 @@ function sigOf(s,H){
         const a0=lerp(st.a0,st.a1,i/n),a1=lerp(st.a0,st.a1,(i+1)/n);
         run(cxOf(st.c[0]+Math.cos(a0)*st.r),cyOf(st.c[1]+Math.sin(a0)*st.r),
             cxOf(st.c[0]+Math.cos(a1)*st.r),cyOf(st.c[1]+Math.sin(a1)*st.r),rad);
+      }
+    }else if(st.k==="S"){
+      /* widest in the middle and nothing at the ends, so one radius will not
+         do: walk the spine and stamp the profile */
+      const a=st.p[0],b=st.p[1],m=12;
+      for(let i=0;i<=m;i++){
+        const t=i/m,r=st.w*0.5*Math.pow(Math.sin(Math.PI*t),0.75)/bw*SW;
+        disc(cxOf(lerp(a[0],b[0],t)),cyOf(lerp(a[1],b[1],t)),Math.max(0.45,r));
       }
     }else if(st.k==="W"){
       run(cxOf(st.p[0][0]),cyOf(st.p[0][1]),cxOf(st.p[1][0]),cyOf(st.p[1][1]),
@@ -1434,7 +1594,7 @@ function endsOf(s,wt){
         add(e0,[st.c[0]+Math.cos(i0)*st.r,st.c[1]+Math.sin(i0)*st.r]);
         add(e1,[st.c[0]+Math.cos(i1)*st.r,st.c[1]+Math.sin(i1)*st.r]);
       }
-    }else if(st.k==="W"){verts.push(st.p[0],st.p[1]);}
+    }else if(st.k==="W"||st.k==="S"){verts.push(st.p[0],st.p[1]);}
     else if(st.k==="D"){verts.push(st.c);}
   }
   const eps=Math.max(wt*0.7,0.02),e2=eps*eps;
@@ -1532,6 +1692,17 @@ function drawGlyphAt(g,gl,H,x,y,size,o){
     if(st.k==="D"){
       const c=T(st.c[0],st.c[1]);
       g.beginPath();g.arc(c[0],c[1],Math.max(0.35,st.r*size),0,TAU);g.fill();
+      continue;
+    }
+    if(st.k==="S"){
+      const pts=lensPts(st.p[0],st.p[1],st.w);
+      if(pts){
+        g.beginPath();
+        const q=T(pts[0][0],pts[0][1]);
+        g.moveTo(q[0],q[1]);
+        for(let i=1;i<pts.length;i++){const r=T(pts[i][0],pts[i][1]);g.lineTo(r[0],r[1]);}
+        g.closePath();g.fill();
+      }
       continue;
     }
     if(st.k==="W"){
@@ -2559,6 +2730,9 @@ function outlineOf(gl,H){
       put([[a[0]+nx,a[1]+ny],[b[0],b[1]],[a[0]-nx,a[1]-ny]]);
       continue;
     }
+    /* a lens needs no outlining at all — it is already a closed filled shape,
+       which is the one primitive here that arrives in a font's own terms */
+    if(st.k==="S"){put(lensPts(st.p[0],st.p[1],st.w,20));continue;}
     for(const seg of polysOf(st))strokePoly(seg.p,seg.cl);
   }
   for(const pr of terminalPrims(gl,H)){
@@ -2675,6 +2849,7 @@ function glyphsJSON(P,G,A){
                          a0:r4(x.a0),a1:r4(x.a1)};
     if(x.k==="D")return {k:"dot",c:[r4(x.c[0]),r4(x.c[1])],r:r4(x.r)};
     if(x.k==="W")return {k:"wedge",p:x.p.map(q=>[r4(q[0]),r4(q[1])]),w:r4(x.w)};
+    if(x.k==="S")return {k:"lens", p:x.p.map(q=>[r4(q[0]),r4(q[1])]),w:r4(x.w)};
     return {k:"line",p:x.p.map(q=>[r4(q[0]),r4(q[1])]),
             bow:r4(x.bow||0),closed:!!x.cl};
   });
@@ -2752,6 +2927,13 @@ function glyphsSVG(P,G,A){
       if(st.k==="D"){
         o.push('<circle cx="'+f(st.c[0]*cap)+'" cy="'+f((st.c[1]-1)*cap)+
                '" r="'+f(st.r*cap)+'" fill="#111111" stroke="none"/>');
+      }else if(st.k==="S"){
+        const pts=lensPts(st.p[0],st.p[1],st.w,20);
+        if(pts){
+          let d="M"+f(pts[0][0]*cap)+","+f((pts[0][1]-1)*cap);
+          for(let k=1;k<pts.length;k++)d+=" L"+f(pts[k][0]*cap)+","+f((pts[k][1]-1)*cap);
+          o.push('<path d="'+d+' Z" fill="#111111" stroke="none"/>');
+        }
       }else if(st.k==="W"){
         const a=st.p[0],b=st.p[1];
         let dx=b[0]-a[0],dy=b[1]-a[1];
@@ -2839,6 +3021,10 @@ Forge.register({
     {id:"tablet",label:"Clay tablet",set:{piece:"plate",script:"wedge",origin:"alien",
       material:"sand",marking:"punch",Wmm:200,Hmm:260,markDepth:1.4,chip:0.6,grime:0.6,
       abrade:0.15,cornerMm:14,border:false,lead:1.35,maxLines:10}},
+    {id:"node",label:"Formal node inscription",set:{piece:"plate",script:"node",origin:"alien",
+      material:"granite",marking:"incise",Wmm:420,Hmm:560,markDepth:1.6,bevelMm:1.5,
+      chip:0.3,grime:0.45,abrade:0.08,patina:0.25,cornerMm:0,border:false,lead:1.9,
+      maxLines:7,famAmt:0.5,complex:0.6,translit:true}},
     {id:"xeno",label:"Xenoglyph warning",set:{piece:"plate",script:"xeno",origin:"alien",
       material:"steel",marking:"etch",Wmm:300,Hmm:300,grime:0.3,patina:0.1,abrade:0.2,
       border:true,borderMm:3,cornerMm:10,holes:4,famAmt:1}},
@@ -2905,6 +3091,8 @@ Forge.register({
       {id:"slant",label:"Slant",unit:"deg",min:-20,max:20,step:0.5,value:0,need:"hand"},
       {id:"curve",label:"Curvature",min:0,max:1,step:0.01,value:0,need:"hand"},
       {id:"aw",label:"Advance width",unit:"cap",min:0.35,max:1.2,step:0.01,value:0.6,need:"hand"},
+      {id:"symAmt",label:"Mirrored about the axis",min:0,max:1,step:0.01,value:0.85,
+       need:"nodehand"},
       {id:"term",type:"select",label:"Terminals",value:"butt",need:"hand",options:[
         ["butt","Square cut"],["round","Rounded"],["serif","Seriffed"],
         ["flag","Flagged"],["dot","Terminal pads"],["barb","Barbed"]]},
@@ -3002,6 +3190,9 @@ Forge.register({
   needs:function(P){
     const piece=str(P.piece,"chart"),out=[piece];
     out.push(bool(P.flat,false)?"flat":"dressed");
+    /* the symmetry dial is a hand control AND belongs to one construction, and
+       `need` is an OR over the keys — so the pair of conditions is one key */
+    if(!bool(P.handAuto,true)&&scriptOf(P).build==="node")out.push("nodehand");
     if(piece==="chart"||piece==="plate")out.push("sheet");
     if(piece!=="atlas")out.push("words");
     if(piece==="field")out.push("tile");
@@ -3364,6 +3555,7 @@ window.ForgeGlyph={
   sizeOf:sizeOf,capPxOf:capPxOf,atlasCell:atlasCell,fieldRows:fieldRows,
   tokensOf:tokensOf,breakRun:breakRun,fitBlock:fitBlock,runWidth:runWidth,
   drawGlyphAt:drawGlyphAt,outlineOf:outlineOf,terminalPrims:terminalPrims,
+  flipX:flipX,rotQ:rotQ,lensPts:lensPts,sigMirX:sigMirX,unitPitch:unitPitch,
   fontOf:fontOf,fontName:fontName,fontFile:fontFile,FONT_CAP:FONT_CAP,FONT_UPM:FONT_UPM,
   glyphsJSON:glyphsJSON,glyphsSVG:glyphsSVG,chartLayout:chartLayout
 };

@@ -447,12 +447,33 @@ Glyph — a constructed writing system, keyed to English
   are all obviously made by the same hand, out of the same few moves, by
   somebody who had reasons. Five of those are modelled.
 
-  One construction. Nine of them, and the whole alphabet is built on the one
+  One construction. Ten of them, and the whole alphabet is built on the one
   the script names: a stave with twigs cut across the grain, a walk on a 3 x 4
   lattice, right angles with terminal pads, spokes and arcs about a centre at
   a fixed number of stations, lobes entered and left on a baseline so a word
   joins up, pendants hanging from a headline bar, a frame with the marks
-  inside it, wedges pressed at four angles, or a 5 x 3 field of dots.
+  inside it, wedges pressed at four angles, a 5 x 3 field of dots, or an AXIS
+  WITH RINGS AT ITS NODES.
+
+  That last one is the formal inscriptional family — the scripts that read as
+  cut by somebody with a straightedge and a compass rather than written by
+  somebody in a hurry — and four things do it, none of them a letterform. An
+  AXIS every sign hangs off, so a line of them has a rhythm you can see from
+  across a room. RINGS at the junctions and at the ends of arms, which are
+  terminations rather than decoration: a ring says this stroke stops here on
+  purpose, and alchemical and astronomical notation is built almost entirely
+  out of that one move. LENS strokes, pointed at both ends and widest in the
+  middle — not a stroke with caps on it but a shape, which is what a chisel
+  entering and leaving a cut leaves, and the single element that most
+  separates carved from drawn. And SYMMETRY about the axis, which is its own
+  control: bilateral symmetry is what reads as designed and asymmetry is what
+  reads as handmade, so the dial runs from a formal inscription to a sigil
+  somebody scratched. Turned up, 99 per cent of the letters land on their own
+  mirror; turned off, 3 per cent do.
+
+  A lens has one property nothing else here has: being already a closed
+  filled contour, it goes into the font with no outlining at all, where every
+  other primitive has to be stamped.
 
   One hand. Stroke weight, pen contrast and angle, slant, curvature, and what
   happens at a free end — square, round, seriffed, flagged, padded or barbed.
@@ -563,8 +584,9 @@ Glyph — a constructed writing system, keyed to English
   thread. A mode that reached for a registered typeface could not.
 
   Presets: cut in granite, the key sheet, a flat font sheet, a bronze dedication,
-  a terminal display, a clay tablet, a xenoglyph warning, a wall of writing,
-  reformed English on anodised aluminium, and a cursive hand on vellum.
+  a terminal display, a clay tablet, a formal node inscription, a xenoglyph
+  warning, a wall of writing, reformed English on anodised aluminium, and a
+  cursive hand on vellum.
 
 Ruins — ruin-stone plating with etched circuit traces
   The Plating Fabricator tool, folded in: seamless stone plating cut into
@@ -2865,9 +2887,14 @@ It also covers the twenty-three things that are easy to break silently:
             every letter tried; the advance it types by is within a sixth of a
             pixel of the advance the metrics promise at a 220 px cap, lower case
             types the same glyph as upper, and the word space carries its own
-            width. And flat is flat: the normal map is the flat constant
-            everywhere, the height field has one value in it, the AO is white,
-            and the ink is still there
+            width. The LENS, which is the one primitive that arrives already a
+            closed filled contour rather than a stroke to be outlined, gets its
+            own round trip through a second font. The SYMMETRY dial is held to
+            the claim it makes: turned up, better than seven letters in ten land
+            on their own mirror taken about their own ink centre, and turned off
+            fewer than three in ten do. And flat is flat: the normal map is the
+            flat constant everywhere, the height field has one value in it, the
+            AO is white, and the ink is still there
   pcb       three kinds of claim, checked three ways. The TABLES asked of
             themselves: one ounce of copper is 34.8 um, an 0603 is 1.60 by
             0.80 mm, and IPC-7351's construction puts an SOIC-8 pad where the

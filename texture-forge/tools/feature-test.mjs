@@ -4958,9 +4958,9 @@ if (want("glyph")) {
      the cmap is wrong the wrong glyph comes out, if the metrics are wrong it
      lands in the wrong place, and if the outlining has drifted from the
      drawing the ink does not match. ---- */
-  const font = await page.evaluate(async b => {
+  const font = await page.evaluate(async ([b, script]) => {
     const F = window.ForgeGlyph;
-    const P = { ...b, script: "lapid", seed: 1963, piece: "atlas" };
+    const P = { ...b, script: script, seed: 1963, piece: "atlas" };
     const A = F.alphabetOf(P);
     const bytes = F.fontOf(P, A);
     if (!bytes) return { err: "fontOf returned nothing" };
@@ -5007,7 +5007,7 @@ if (want("glyph")) {
     out.wantSpace = 0.34 * CAP;
     out.bytes = bytes.length;
     return out;
-  }, base);
+  }, [base, "lapid"]);
   ok("the browser accepts the generated font", !font.err, font.err || font.bytes + " bytes");
   if (!font.err) {
     const worst = font.chars.reduce((a, c) => c.iou < a.iou ? c : a, font.chars[0]);
@@ -5023,6 +5023,96 @@ if (want("glyph")) {
        Math.abs(font.space - font.wantSpace) < 1.5,
        font.space.toFixed(1) + " px against " + font.wantSpace.toFixed(1));
   }
+  /* the node construction is the one that draws LENS strokes, and a lens is
+     the only primitive here that is already a closed filled contour rather
+     than a stroke to be outlined — so it goes down a different path in the
+     writer and gets its own round trip */
+  const fontN = await page.evaluate(async ([b, script]) => {
+    const F = window.ForgeGlyph;
+    const P = { ...b, script: script, seed: 1963, piece: "atlas" };
+    const A = F.alphabetOf(P);
+    let lenses = 0;
+    for (const ch of A.order) for (const st of A.G[ch].s) if (st.k === "S") lenses++;
+    const bytes = F.fontOf(P, A);
+    if (!bytes) return { err: "fontOf returned nothing" };
+    const nm = F.fontName(P, A);
+    const face = new FontFace(nm.family, bytes.buffer.slice(
+      bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    try { await face.load(); } catch (e) { return { err: "refused: " + e.message }; }
+    document.fonts.add(face);
+    const CAP = 220, Sz = 420;
+    const cv = () => { const c = document.createElement("canvas"); c.width = c.height = Sz; return c; };
+    const grid = d => { const g = new Float64Array(Sz * Sz);
+      for (let i = 0; i < Sz * Sz; i++) g[i] = d[i * 4 + 3] / 255; return g; };
+    const px = CAP / (F.FONT_CAP / F.FONT_UPM);
+    const out = { err: null, lenses: lenses, chars: [] };
+    for (const ch of ["A", "N", "T"]) {
+      const gl = A.G[ch];
+      const ca = cv(), cb = cv();
+      const ga = ca.getContext("2d"), gb = cb.getContext("2d");
+      ga.fillStyle = "#000"; ga.strokeStyle = "#000";
+      F.drawGlyphAt(ga, gl, A.H, 60, 300, CAP, {});
+      gb.fillStyle = "#000";
+      gb.font = px + 'px "' + nm.family + '"';
+      gb.textBaseline = "alphabetic";
+      gb.fillText(ch, 60, 300);
+      const a = grid(ga.getImageData(0, 0, Sz, Sz).data);
+      const c = grid(gb.getImageData(0, 0, Sz, Sz).data);
+      let inter = 0, uni = 0;
+      for (let i = 0; i < a.length; i++) { inter += Math.min(a[i], c[i]); uni += Math.max(a[i], c[i]); }
+      out.chars.push({ ch: ch, iou: uni ? inter / uni : 0 });
+    }
+    return out;
+  }, [base, "node"]);
+  ok("a construction with lens strokes in it makes a font too",
+     !fontN.err && fontN.lenses > 0 && fontN.chars.every(c => c.iou > 0.9),
+     fontN.err || fontN.lenses + " lens strokes in the alphabet, overlap " +
+     fontN.chars.map(c => c.ch + " " + c.iou.toFixed(3)).join(", "));
+
+  /* ---- the symmetry dial: formal is mirrored, a mark is not ---- */
+  const symm = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    /* mirror each glyph about its OWN ink centre and see if it lands on
+       itself — the signature box is not centred on the glyph's axis, so
+       mirroring in that box would say no to everything */
+    const mirrored = symAmt => {
+      let hit = 0, n = 0;
+      for (let seed = 1; seed <= 4; seed++) {
+        const P = { ...b, script: "node", handAuto: false, symAmt: symAmt, seed: seed,
+                    wt: 0.07, con: 0, pen: 0, slant: 0, curve: 0.6, aw: 0.56, term: "round" };
+        const A = F.alphabetOf(P);
+        for (const ch of F.LETTERS) {
+          const gl = A.G[ch];
+          if (!gl) continue;
+          const ink = gl.ink;
+          const flip = F.flipX(gl.s, ink[0] + ink[2]);
+          n++;
+          if (F.diffOf(F.sigOf(gl.s, A.H), F.sigOf(flip, A.H)) < 0.10) hit++;
+        }
+      }
+      return hit / Math.max(1, n);
+    };
+    return { on: mirrored(1), off: mirrored(0) };
+  }, base);
+  ok("turned up, the forms are mirrored about their own axis", symm.on >= 0.7,
+     Math.round(symm.on * 100) + "% of letters land on their own mirror");
+  ok("turned off, they are not", symm.off <= 0.3,
+     Math.round(symm.off * 100) + "% — which is the difference between a formal hand and a mark");
+
+  /* ---- and the lens survives into the exported data as a lens ---- */
+  const lens = await page.evaluate(b => {
+    const F = window.ForgeGlyph;
+    const P = { ...b, script: "node", seed: 1963, piece: "atlas" };
+    const j = JSON.parse(F.glyphsJSON(P, F.sizeOf(P), F.alphabetOf(P)));
+    let n = 0, widths = true;
+    for (const c in j.glyphs)
+      for (const st of j.glyphs[c].strokes)
+        if (st.k === "lens") { n++; if (!(st.w > 0) || st.p.length !== 2) widths = false; }
+    return { n: n, widths: widths, kinds: [...new Set(Object.values(j.glyphs)
+      .flatMap(g => g.strokes.map(st => st.k)))].sort() };
+  }, base);
+  ok("glyphs.json names the lens as a lens and gives it a width",
+     lens.n > 0 && lens.widths, lens.n + " lenses; stroke kinds present: " + lens.kinds.join(", "));
 
   /* ---- flat is flat, and that is the whole claim ---- */
   await page.evaluate(() => {
