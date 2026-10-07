@@ -1924,6 +1924,16 @@ function latin(g,text,x,y,cap,o){
 }
 const latinWidth=(text,cap,track)=>window.ForgeStroke
   ? ForgeStroke.width(String(text||"").toUpperCase(),track||0)*cap/ForgeStroke.CAP : 0;
+/* THE CAP HEIGHT AT WHICH THIS STRING FITS THAT WIDTH. A single line of stroke
+   type sized from the height of the band it sits in and nothing else is a line
+   that runs off the edge of the plate the moment the string is long or the
+   plate is narrow — and the strings here are a pangram somebody typed and a
+   sentence describing a numeral rule, so both. Width is linear in the cap, so
+   one division settles it; it only ever makes the type smaller. */
+function latinFit(text,maxW,cap,track){
+  const w=latinWidth(text,cap,track);
+  return (w>maxW&&w>0)?cap*maxW/w:cap;
+}
 
 /* ============================ geometry ============================ */
 function rrect(g,x,y,w,h,r){
@@ -2021,11 +2031,13 @@ function paintChart(g,P,G,A,mask){
   {
     const cap=Lo.title*0.38,sub=cap*0.46,top=Lo.m;
     latin(g,"GLYPH KEY",Lo.m,top,cap,{weight:0.16,track:1.2});
-    latin(g,A.H.S.label,Lo.m,top+cap*1.25,sub,{weight:0.16,track:0.6});
+    latin(g,A.H.S.label,Lo.m,top+cap*1.25,
+          latinFit(A.H.S.label,(TW-Lo.m*2)*0.55,sub,0.6),{weight:0.16,track:0.6});
     latin(g,(A.reform?"REFORMED LATIN":"INVENTED")+"  SEED "+(P.seed|0),
           TW-Lo.m,top,sub,{align:"right",weight:0.16,track:0.6});
-    latin(g,A.order.length+" SIGNS  "+(A.mono?"MONOSPACED":"PROPORTIONAL"),
-          TW-Lo.m,top+sub*1.5,sub,{align:"right",weight:0.16,track:0.6});
+    const cnt=A.order.length+" SIGNS  "+(A.mono?"MONOSPACED":"PROPORTIONAL");
+    latin(g,cnt,TW-Lo.m,top+sub*1.5,
+          latinFit(cnt,(TW-Lo.m*2)*0.42,sub,0.6),{align:"right",weight:0.16,track:0.6});
     const ry=top+cap*1.25+sub*1.6;
     g.lineWidth=Math.max(0.6,TH*0.0022);g.lineCap="butt";
     g.beginPath();g.moveTo(Lo.m,ry);g.lineTo(TW-Lo.m,ry);g.stroke();
@@ -2075,14 +2087,15 @@ function paintChart(g,P,G,A,mask){
                {mask:mask,rtl:A.H.dir==="rtl"});
       yy+=fit.size*1.45;
     }
-    const lcap=Math.min(Lo.spec*0.17,TH*0.026);
-    latin(g,String(P.text).toUpperCase(),TW*0.5,top+Lo.spec*0.72,lcap,
+    const txt=String(P.text).toUpperCase();
+    const lcap=latinFit(txt,TW-Lo.m*2,Math.min(Lo.spec*0.17,TH*0.026),0.5);
+    latin(g,txt,TW*0.5,top+Lo.spec*0.72,lcap,
           {align:"center",weight:0.16,track:0.5});
   }
   /* ---- the footer: what the numbers do, which is not guessable ---- */
-  const fcap=Lo.foot*0.44;
-  latin(g,"FIGURES: "+(A.ruleNum?NUMNOTE[A.H.num].toUpperCase():"REFORMED LATIN NUMERALS"),
-        Lo.m,TH-Lo.m-fcap,Math.min(fcap,TH*0.019),{weight:0.16,track:0.4});
+  const foot="FIGURES: "+(A.ruleNum?NUMNOTE[A.H.num].toUpperCase():"REFORMED LATIN NUMERALS");
+  const fcap=latinFit(foot,TW-Lo.m*2,Math.min(Lo.foot*0.44,TH*0.019),0.4);
+  latin(g,foot,Lo.m,TH-Lo.m-fcap,fcap,{weight:0.16,track:0.4});
 }
 
 /* ============================ the atlas ============================
@@ -2162,8 +2175,9 @@ function paintPlate(g,P,G,A,mask){
     }
   }
   if(translit){
-    const cap=Math.min(footer*0.42,TH*0.03);
-    latin(g,String(P.text).toUpperCase(),(x0+x1)*0.5,y1-footer*0.5-cap*0.5,cap,
+    const txt=String(P.text).toUpperCase();
+    const cap=latinFit(txt,x1-x0,Math.min(footer*0.42,TH*0.03),0.6);
+    latin(g,txt,(x0+x1)*0.5,y1-footer*0.5-cap*0.5,cap,
           {align:"center",weight:0.16,track:0.6});
   }
 }
