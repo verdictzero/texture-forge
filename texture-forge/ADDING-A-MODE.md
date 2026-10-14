@@ -301,8 +301,35 @@ function pass1(){
 | `HGT` | `Float32Array` | yes |
 | `hMin`, `hMax` | number | yes — the height range, used by the 8/16-bit height maps |
 | `ALP` | `Uint8ClampedArray` | only for cut-out modes |
-| `EMI` | `Uint8ClampedArray` | only if something glows |
+| `EMI` | `Uint8ClampedArray` | only if something glows — **one byte a texel** |
 | anything else | | whatever your custom writers need |
+
+`EMI` is a single channel, not RGB. The stock writer tints that intensity with
+one ramp, and the GPU packer uploads it as an `R8` texture, so a buffer of
+`W*H*3` there is read at the wrong stride and comes back as offset stripes.
+
+If your glow is one colour, write the intensity and tint it in a custom
+`emissive` writer (`glyph` does, off its own colour control). If it is SEVERAL
+colours at once — a rack panel has a red jewel, a green one, amber phosphor and
+an orange seven-segment all lit together — keep `EMI` exactly the length the
+runtime expects and carry the colour in a buffer of your own beside it, which
+the worker transfers like any other typed array. `rack` calls that one `ECOL`
+and reads it back in its writer:
+
+```js
+writers:function(B){
+  return {emissive:function(i,o,k){
+    const C=B.ECOL;
+    if(!C){const e=B.EMI[i];o[k]=e;o[k+1]=e;o[k+2]=e;return 255;}
+    o[k]=C[i*3];o[k+1]=C[i*3+1];o[k+2]=C[i*3+2];
+    return 255;
+  }};
+}
+```
+
+Declaring an `emissive` writer sends that channel — and the unlit bake, which
+reads it — down the CPU path, which is where a mode that owns its own ramp
+belongs anyway.
 
 ### Threading
 
@@ -928,8 +955,8 @@ On the `Forge` object, so a mode does not carry its own copy:
 
 ```js
 Forge.clamp(x,a,b)  Forge.lerp(a,b,t)  Forge.smoothstep(e0,e1,x)
-Forge.mulberry32(seed)          // -> rng()
-Forge.hashi(x,y,seed)           // integer hash -> 0..1
+Forge.mulberry32(seed)          // -> rng(); seed it with an INTEGER
+Forge.hashi(x,y,seed)           // integer hash -> 0..1 (a FLOAT, note)
 Forge.vnoise(x,y,period,seed)   // value noise wrapping at `period` — tileable
 Forge.fbm(u,v,period,oct,seed)
 Forge.vnoise2(x,y,px,py,seed)   // independent period per axis, for stretched grain
@@ -939,6 +966,14 @@ Forge.hex2rgb("#rrggbb")
 Forge.blurWrap(src,n,r)         // separable box blur, wrapping (square)
 Forge.blurClamp(src,w,h,r)      // separable box blur, clamped at the edges
 ```
+
+**`mulberry32` wants an integer.** It opens with `a|=0` on whatever it is
+handed, so every seed in `[0,1)` collapses to the same stream — and `hashi`
+returns exactly that range. `mulberry32(hashi(a,b,seed))` therefore gives the
+IDENTICAL sequence at every seed, which looks like variety right up until two
+seeds are put side by side. Multiply back up first
+(`(hashi(a,b,seed)*4294967296)|0`), or do what most modes do and derive the
+seed arithmetically: `mulberry32((P.seed|0)*2654435761+7)`.
 
 Anything a single mode needs and nobody else does — a Worley variant, a
 rotation table — belongs in that mode's file.

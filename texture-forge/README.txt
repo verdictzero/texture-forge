@@ -1710,6 +1710,120 @@ Raceway — conduit dressed to a lattice, braced at intervals
   heading with a wandering turn, the other walks a lattice and fillets every
   corner, and the stamp cannot tell them apart.
 
+Rack — a populated equipment rack, 1980s futurism
+  A cabinet of machinery seen from the front, with cables run between the
+  things in it. None of the hardware is anything that was ever made: the
+  devices are invented here, and what makes them read as EQUIPMENT rather than
+  as greebles is that they are built out of the controls a machine of that
+  period was actually operated with.
+
+  THE FRAME IS REAL AND THE KIT IS NOT. The rack is EIA-310 — a 482.6 mm
+  panel, 44.45 mm to the U, mounting holes at 15.875, 15.875 and 12.7 mm up
+  each U with their centres 465.1 mm apart. That is a published standard rather
+  than anybody's design, and it is what makes a rack look like a rack: every
+  panel meets its neighbour on the pitch, every screw lands on a hole that
+  exists, and nothing is anywhere by eye. The hole pattern is symmetric about
+  the middle of a U, which is why the outer screws always land 6.35 mm in from
+  each end of a panel however tall it is. Everything bolted into that frame —
+  regulator bays, tape transports, patch fields, disc drives, consoles, logic
+  bays — is made up from scratch, and is not, and is not meant to resemble, any
+  product that was ever marketed.
+
+  WHAT SAYS 1980s, and it is not the colour. It is that the machine is operated
+  BY HAND, through things you can feel. Filament jewels in a bezel by the
+  dozen, in rows that mean something — a row per channel, a block per bus — not
+  status LEDs but lamps you could change. Toggles with bat handles, rockers,
+  legend-cap buttons, rotary selectors with a pointer knob over an engraved
+  arc of detents. Moving-coil meters, round or edgewise, with an arc scale and
+  a needle that sits where the needle sits. Seven-segment numerals behind a
+  smoked window and bar graphs made of discrete segments rather than a
+  gradient. Two reels behind a window with tape between them, which is the one
+  silhouette that dates a machine on sight. And punched louvres and hole
+  fields, because this kit ran hot and was cooled by moving air through the
+  front.
+
+  ONE MAKER BUILT ALL OF IT, and that is the strongest thing in the picture.
+  One bezel colour, one corner radius, one handle, one place the nameplate
+  goes, one knob, THREE lamp colours and not five — because two states and an
+  alarm is what a real panel had, and the third is nearly always red. All of it
+  is drawn once per seed and applied to every device in the cabinet, the same
+  way the glyph mode draws one hand and writes the whole alphabet with it. A
+  rack whose devices each chose their own styling reads as a junk shop, which
+  is the usual failure of this subject.
+
+  AND IT IS FILLED THE WAY A RACK IS BUILT, which is the lesson from the
+  circuit board: placement first, in the order an engineer would do it, and the
+  rest filled in after. Supply and distribution at the bottom, where the feed
+  comes in and the weight belongs. Consoles at standing height, because
+  somebody has to use them. Transports in the middle where they can be reached.
+  Patch and line panels at the top, where the cables come in from overhead. A
+  vent panel above whatever runs hot. Blanks in the gaps, because an open U in
+  a cooled cabinet is a short circuit in the airflow.
+
+  A device may be placed one band away from where it belongs, which is what
+  lets the installation LEAN — a machine room, an operations console, a comms
+  room, or a bit of everything. The bleed is not symmetric: a heavy thing
+  settles lower than it wants readily, because everybody has a spare transport
+  on the floor, and climbs only reluctantly and the more so the bigger it is,
+  because nobody puts forty kilos of tape deck above head height. Without that
+  asymmetry a 9U transport lands at the top of the cabinet often enough to be
+  the one thing in the picture an engineer would point at.
+
+  CABLES GO WHERE CABLES GO, and they are drawn OVER the faces, because that is
+  where they are: in front. A lead leaves its connector, SAGS — nobody pulls a
+  cable tight, and the sag is the whole difference between a cable and a wiring
+  diagram — turns into the side member, runs down it with its neighbours under
+  a tie, and comes back out at the port it is going to. Power goes to power and
+  signal to signal. Patch cords hang in a catenary across their own field,
+  which is the one panel a cable is allowed to cross. Some of them leave the
+  picture entirely, because half the leads in a real installation go to
+  something that is not in the photograph.
+
+  The partner is CHOSEN rather than taken off the top of the pile: same kind,
+  another device, this cabinet or next door, the same side, and far enough up
+  or down that the lane has somewhere to go. Two ports on the same row routed
+  through a side lane give a shallow V slung right across the faces between
+  them, which is the single ugliest thing this router can draw, so anything
+  that close gets a cord instead. The lane counter is per cabinet and per side,
+  because one counter for the whole picture stacks every fourth cable of the
+  installation in the same lane and the bundle reads as a grey smear.
+
+  A CABLE IS ROUND, and the only place that can be said is the HEIGHT channel:
+  three passes of narrowing width at rising height make a dome that the normal
+  map reads as the section of a cable rather than as a painted stripe.
+
+  POWERED UP is a dial, and powered DOWN is a different picture rather than the
+  same one dimmed: the jewels go to their unlit colour, the displays go blank,
+  the meters fall back to their stop, the switches are off and the lamp walls
+  show no word at all. One number, read by every control, because a face that
+  decided its own states would have half of them lit in a cabinet somebody had
+  pulled the breaker on.
+
+  EMISSIVE IN TWO BUFFERS. The runtime's EMI is one byte a texel — an intensity
+  the stock writer tints with a single ramp — and that is right for a mode whose
+  glow is all one colour. A rack has five at once on the same panel: a red
+  jewel, a green one, a clear one, amber phosphor and the orange of a
+  seven-segment. So EMI stays exactly what the runtime expects, down to its
+  length, and the colour rides alongside it in ECOL, which the mode's own
+  emissive writer reads.
+
+  AGE AND DIRT. Yellowing happens to PAINT and not to metal, and to pale paint
+  more than dark: the putty and bone finishes of that decade went amber under
+  daylight and the charcoal and olive ones did not, which is most of the
+  difference between an old machine and a merely dirty one. Dust lies on what
+  faces up — which the height field already knows, since a ledge is a texel
+  standing above the one below it. Grime runs downwards. Wear is applied last,
+  on what stands proud and gets touched, so a rubbed handle shows through both.
+
+  Two pieces: a cabinet of one to four bays in front elevation, or one device
+  panel on its own as a decal. Both are cut-outs, with air round the cabinet so
+  the silhouette is not its own bounding box — the capping plate overhangs, the
+  plinth steps back, and the leads that leave the installation run out through
+  the margin and off the edge.
+
+  Presets: machine room, operations console, comms room, powered down,
+  derelict, and one panel on its own.
+
 Sheet · Plate · Slab — three panels off one generator
   What they have in common is that they are all a PANEL: a piece of material
   with a real thickness, real edges and real fixings, rather than a pattern
@@ -2549,7 +2663,7 @@ archive, and that graffiti draws through both of its paths — a real typeface
 where one is registered, and the scrawl fallback, which is otherwise exercised
 by nothing because the local faces load.
 
-It also covers the twenty-three things that are easy to break silently:
+It also covers the twenty-four things that are easy to break silently:
 
   chrome    a typed value reaches the parameters and is clamped and snapped,
             the control filter hides what does not match, and the mode browser
@@ -2787,6 +2901,28 @@ It also covers the twenty-three things that are easy to break silently:
             and that the material table says what it should — four of the eight
             do not corrode at all and the other four each corrode to something
             of their own. Plus that grime darkens what it collects on
+  rack      the frame is the frame: every U in the cabinet is filled exactly
+            once — no open slot, no two panels in one — and every screw a panel
+            takes lands on a hole the EIA pattern actually has, checked by
+            folding its absolute height back onto the 44.45 mm pitch. Then that
+            the fill is a DESIGN rather than a shuffle: the mean height of each
+            want-class comes out in order, floor below low below hand height
+            below high; every vent panel sits over something that runs hot; and
+            the gaps are blanked rather than left open. That the mix leans the
+            installation, measured in UNITS rather than in panels — a patch
+            field is 1U and a logic bay is six, so counting panels says a comms
+            room is winning when a third of its height is one tape deck. That
+            TWO SEEDS ARE TWO RACKS, which is the check that caught mulberry32
+            being handed the shared hash's float and opening with |0 on it, so
+            every seed in the mode collapsed to one stream and every rack was
+            the same rack. That the maker fits three lamp colours and one of
+            them is red. That the piece is a cut-out with the normal flat and
+            the height at the datum outside the silhouette, that the emissive
+            is one byte a texel with its colour in the buffer beside it, that
+            every lead goes between ports that exist, that powered down is
+            dark to the last texel, that the cabling comes off without taking
+            the kit with it, and that each of the twelve archetypes can be
+            drawn on its own at a height it is actually built at
   stage     the wizard's 3D building is the BUILDING: its box is as wide as the
             front's plan says and as deep as the side's, four walls and a roof
             stand on a ground, and both sides come off the one side elevation.
@@ -3008,8 +3144,19 @@ Fabricator tool brought in as a mode.
 The label mode came next, and it was the odd one out: every other mode draws a
 material, and that one draws a manufactured object with a part number.
 
-The circuit board mode is the newest and it is the other kind of odd one out.
-It draws a manufactured object too, but one with a LAYOUT — so most of the file
-is not rendering at all, it is deciding where things go and what is wired to
-what, in the order a layout engineer would decide it. The rendering is four
-passes over one canvas after that.
+The circuit board mode was the first of the other kind of odd one out. It draws
+a manufactured object too, but one with a LAYOUT — so most of the file is not
+rendering at all, it is deciding where things go and what is wired to what, in
+the order a layout engineer would decide it. The rendering is four passes over
+one canvas after that.
+
+The glyph mode came next and is odder still: it designs a WRITING SYSTEM rather
+than drawing a thing, and most of what it does is reject its own work for being
+too easy to confuse with the letter next to it. The conduit raceway followed,
+sharing the loom's library with the mode it sits beside.
+
+The equipment rack is the newest, and it is the circuit board's idea applied to
+a room: a published frame standard, invented hardware bolted into it, placement
+zone by zone in the order an engineer would fill a cabinet, and cables routed
+between ports afterwards. It also carries the first emissive map in the set
+that is more than one colour, which is why `ECOL` exists beside `EMI`.

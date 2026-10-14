@@ -463,7 +463,7 @@ if (want("threads")) {
      (flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true"));
 
   /* THE CLAIM. Same parameters, both threads, byte for byte. */
-  for (const id of ["factory", "vent", "slab", "hazard", "pcb", "glyph"]) {
+  for (const id of ["factory", "vent", "slab", "hazard", "pcb", "glyph", "rack"]) {
     await wp.click(`#modebar-tabs [data-mode="${id}"]`);
     await wsettle();
     await wp.evaluate(m => window.Forge.setParam(m, "size", 256), id);
@@ -5832,6 +5832,251 @@ if (want("pcb")) {
   ok("a populated board offers the bare one beside it, and a bare one does not",
      vars.on.join(",") === "bare,clean" && vars.off.length === 0,
      `[${vars.on.join(", ")}] and [${vars.off.join(", ")}]`);
+}
+
+
+/* ============================ the equipment rack ============================
+
+   A rack is a PLACEMENT PROBLEM with rules, and every one of those rules is a
+   thing that can be measured rather than looked at: the frame is a published
+   pitch, the fill is zone by zone from the floor, a vent panel goes above
+   whatever runs hot, the gaps are blanked, and the leads go between ports of
+   the same kind. What cannot be measured — whether the invented hardware looks
+   like hardware — is the part a picture is for. */
+if (want("rack")) {
+  console.log("\n— the equipment rack —");
+
+  await page.click('#modebar-tabs [data-mode="rack"]');
+  await settle();
+  await page.evaluate(() => window.Forge.setParam("rack", "size", 512));
+
+  /* ---- the frame ---- */
+  const frame = await page.evaluate(() => {
+    const R = window.ForgeRack;
+    if (!R) return null;
+    const out = { bad: [], screws: [], panels: 0, worst: 0 };
+    const L = R.layout({ seed: 991, bays: 2, rackU: 42, fill: 0.9, vents: 0.7,
+                         mix: "balanced" });
+    for (let b = 0; b < L.bays; b++) {
+      const cover = new Array(L.rU).fill(0);
+      for (const it of L.items) {
+        if (it.bay !== b) continue;
+        out.panels++;
+        for (let k = 0; k < it.uh; k++) {
+          if (it.u0 + k >= L.rU) { out.bad.push("over the top: " + it.id); break; }
+          cover[it.u0 + k]++;
+        }
+        /* every screw this panel takes must land on a hole the frame has.
+           Panel-local y, down from its top; the rack's own holes are 6.35,
+           22.225 and 38.1 up from the bottom of each U. */
+        const top = (L.rU - it.u0 - it.uh) * R.U + R.GAP * 0.5;
+        for (const sy of R.screwYs(it.uh)) {
+          const up = L.rU * R.U - (top + sy);          /* up from the rack foot */
+          const inU = ((up % R.U) + R.U) % R.U;
+          const d = Math.min.apply(null, R.HOLE_Y.map(h => Math.abs(inU - h)));
+          out.worst = Math.max(out.worst, d);
+          if (d > 0.02) out.screws.push(it.id + "@" + sy.toFixed(2) + " off by " + d.toFixed(3));
+        }
+      }
+      for (let u = 0; u < L.rU; u++) {
+        if (cover[u] === 0) out.bad.push("bay " + b + " U" + u + " is open frame");
+        if (cover[u] > 1) out.bad.push("bay " + b + " U" + u + " is double-booked");
+      }
+    }
+    return out;
+  });
+  ok("the rack mode exposes its layout", !!frame);
+  if (frame) {
+    ok("every U is filled exactly once — no open frame, no two panels in one slot",
+       frame.bad.length === 0, frame.bad.slice(0, 3).join("; ") || frame.panels + " panels placed");
+    ok("every screw lands on a hole the EIA pattern actually has",
+       frame.screws.length === 0,
+       frame.screws.slice(0, 2).join("; ") ||
+       "worst miss " + frame.worst.toFixed(4) + " mm over " + frame.panels + " panels");
+  }
+
+  /* ---- the fill is zoned, and the vents follow the heat ---- */
+  const fill = await page.evaluate(() => {
+    const R = window.ForgeRack;
+    const h = { 0: [], 1: [], 2: [], 3: [] };
+    let vents = 0, hot = 0, blanks = 0, devs = 0;
+    /* NOT FILLED TO THE BRIM. At 0.92 the zones overlap enough to take every
+       slot in the cabinet, and a rack with no gaps proves nothing about what
+       happens to the gaps — which is the thing being checked. */
+    for (const seed of [12, 77, 404, 1900, 6161]) {
+      const L = R.layout({ seed: seed, bays: 1, rackU: 42, fill: 0.62, vents: 1,
+                           mix: "balanced" });
+      const by = {};
+      for (const it of L.items) for (let k = 0; k < it.uh; k++) by[it.u0 + k] = it;
+      for (const it of L.items) {
+        if (it.kind === "dev") {
+          devs++;
+          const d = R.DEV_BY[it.id];
+          if (d.want < 4) h[d.want].push((it.u0 + it.uh * 0.5) / L.rU);
+        } else if (it.kind === "vent") {
+          vents++;
+          const below = by[it.u0 - 1];
+          if (below && below.kind === "dev" && R.DEV_BY[below.id].heat > 0) hot++;
+        } else blanks++;
+      }
+    }
+    const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : -1;
+    return { z: [mean(h[0]), mean(h[1]), mean(h[2]), mean(h[3])],
+             n: [h[0].length, h[1].length, h[2].length, h[3].length],
+             vents: vents, hot: hot, blanks: blanks, devs: devs };
+  });
+  ok("the heavy kit is at the bottom and the patch is at the top",
+     fill.z[0] >= 0 && fill.z[3] >= 0 &&
+     fill.z[0] < fill.z[1] && fill.z[1] < fill.z[2] && fill.z[2] < fill.z[3],
+     "mean height by zone: " + fill.z.map(v => (v * 100).toFixed(0) + "%").join(" < ") +
+     " (n = " + fill.n.join("/") + ")");
+  ok("a vent panel goes above something that runs hot",
+     fill.vents > 0 && fill.hot === fill.vents,
+     fill.hot + " of " + fill.vents + " vent panels sit over a device with heat");
+  ok("and the gaps are blanked rather than left open",
+     fill.blanks > 0, fill.blanks + " blanks beside " + fill.devs + " devices");
+
+  /* ---- the mix leans the installation ---- */
+  const mix = await page.evaluate(() => {
+    const R = window.ForgeRack;
+    /* MEASURED IN UNITS, not in devices. A patch field is 1U and a logic bay
+       is six, so counting panels says a comms room is winning when a third of
+       its height is one tape deck. What a rack looks like is a question about
+       how much of it is the thing, and how much of it is the thing is U. */
+    const count = (which, keys) => {
+      let n = 0, tot = 0;
+      for (const seed of [5, 50, 500, 5000]) {
+        const L = R.layout({ seed: seed, bays: 1, rackU: 42, fill: 0.92, vents: 0.5,
+                             mix: which });
+        for (const it of L.items) if (it.kind === "dev") {
+          tot += it.uh; if (keys.indexOf(it.id) >= 0) n += it.uh;
+        }
+      }
+      return tot ? n / tot : 0;
+    };
+    const comms = ["patch", "line", "timing"], compute = ["logic", "store", "disc"];
+    return { cc: count("comms", comms), pc: count("compute", comms),
+             cp: count("comms", compute), pp: count("compute", compute) };
+  });
+  ok("a comms room is mostly patch and line, and a machine room is mostly logic and tape",
+     mix.cc > mix.pc * 1.3 && mix.pp > mix.cp * 1.3,
+     "patch/line/timing: comms " + (mix.cc * 100).toFixed(0) + "% vs compute " +
+     (mix.pc * 100).toFixed(0) + "% · logic/store/disc: compute " +
+     (mix.pp * 100).toFixed(0) + "% vs comms " + (mix.cp * 100).toFixed(0) + "%");
+
+  /* ---- and the seed is doing something ----
+     A float seed collapses mulberry32 to one stream, which looks exactly like
+     variety until two seeds are put side by side — so the check is that they
+     are not the same rack. */
+  const seeds = await page.evaluate(() => {
+    const R = window.ForgeRack, sig = {}, makers = {};
+    for (let i = 0; i < 24; i++) {
+      const sd = i * 137 + 11;
+      const L = R.layout({ seed: sd, bays: 1, rackU: 36, fill: 0.8, vents: 0.7,
+                           mix: "balanced" });
+      sig[L.items.map(it => it.u0 + ":" + it.uh + ":" + it.id).join("|")] = 1;
+      const H = R.houseOf({ seed: sd, finish: "putty", trimAuto: true, phos: "auto" });
+      makers[[H.trimKey, H.r, H.handle, H.legendAt, H.lamps.join("+"), H.knobR,
+              H.ears, H.div, H.phos].join("/")] = 1;
+    }
+    return { racks: Object.keys(sig).length, makers: Object.keys(makers).length };
+  });
+  ok("two seeds are two different racks, built by two different makers",
+     seeds.racks >= 20 && seeds.makers >= 8,
+     seeds.racks + "/24 distinct layouts, " + seeds.makers + "/24 distinct makers");
+
+  /* ---- one maker ---- */
+  const maker = await page.evaluate(() => {
+    const R = window.ForgeRack;
+    let three = 0, red = 0, n = 0;
+    for (let sd = 0; sd < 40; sd++) {
+      const H = R.houseOf({ seed: sd * 37 + 1, finish: "putty", trimAuto: true, phos: "auto" });
+      n++;
+      const u = {}; for (const k of H.lamps) u[k] = 1;
+      if (Object.keys(u).length === 3) three++;
+      if (H.lamps.indexOf("red") >= 0) red++;
+    }
+    return { three: three, red: red, n: n };
+  });
+  ok("every maker fits three lamp colours and one of them is red",
+     maker.three === maker.n && maker.red === maker.n,
+     maker.three + "/" + maker.n + " have three distinct, " + maker.red + "/" + maker.n + " include red");
+
+  /* ---- what the build turned out to be ---- */
+  const built = async cfg => {
+    await page.evaluate(c => { for (const k in c) window.Forge.setParam("rack", k, c[k]); }, cfg);
+    await page.click("#rack--forge");
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, N = B.W * B.H;
+      let emi = 0, clear = 0, solid = 0, outFlat = 0, outHigh = 0, proud = 0;
+      for (let i = 0; i < N; i++) {
+        if (B.ECOL[i * 3] + B.ECOL[i * 3 + 1] + B.ECOL[i * 3 + 2] > 12) emi++;
+        if (!B.ALP[i]) {
+          clear++;
+          if (B.NRM[i * 3] === 128 && B.NRM[i * 3 + 1] === 128 && B.NRM[i * 3 + 2] === 255) outFlat++;
+          if (Math.abs(B.HGT[i]) > 1e-9) outHigh++;
+        } else if (B.ALP[i] === 255) solid++;
+        if (B.HGT[i] * B.W > 0.0035 * B.W) proud++;
+      }
+      return { N: N, emi: emi, clear: clear, solid: solid, outFlat: outFlat,
+               outHigh: outHigh, proud: proud, census: B.census,
+               emiLen: B.EMI.length, colLen: B.ECOL.length };
+    });
+  };
+  const live = await built({ piece: "rack", bays: 2, rackU: 36, mix: "balanced",
+    fill: 0.9, vents: 0.7, lit: 1, wires: true, cables: 0.8, exits: 0.4, size: 512 });
+  ok("it is a cut-out — some texels are cabinet and some are nothing",
+     live.clear > live.N * 0.01 && live.solid > live.N * 0.5,
+     (100 * live.clear / live.N).toFixed(1) + "% clear, " +
+     (100 * live.solid / live.N).toFixed(1) + "% solid");
+  ok("and outside the silhouette the normal is flat and the height is the datum",
+     live.outFlat === live.clear && live.outHigh === 0,
+     live.clear - live.outFlat + " texels not flat, " + live.outHigh + " not at zero");
+  ok("the emissive is one byte a texel and the colour rides beside it",
+     live.emiLen === live.N && live.colLen === live.N * 3,
+     "EMI " + live.emiLen + " for " + live.N + " texels, ECOL " + live.colLen);
+  ok("every lead goes between two ports that exist",
+     live.census.trunks * 2 + live.census.cords * 2 - live.census.exits <= live.census.ports,
+     live.census.trunks + " trunks + " + live.census.cords + " cords + " +
+     live.census.exits + " exits over " + live.census.ports + " ports");
+
+  const dead = await built({ lit: 0 });
+  ok("powered down is dark — nothing at all is lit",
+     dead.emi === 0 && live.emi > 0,
+     "lit " + live.emi + " texels, dark " + dead.emi);
+
+  const bare = await built({ lit: 1, wires: false });
+  /* the panel piece has nothing to cable to and says so by the piece rather
+     than by the switch, so the switch stays where the user left it */
+  ok("and the cabling can be taken away without taking the kit with it",
+     bare.census.trunks === 0 && bare.census.cords === 0 && bare.proud < live.proud,
+     "cables " + live.census.trunks + "→" + bare.census.trunks +
+     ", texels standing proud " + live.proud + "→" + bare.proud);
+
+  /* ---- a single panel is a single panel ---- */
+  const one = await page.evaluate(() => {
+    const R = window.ForgeRack, out = [];
+    for (const d of R.DEV) {
+      const g = R.geomOf({ piece: "panel", dev: d.id, panelU: 0, seed: 31, size: 512 });
+      const u = g.gotU;
+      if (u < d.u[0] || u > d.u[1]) out.push(d.id + " came out " + u + "U");
+      if (Math.abs(g.Hmm - (u * R.U - R.GAP + 4)) > 1e-6) out.push(d.id + " is the wrong height");
+      /* and an impossible ask is clamped to what the device is built at */
+      const c = R.geomOf({ piece: "panel", dev: d.id, panelU: 9, seed: 31, size: 512 });
+      if (c.gotU !== Math.min(9, d.u[1])) out.push(d.id + " ignored its own range");
+    }
+    return out;
+  });
+  const solo = await built({ piece: "panel", dev: "conso", panelU: 0, wires: true, lit: 1 });
+  ok("a single panel draws no cabling even with the cabling switched on",
+     solo.census.trunks === 0 && solo.census.cords === 0 && solo.census.exits === 0,
+     "ports " + solo.census.ports + ", leads " +
+     (solo.census.trunks + solo.census.cords + solo.census.exits));
+  await page.evaluate(() => window.Forge.setParam("rack", "piece", "rack"));
+
+  ok("every device can be drawn on its own, at a height it is actually built at",
+     one.length === 0, one.slice(0, 3).join("; ") || "all 12 archetypes");
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
