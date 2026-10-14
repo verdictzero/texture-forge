@@ -1444,6 +1444,114 @@ if (want("raceway")) {
   ok("the bay silhouette is opaque in the middle", bay.solid > 0.5,
      (bay.solid * 100).toFixed(1) + "% fully opaque");
   await page.selectOption("#raceway--piece", "tile");
+
+  /* ---- forge the raceway with a set of parameters and measure it ---- */
+  const run = async set => {
+    await page.evaluate(([s2]) => {
+      for (const k in s2) window.Forge.setParam("raceway", k, s2[k]);
+    }, [Object.assign({ size: 512, seed: 7204, piece: "tile" }, set)]);
+    await page.click("#raceway--forge");
+    await settle();
+    return await page.evaluate(() => {
+      const B = window.Forge.active().B, W = B.W, H = B.H, N = W * H, TAG = B.TAG;
+      const own = i => (TAG[i] >>> 24) & 255;
+      let clear = 0, solid = 0, soft = 0;
+      let plateN = 0, plateR = 0, plateB = 0, plateMet = 0, plateD = 0, plateDN = 0;
+      let met = 0, lum = 0, n = 0, backLit = 0;
+      let offH = 0, offFlat = 0, offN = 0;
+      for (let i = 0; i < N; i++) {
+        const x = i % W;
+        const a = B.ALP[i];
+        if (a < 8) clear++; else if (a > 247) solid++; else soft++;
+        if (a < 8) {
+          /* outside the silhouette nothing may disturb what it is laid on */
+          offN++;
+          if (Math.abs(B.HGT[i]) < 1e-6) offH++;
+          if (B.NRM[i * 3] === 128 && B.NRM[i * 3 + 1] === 128 && B.NRM[i * 3 + 2] === 255) offFlat++;
+          continue;
+        }
+        const o = own(i);
+        if (o === 255) backLit++;
+        met += B.MET[i]; n++;
+        lum += (B.A[i * 3] * 0.299 + B.A[i * 3 + 1] * 0.587 + B.A[i * 3 + 2] * 0.114);
+        if (o === 255) {
+          plateN++; plateR += B.A[i * 3]; plateB += B.A[i * 3 + 2]; plateMet += B.MET[i];
+          /* FINE relief, not the overall spread: the plate's ribs and
+             lightening holes are centimetres and swamp a two-millimetre scab,
+             so what is measured is how much the height moves between
+             NEIGHBOURS, which ribs and holes do not do and a flaking surface
+             does */
+          if (x + 1 < W && own(i + 1) === 255) {
+            /* CLIPPED at a millimetre. The plate's lightening holes drop
+               thirty millimetres over one texel, and a mean of absolute
+               differences is dominated by those cliffs — a crust a few tenths
+               of a millimetre deep does not show in it at all. Clipping keeps
+               the cliffs from counting more than once each and leaves the fine
+               relief as the thing that moves the number. */
+            plateD += Math.min(Math.abs(B.HGT[i] - B.HGT[i + 1]), 0.001); plateDN++;
+          }
+        }
+      }
+      return {
+        clear: clear / N, solid: solid / N, soft: soft / N,
+        met: n ? met / n : 0, lum: n ? lum / n : 0,
+        plateFrac: n ? backLit / n : 0,
+        plateRB: plateN ? (plateR - plateB) / plateN : 0,
+        plateMet: plateN ? plateMet / plateN : 0,
+        plateGrain: plateDN ? plateD / plateDN : 0,
+        offFlatH: offN ? offH / offN : 1, offFlatN: offN ? offFlat / offN : 1,
+        cutout: window.Forge.byId["raceway"].plan(window.Forge.active().P).cutout
+      };
+    });
+  };
+
+  /* ---- no backplane: the runs are the silhouette ---- */
+  const plate = await run({ back: "plate", rust: 0, grime: 0 });
+  const decal = await run({ back: "none", rust: 0, grime: 0 });
+  ok("with a backplane every texel is opaque", plate.clear < 0.001 && plate.solid > 0.99,
+     (plate.solid * 100).toFixed(1) + "% solid");
+  ok("with nothing behind it the piece becomes a cut-out", decal.cutout === true);
+  ok("and most of the tile is transparent", decal.clear > 0.25 && decal.solid > 0.08,
+     (decal.clear * 100).toFixed(1) + "% clear, " + (decal.solid * 100).toFixed(1) + "% solid");
+  /* the stamp writes whole texels, so without the soften the silhouette of a
+     round pipe is a staircase — this is the check that it is not */
+  ok("the silhouette is anti-aliased rather than a staircase", decal.soft > 0.004,
+     (decal.soft * 100).toFixed(2) + "% of texels part-transparent");
+  ok("no backplane survives behind it", decal.plateFrac < 0.001,
+     (decal.plateFrac * 100).toFixed(3) + "% of opaque texels still owned by the plate");
+  /* a decal has to sit on another surface without disturbing it */
+  ok("outside the silhouette the height is zero and the normal is flat",
+     decal.offFlatH > 0.999 && decal.offFlatN > 0.999,
+     (decal.offFlatH * 100).toFixed(2) + "% zero height, " +
+     (decal.offFlatN * 100).toFixed(2) + "% flat normal");
+
+  /* ---- corrosion ---- */
+  const dry = await run({ back: "plate", rust: 0, grime: 0 });
+  const wet = await run({ back: "plate", rust: 1, grime: 0 });
+  ok("corrosion takes the metalness with it, because an oxide is not a metal",
+     wet.plateMet < dry.plateMet * 0.5,
+     "plate metalness " + (dry.plateMet / 255).toFixed(2) + " to " + (wet.plateMet / 255).toFixed(2));
+  ok("and it swings the steel red", wet.plateRB > dry.plateRB + 20,
+     "red minus blue " + dry.plateRB.toFixed(1) + " to " + wet.plateRB.toFixed(1));
+  ok("heavy corrosion stands proud and flakes rather than lying flat",
+     wet.plateGrain > dry.plateGrain * 1.3,
+     "fine relief between neighbours " + (dry.plateGrain * 1000).toFixed(3) +
+     " mm to " + (wet.plateGrain * 1000).toFixed(3) + " mm");
+  const mats = await page.evaluate(() => window.ForgeLoom.MAT.map(m => [m.id, m.cor]));
+  const noRust = ["rubber", "pvc", "ptfe", "loom"];
+  ok("corrosion is a property of the material, not a colour over everything",
+     mats.filter(m => noRust.includes(m[0])).every(m => m[1] === 0) &&
+     mats.filter(m => !noRust.includes(m[0])).every(m => m[1] > 0),
+     mats.map(m => m[0] + " " + m[1]).join(", "));
+
+  /* ---- grime ---- */
+  const filthy = await run({ back: "plate", rust: 0, grime: 1 });
+  ok("grime darkens what it collects on", filthy.lum < dry.lum * 0.88,
+     "mean luminance " + dry.lum.toFixed(1) + " to " + filthy.lum.toFixed(1));
+  await page.evaluate(() => {
+    for (const [k, v] of [["back", "plate"], ["rust", 0], ["grime", 0]])
+      window.Forge.setParam("raceway", k, v);
+  });
 }
 
 /* ============================ the 3D building ============================

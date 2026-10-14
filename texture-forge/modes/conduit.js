@@ -726,9 +726,9 @@ Forge.register({
       {id:"tileMm",label:"Tile covers",unit:"mm",min:200,max:2000,step:20,value:620,need:"tile"},
       {id:"bayWmm",label:"Bay width",unit:"mm",min:150,max:1600,step:10,value:520,need:"bay"},
       {id:"bayHmm",label:"Bay height",unit:"mm",min:150,max:1600,step:10,value:380,need:"bay"},
-      {id:"frameMm",label:"Frame width",unit:"mm",min:6,max:80,step:1,value:26,need:"bay"},
-      {id:"cornerMm",label:"Corner radius",unit:"mm",min:0,max:200,step:2,value:18,need:"bay"},
-      {type:"checks",need:"bay",items:[
+      {id:"frameMm",label:"Frame width",unit:"mm",min:6,max:80,step:1,value:26,need:"bayframe"},
+      {id:"cornerMm",label:"Corner radius",unit:"mm",min:0,max:200,step:2,value:18,need:"bayframe"},
+      {type:"checks",need:"bayframe",items:[
         {id:"fasteners",label:"Fasteners round the frame",value:true}]},
       {type:"readout"},
       {id:"seed",type:"seed",label:"Seed",value:4118},
@@ -780,18 +780,26 @@ Forge.register({
     ]},
 
     {title:"Backplane",rows:[
-      {id:"ribMm",label:"Rib spacing",unit:"mm",min:30,max:220,step:2,value:78},
-      {id:"ribWMm",label:"Rib width",unit:"mm",min:4,max:50,step:1,value:16},
-      {id:"ribHMm",label:"Rib height",unit:"mm",min:0,max:24,step:1,value:7},
-      {id:"holeMm",label:"Lightening holes",unit:"mm",min:0,max:120,step:2,value:34},
-      {type:"colors",label:"Plate · down the holes",items:[
+      {id:"back",type:"select",label:"Behind it",value:"plate",options:[
+        ["plate","Ribbed plate"],["none","Nothing — alpha only"]]},
+      {type:"note",need:"noback",html:"<b>Alpha only.</b> No skin behind the runs: "+
+        "opacity.png is the silhouette of the conduit itself, anti-aliased, and "+
+        "everything else is transparent — a <b>decal</b> to lay over something that "+
+        "already has a surface."},
+      {id:"ribMm",label:"Rib spacing",unit:"mm",min:30,max:220,step:2,value:78,need:"plate"},
+      {id:"ribWMm",label:"Rib width",unit:"mm",min:4,max:50,step:1,value:16,need:"plate"},
+      {id:"ribHMm",label:"Rib height",unit:"mm",min:0,max:24,step:1,value:7,need:"plate"},
+      {id:"holeMm",label:"Lightening holes",unit:"mm",min:0,max:120,step:2,value:34,need:"plate"},
+      {type:"colors",label:"Plate · down the holes",need:"plate",items:[
         {id:"cPlate",value:"#4c5054"},{id:"cDeep",value:"#0b0c0d"}]},
-      {type:"colors",label:"Frame",need:"bay",items:[{id:"cFrame",value:"#7d838a"}]}
+      {type:"colors",label:"Frame",need:"bayframe",items:[{id:"cFrame",value:"#7d838a"}]}
     ]},
 
     {title:"Wear",rows:[
       {id:"oil",label:"Oil and streaks",min:0,max:1,step:0.05,value:0.45},
       {id:"dust",label:"Dust",min:0,max:1,step:0.05,value:0.3},
+      {id:"grime",label:"Grime",min:0,max:1,step:0.05,value:0},
+      {id:"rust",label:"Corrosion",min:0,max:1,step:0.05,value:0},
       {id:"heat",label:"Heat tint",min:0,max:1,step:0.05,value:0.4},
       {id:"scuff",label:"Scuffing",min:0,max:1,step:0.05,value:0.35}
     ]},
@@ -809,10 +817,15 @@ Forge.register({
     ]}
   ],
 
-  needs:function(p){return [isBay(p)?"bay":"tile"];},
+  needs:function(p){
+    const nb=(p.back||"plate")==="none";
+    const out=[isBay(p)?"bay":"tile",nb?"noback":"plate"];
+    if(isBay(p)&&!nb)out.push("bayframe");
+    return out;
+  },
 
   seamless:function(p){return !isBay(p);},
-  backdrops:function(p){return isBay(p);},
+  backdrops:function(p){return isBay(p)||(p.back||"plate")==="none";},
 
   size:function(p){const g=geom(p);return {w:g.TW,h:g.TH};},
   build:function(p,io){return L.build(p,io,{routes:routes});},
@@ -823,7 +836,7 @@ Forge.register({
        number a person setting layers and gauges against a cavity depth needs
        and cannot see — and because a layer that does not clear the one under
        it is a bug that ought to be checkable from outside. */
-    return {w:g.Wm,h:g.Hm,cutout:g.bay,
+    return {w:g.Wm,h:g.Hm,cutout:g.cut,
             strata:Array.from(B.ST.z),crowns:Array.from(B.ST.h),
             stackM:B.ST.top,gaugeScale:B.ST.scale};
   },

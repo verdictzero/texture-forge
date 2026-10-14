@@ -82,9 +82,11 @@
    PARAMETER NAMES ARE PART OF THE CONTRACT. This file reads piece, size,
    seed, tileMm, bayWmm, bayHmm, frameMm, cornerMm, fasteners, cavityMm,
    ribMm, ribWMm, ribHMm, holeMm, corrMm, lamps, cLamp, cPlate, cDeep,
-   cFrame, oil, dust, heat, scuff, aoStr, normalStr, flipG, mCurve,
-   mGrain and mDust off the mode's parameters, so a mode built on it
-   declares controls with those ids.
+   cFrame, back, oil, dust, heat, scuff, rust, grime, aoStr, normalStr,
+   flipG, mCurve, mGrain and mDust off the mode's parameters, so a mode
+   built on it declares controls with those ids. Everything read through
+   `num(...)` has a default and may be left out; a mode that does leave
+   one out simply does not offer that feature.
    ===================================================================== */
 "use strict";
 
@@ -97,21 +99,46 @@ const clamp=Forge.clamp,lerp=Forge.lerp,smoothstep=Forge.smoothstep,
 let P={};
 
 const isBay=p=>(p.piece||"tile")==="bay";
+/* NO BACKPLANE AT ALL: the runs and the things bolted to them, and alpha
+   everywhere else. What that is for is a DECAL — conduit you can lay over
+   plating, a hull, a wall, anything already textured — rather than a panel
+   with its own skin behind it, and it is the one thing this generator could
+   not do that people most often want from it. */
+const noBack=p=>(p.back||"plate")==="none";
 
 /* ============================ what a conduit is made of ============================
    Colour, roughness and metallicity travel together — there is no such thing as
    a shiny black rubber hose or a matte bare-steel braid — so a bundle picks one
    of these rather than three sliders. */
+/* `cor` is how readily it corrodes and `cc` is what it corrodes TO, and the
+   pair is the whole reason rust here is a property of the material rather
+   than an orange noise field laid over everything. Nothing in this list rusts
+   the same way: plastics and PTFE do not corrode at all, stainless pits dark
+   rather than sheeting red, aluminium goes chalky WHITE, copper goes green,
+   and glass-cloth lagging does not corrode but drinks whatever runs onto it.
+   A generator that paints them all red is painting a colour, not a process. */
 const MAT=[
-  {id:"rubber", c:[27,27,29],   rg:0.74,met:0.03,name:"black rubber"},
-  {id:"pvc",    c:[100,105,110],rg:0.63,met:0.04,name:"grey PVC"},
-  {id:"braid",  c:[139,143,149],rg:0.40,met:0.88,name:"braided stainless"},
-  {id:"alu",    c:[156,160,166],rg:0.33,met:0.93,name:"aluminium"},
-  {id:"ptfe",   c:[209,208,200],rg:0.52,met:0.02,name:"white PTFE"},
-  {id:"loom",   c:[46,47,50],   rg:0.68,met:0.05,name:"black split loom"},
-  {id:"lag",    c:[164,156,140],rg:0.82,met:0.02,name:"glass-cloth lagging"},
-  {id:"copper", c:[171,104,63], rg:0.31,met:0.95,name:"copper"}
+  {id:"rubber", c:[27,27,29],   rg:0.74,met:0.03,name:"black rubber",
+   cor:0.00,cc:[90,58,40]},
+  {id:"pvc",    c:[100,105,110],rg:0.63,met:0.04,name:"grey PVC",
+   cor:0.00,cc:[96,62,42]},
+  {id:"braid",  c:[139,143,149],rg:0.40,met:0.88,name:"braided stainless",
+   cor:0.42,cc:[88,52,34]},
+  {id:"alu",    c:[156,160,166],rg:0.33,met:0.93,name:"aluminium",
+   cor:0.38,cc:[172,170,164]},
+  {id:"ptfe",   c:[209,208,200],rg:0.52,met:0.02,name:"white PTFE",
+   cor:0.00,cc:[150,120,96]},
+  {id:"loom",   c:[46,47,50],   rg:0.68,met:0.05,name:"black split loom",
+   cor:0.00,cc:[84,56,38]},
+  {id:"lag",    c:[164,156,140],rg:0.82,met:0.02,name:"glass-cloth lagging",
+   cor:0.14,cc:[140,98,62]},
+  {id:"copper", c:[171,104,63], rg:0.31,met:0.95,name:"copper",
+   cor:0.52,cc:[82,128,110]}
 ];
+/* bare and painted steel, which is what the plate, the frame, the clamps and
+   the brackets all are, and the only thing here that rusts the way the word
+   means */
+const STEEL=[120,62,33];
 const MATBY={};for(let i=0;i<MAT.length;i++)MATBY[MAT[i].id]=i;
 
 /* Ident sleeving. Real looms are colour-coded and it is the one thing that
@@ -148,7 +175,12 @@ function geom(p){
   const Wm=Math.max(0.08,(bay?(+p.bayWmm||520):(+p.tileMm||620))/1000);
   const Hm=bay?Math.max(0.08,(+p.bayHmm||380)/1000):Wm;
   const TW=S,TH=bay?Math.max(64,Math.round(S*Hm/Wm)):S;
-  return {bay:bay,Wm:Wm,Hm:Hm,TW:TW,TH:TH,pxM:TW/Wm,mpp:Wm/TW};
+  const nb=noBack(p);
+  /* `cut` is the question the rest of the file actually asks: does this piece
+     have texels with nothing in them. A bay has them outside its aperture and
+     a backplane-less tile has them everywhere no conduit went. */
+  return {bay:bay,Wm:Wm,Hm:Hm,TW:TW,TH:TH,pxM:TW/Wm,mpp:Wm/TW,
+          noBack:nb,cut:bay||nb};
 }
 
 /* distance to the nearest multiple of p — the spacing of everything that
@@ -1072,6 +1104,35 @@ function settleBox(R,end,minR,g,clear){
   return (!clear||clear(was))?was:null;
 }
 
+/* ============================ the silhouette ============================
+   With no backplane, the alpha is whatever the stamp put down — and the stamp
+   already recorded that, one word a texel, in the top byte of the tag: 255 is
+   backplane and nothing was drawn there, anything below it is a route or a
+   junction box.
+
+   THE STAMP WRITES WHOLE TEXELS, which is right for a height field being
+   Z-tested and wrong for a cut-out: the silhouette of a round pipe comes out
+   as a staircase. So the mask is softened by one texel — a box blur, which is
+   the honest filter because the thing being approximated IS a box: how much of
+   the texel the pipe covers. It wraps on a tile, because the runs do.
+
+   THE SOFTEN ONLY EVER TAKES AWAY. Ramping the blurred mask across its own
+   half crossing is the obvious thing and it is wrong here: a texel just
+   OUTSIDE the silhouette with eight neighbours inside comes back at eight
+   ninths and lands fully opaque, so the shape grows by a texel all round — and
+   every one of those texels still belongs to the backplane, which is the one
+   thing this mode was asked to get rid of. It draws as a grey halo round every
+   run. So the mask gates the result: outside stays nothing, and the ramp lives
+   on the inside edge. A cut-out that errs thin is a cut-out; one that errs fat
+   is the background coming back. */
+function silhouette(BUF,g,N){
+  const TW=g.TW,TH=g.TH,TAG=BUF.TAG,ALP=BUF.ALP;
+  const m=new Float32Array(N);
+  for(let i=0;i<N;i++)m[i]=(((TAG[i]>>>24)&255)<=253)?1:0;
+  const b=g.bay?blurClamp(m,TW,TH,1):blurWrap(m,TW,1);
+  for(let i=0;i<N;i++)ALP[i]=m[i]?smoothstep(0.18,0.92,b[i])*255:0;
+}
+
 /* ============================ the bay frame ============================
    The opening this is all seen through: a lip standing proud of the skin, a
    radiused corner, fasteners round it, and nothing at all outside. */
@@ -1140,7 +1201,7 @@ function build(p,io,spec){
   const AOc=new Uint8ClampedArray(N),EMI=new Uint8ClampedArray(N);
   const HGT=new Float32Array(N);
   const ALP=new Uint8ClampedArray(N);
-  if(!bay)ALP.fill(255);
+  if(!g.cut)ALP.fill(255);
 
   /* THE STAMP'S RECORD OF WHAT IT DREW, IN ONE WORD A TEXEL.
 
@@ -1215,10 +1276,16 @@ function build(p,io,spec){
   census.loadAvg=loadN?census.loadAvg/loadN:0;
   census.skewSq=sqN?census.skewSq/sqN:0;
   const cav=Math.max(0.01,(+P.cavityMm||95)/1000);
+  let gaugeAvg=0;for(const b0 of R)gaugeAvg+=b0.r*2;
+  gaugeAvg=R.length?gaugeAvg/R.length:0.02;
   let hMin=0,hMax=1;
 
   function pass1(){
-    backplane(HGT,g,P,N);
+    /* NOTHING BEHIND IT means the backplane is never drawn rather than drawn
+       and hidden: it is most of the height field, all of the rib and rivet
+       work, and every one of those texels would otherwise go through the
+       shading pass to be thrown away at the end. */
+    if(!g.noBack)backplane(HGT,g,P,N);
     io.progress(0.16);
     stamp(BUF,R,g,P);
     /* after every route, so a box may stand over a neighbour of its own layer
@@ -1226,7 +1293,9 @@ function build(p,io,spec){
        height test and crosses over it */
     junctions(BUF,R,g);
     io.progress(0.44);
-    if(bay)frame(BUF,g,P,N);
+    /* the frame is the backplane's own edge, so it goes with it */
+    if(bay&&!g.noBack)frame(BUF,g,P,N);
+    if(g.noBack)silhouette(BUF,g,N);
     io.progress(0.50);
     setTimeout(pass2,0);
   }
@@ -1238,6 +1307,17 @@ function build(p,io,spec){
     const cFrame=hex2rgb(P.cFrame||"#7d838a");
     const oil=clamp(+P.oil,0,1),dust=clamp(+P.dust,0,1),
           heat=clamp(+P.heat,0,1),scuff=clamp(+P.scuff,0,1);
+    /* read with a default, so a mode that does not offer these simply does not
+       have them — `+undefined` is NaN and clamp carries it all the way to the
+       base colour */
+    const rust=clamp(num(P.rust,0),0,1),grime=clamp(num(P.grime,0),0,1);
+    const scabH=gaugeAvg*0.22;
+    /* HOW BIG A FLAKE IS. Laminar rust breaks up at a few millimetres, so the
+       crust is a real feature size rather than a fraction of the map — but it
+       is also the finest thing in the picture, so it is held at three texels
+       even when the tile is big enough to ask for less. Below that it is not
+       crust any more, it is aliasing. */
+    const scabP=Math.max(6,Math.min(Math.round(g.Wm/0.0045),Math.round(TW/3)));
     const seed=(P.seed|0)+91;
     const py=q=>Math.max(1,Math.round(q*g.Hm/g.Wm));
     const lamps=clamp(+P.lamps,0,1);
@@ -1256,9 +1336,13 @@ function build(p,io,spec){
     for(let y=0;y<TH;y++){
       for(let x=0;x<TW;x++){
         const i=y*TW+x,j=i*3,u=x/TW,v=y/TH;
-        if(bay&&!ALP[i]){A[j]=A[j+1]=A[j+2]=0;RGH[i]=200;MET[i]=0;AOc[i]=255;continue;}
+        if(g.cut&&!ALP[i]){A[j]=A[j+1]=A[j+2]=0;RGH[i]=200;MET[i]=0;AOc[i]=255;continue;}
         const tag=TAG[i],own=(tag>>>24)&255,fit=(tag>>>22)&3;
         let r,gg,b,rg,met=0,emi=0;
+        /* what this surface corrodes to, and how readily. Set by whichever
+           branch below claims the texel, because only that branch knows what
+           it is made of. */
+        let cor=0,cc=STEEL,edgeF=0;
 
         if(own===255){
           /* the backplane. How far BELOW the plane it is says how much of it
@@ -1272,10 +1356,12 @@ function build(p,io,spec){
           met=lerp(0.72,0.04,t);
           const n=fbm2(u,v,48,py(48),3,seed+7);
           r*=0.88+n*0.24;gg*=0.88+n*0.24;b*=0.88+n*0.24;
+          cor=1.0;                       /* the skin is steel and it is the oldest thing here */
         }else if(own===254){
           r=cFrame[0];gg=cFrame[1];b=cFrame[2];rg=0.42;met=0.85;
           const n=fbm2(u,v,64,py(64),2,seed+11);
           r*=0.9+n*0.2;gg*=0.9+n*0.2;b*=0.9+n*0.2;
+          cor=0.80;
         }else if(own===253){
           /* A JUNCTION BOX. Cast and painted rather than bare: an enclosure is
              a different object from the conduit going into it and has to read
@@ -1291,9 +1377,11 @@ function build(p,io,spec){
           }
           const n=fbm2(u,v,72,py(72),2,seed+29);
           r*=0.92+n*0.16;gg*=0.92+n*0.16;b*=0.92+n*0.16;
+          cor=0.50;                      /* painted: it goes at the arrises first */
         }else{
           const B=R[own],M=MAT[B.mat],K=KIND[B.kind];
           const acr=(((tag>>>14)&255)-128)/127,alg=(tag&16383)/1000;
+          cor=M.cor;cc=M.cc;edgeF=Math.abs(acr);
           r=M.c[0]*B.tint;gg=M.c[1]*B.tint;b=M.c[2]*B.tint;
           rg=M.rg;met=M.met;
           if(B.sleeve){
@@ -1311,15 +1399,18 @@ function build(p,io,spec){
                nearly always a different metal from what it is holding */
             r=lerp(r,150,0.72);gg=lerp(gg,154,0.72);b=lerp(b,160,0.72);
             rg=0.38;met=0.9;
+            cor=0.95;cc=STEEL;           /* a plated band, and plating is what fails first */
           }else if(fit===3){
             /* a brace is a bracket rather than a clamp: fabricated, painted,
                and duller than anything it is holding apart */
             r=lerp(r,104,0.86);gg=lerp(gg,108,0.86);b=lerp(b,112,0.86);
             rg=0.58;met=0.55;
+            cor=0.80;cc=STEEL;
           }else if(fit===2){
             /* a cable tie is nylon: matte, and lighter than what it grips */
             r=lerp(r,86,0.7);gg=lerp(gg,88,0.7);b=lerp(b,92,0.7);
             rg=0.74;met=0.03;
+            cor=0;                       /* nylon */
           }else{
             /* IDENT SLEEVING. Short bands of colour at intervals, which is how
                anybody finds one wire in forty a year later. */
@@ -1368,6 +1459,64 @@ function build(p,io,spec){
           b=lerp(b,b*0.86+30,t*0.7);
           rg=clamp(rg-t*0.10,0.05,1);
         }
+        if(rust>0){
+          /* RUST IS AN OXIDE, and that is the whole of why it reads as rust:
+             it is not metal any more. Tinting a surface orange and leaving its
+             metalness alone gives you orange chrome, which is the single most
+             common way this gets drawn wrong.
+
+             WHERE it starts is the other half. Corrosion begins where the
+             coating is already broken — the arris of a round thing, which is
+             what everything else rubs against; under and around a fitting,
+             where two metals touch and water gets trapped; and low down, where
+             the water goes. A field of patches multiplied by those three is a
+             different picture from the field on its own. */
+          const blot=fbm2(u,v,9,py(9),4,seed+37);
+          const dep=clamp((cav-HGT[i])/cav,0,1);
+          if(cor>0){
+            const where=clamp(0.42+0.90*edgeF*edgeF+0.42*dep+(fit?0.55:0),0,2.2);
+            /* AT FULL IT IS NOT PATCHY ANY MORE. Corrosion SPREADS: a light
+               rust is spots where the coating failed, a heavy one has joined
+               up into sheet. So the amount moves the threshold as well as the
+               strength — scaling strength alone gives you the same few spots
+               painted harder, which is what "very rusted" never looks like. */
+            const cover=clamp(blot*1.9-(1.15-1.00*rust),0,1);
+            const k2=clamp(rust*cor*cover*where,0,1);
+            if(k2>0.004){
+              r=lerp(r,cc[0],k2*0.93);gg=lerp(gg,cc[1],k2*0.93);b=lerp(b,cc[2],k2*0.93);
+              rg=clamp(lerp(rg,0.93,k2),0,1);
+              met*=1-k2*0.96;
+              /* SCABBY. Heavy corrosion is laminar and it stands PROUD — a
+                 perfectly smooth rust patch reads as a decal of rust. Height
+                 is safe to touch here: the Z-test that layered the runs is
+                 behind us and only the occlusion and the normals still read
+                 it. */
+              /* SCALE RATHER THAN A FILM. Laminar oxide lifts the surface it
+                 grew on, and it does it over a band rather than past a line —
+                 a hard threshold gives you a step at the edge of every patch.
+                 At full corrosion on a twenty-millimetre gauge this is a few
+                 millimetres of crust, which is what heavy scale on structural
+                 steel actually is. */
+              const lift=smoothstep(0.25,0.85,k2);
+              if(lift>0)
+                HGT[i]+=lift*scabH*fbm2(u,v,scabP,py(scabP),2,seed+43);
+            }
+          }
+          /* AND IT RUNS. Rust-stained water comes off the steel above and
+             stains whatever is under it, which is why a plastic conduit below
+             a rusted bracket is brown although plastic does not rust. So this
+             term is not gated on the material at all — only the corrosion
+             itself is. */
+          const run=fbm2(u,v,30,Math.max(1,py(6)),3,seed+41);
+          const st=clamp(run*1.95-0.80,0,1)*rust;
+          if(st>0.004){
+            const k3=st*(0.30+0.45*dep);
+            r=lerp(r,STEEL[0]*0.92,k3);gg=lerp(gg,STEEL[1]*0.92,k3);
+            b=lerp(b,STEEL[2]*0.92,k3);
+            rg=clamp(rg+k3*0.22,0,1);
+            met*=1-k3*0.55;
+          }
+        }
         if(oil>0){
           /* oil runs DOWN, and it pools where it stops. The streaks are a
              stretched field so they read as runs rather than as blotches. */
@@ -1391,7 +1540,21 @@ function build(p,io,spec){
           rg=clamp(rg+k2*0.22,0,1);
           met=met*(1-k2*0.75);
         }
+        if(grime>0){
+          /* GRIME IS NOT DUST. Dust is pale, it settles out of the air and it
+             lies on whatever faces up; grime is dark, it is oily soot and hand
+             marks, it clings to everything and it collects in the crevices
+             rather than on the crowns. Having both is the difference between a
+             loom that has been sitting and one that has been working. */
+          const gn=fbm2(u,v,13,py(13),4,seed+31);
+          const dep=clamp((cav-HGT[i])/cav,0,1);
+          const k2=grime*clamp(gn*1.55-0.30,0,1)*(0.38+0.62*dep);
+          r=lerp(r,r*0.40+9,k2);gg=lerp(gg,gg*0.39+9,k2);b=lerp(b,b*0.38+8,k2);
+          rg=clamp(rg+k2*0.16,0,1);
+          met*=1-k2*0.60;
+        }
         if(scuff>0&&own!==255){
+          /* and rubbing takes the dirt back off, which is why this is last */
           const sc=fbm2(u,v,48,py(48),2,seed+19);
           const k2=scuff*clamp(sc*2.0-1.15,0,1);
           r=lerp(r,r*1.35+26,k2);gg=lerp(gg,gg*1.35+26,k2);b=lerp(b,b*1.35+26,k2);
@@ -1419,9 +1582,6 @@ function build(p,io,spec){
     const pxPerM=g.pxM;
     const rCap=Math.max(4,Math.min(TW,TH)>>2);
     const rOf=m=>clamp(Math.round(pxPerM*m),1,rCap);
-    let gaugeAvg=0;for(const b of R)gaugeAvg+=b.r*2;
-    gaugeAvg=R.length?gaugeAvg/R.length:0.02;
-
     const r1=rOf(Math.max(0.0015,gaugeAvg*0.30));
     const r2=rOf(Math.max(0.006,gaugeAvg*1.15));
     const r3=rOf(Math.max(0.030,cav*0.70));
@@ -1431,7 +1591,7 @@ function build(p,io,spec){
     const fold=(rad,gain,w)=>{
       const bb=blur(HGT,rad);
       for(let i=0;i<N;i++){
-        if(bay&&!ALP[i])continue;
+        if(g.cut&&!ALP[i])continue;
         acc[i]*=(1-clamp((bb[i]-HGT[i])*sc*gain,0,1)*w);
       }
     };
@@ -1443,7 +1603,7 @@ function build(p,io,spec){
        strata all read at the same brightness and the whole point is lost. */
     const aoStr=clamp(+P.aoStr,0,1.5);
     for(let i=0;i<N;i++){
-      if(bay&&!ALP[i]){AOc[i]=255;continue;}
+      if(g.cut&&!ALP[i]){AOc[i]=255;continue;}
       const depth=clamp((cav-HGT[i])/cav,0,1);
       const cavity=Math.pow(depth,1.20)*0.74;
       const a=acc[i]*(1-cavity);
@@ -1455,7 +1615,7 @@ function build(p,io,spec){
     /* dust settles on whatever faces up, and in a bay that is the crown of
        every run in the top layer — the same relationship the shared micro pass
        reads, so it does it rather than this file guessing at it */
-    if(window.ForgeMicro)ForgeMicro.apply({A:A,RGH:RGH,HGT:HGT,ALP:bay?ALP:null,W:TW,H:TH},{
+    if(window.ForgeMicro)ForgeMicro.apply({A:A,RGH:RGH,HGT:HGT,ALP:g.cut?ALP:null,W:TW,H:TH},{
       seed:P.seed|0,mpp:mpp,wrap:!bay,up:-1,
       curve:+P.mCurve||0,grain:+P.mGrain||0,speck:(+P.mGrain||0)*0.7,dust:+P.mDust||0,
       ledgeM:Math.max(0.004,gaugeAvg*0.5),stepU:Math.max(0.0006,gaugeAvg*0.10),
@@ -1464,7 +1624,7 @@ function build(p,io,spec){
 
     hMin=Infinity;hMax=-Infinity;
     for(let i=0;i<N;i++){
-      if(bay&&!ALP[i])continue;
+      if(g.cut&&!ALP[i])continue;
       const h=HGT[i];if(h<hMin)hMin=h;if(h>hMax)hMax=h;
     }
     if(!isFinite(hMin)){hMin=0;hMax=1;}
@@ -1485,6 +1645,12 @@ function build(p,io,spec){
         const inv=1/Math.sqrt(nx*nx+ny*ny+1);
         nx*=inv;ny*=inv;
         const j=(y0+x)*3;
+        /* NOTHING THERE IS FLAT. A texel outside the silhouette has a height
+           of zero but a NEIGHBOUR that does not, so the gradient at it is the
+           edge of the pipe beside it — and a decal laid on a wall would push
+           that into the wall's own normal wherever the compositor does not
+           discard on alpha. It costs one test to promise it does not. */
+        if(g.cut&&!ALP[y0+x]){NRM[j]=128;NRM[j+1]=128;NRM[j+2]=255;continue;}
         NRM[j]=(nx*0.5+0.5)*255;NRM[j+1]=(ny*0.5+0.5)*255;NRM[j+2]=(inv*0.5+0.5)*255;
       }
     }

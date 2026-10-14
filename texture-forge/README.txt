@@ -1658,8 +1658,50 @@ Raceway — conduit dressed to a lattice, braced at intervals
   so a run boxed in there ends and its tail dives under what boxed it in. A
   branch is exempt where it leaves its parent: a junction is not a collision.
 
+  NOTHING BEHIND IT. The backplane can be switched off entirely, and then the
+  opacity is the silhouette of the CONDUIT — the runs, the fittings on them and
+  the junction boxes — with everything else transparent. That makes it a DECAL:
+  lay it over plating, a hull, a wall, anything that already has a surface,
+  instead of a panel carrying its own skin. The runs still tile.
+
+  The stamp writes whole texels, which is right for a height field being
+  Z-tested and wrong for a cut-out — the silhouette of a round pipe comes out
+  as a staircase — so the mask is softened by one texel. The soften ONLY EVER
+  TAKES AWAY: ramping the blurred mask across its own half crossing is the
+  obvious thing and it is wrong, because a texel just outside with eight
+  neighbours inside lands fully opaque, and every one of those still belongs to
+  the backplane. It draws as a grey halo round every run — the one thing
+  switching the backplane off was supposed to get rid of. A cut-out that errs
+  thin is a cut-out; one that errs fat is the background coming back. Outside
+  the silhouette the height is zero and the normal is the flat constant, so the
+  decal disturbs nothing it is laid on.
+
+  CORROSION, and it is a property of the MATERIAL rather than a colour laid
+  over everything. Nothing in the table rusts the same way: PVC, PTFE, rubber
+  and split loom do not corrode at all, stainless pits dark rather than
+  sheeting red, aluminium goes chalky WHITE, copper goes green, glass-cloth
+  lagging does not corrode but drinks what runs onto it, and bare and painted
+  steel — the plate, the frame, the clamps and the brackets — go red-brown. It
+  starts where the coating is already broken: the arris of a round thing, which
+  is what everything else rubs against; under a fitting, where two metals meet
+  and water is trapped; and low down, where the water goes. It takes the
+  METALNESS with it, because an oxide is not a metal and tinting a surface
+  orange while leaving it chromed is the commonest way this gets drawn wrong.
+  It SPREADS as it deepens — the amount moves the threshold as well as the
+  strength, or heavy rust is the same few spots painted harder. And past a
+  band it stands proud and flakes, in the height and the normal rather than
+  only in the colour, at a few millimetres which is what heavy scale on
+  structural steel actually is. The STAIN it runs is not gated on the material
+  at all, so a plastic conduit under a rusted bracket is brown.
+
+  GRIME is not dust. Dust is pale, settles out of the air and lies on whatever
+  faces up; grime is dark, is oily soot and handling, clings to everything and
+  collects in the crevices rather than on the crowns. Scuffing is applied after
+  both, so a rubbed surface shows through them.
+
   Presets: cable tray, cooling manifold, server backplane, bulkhead run,
-  reactor spine, braced access panel.
+  reactor spine, braced access panel, a decal with no backplane, a rusted and
+  filthy run, and a derelict decal which is both at once.
 
   Same two pieces, same materials, same finishes, same backplane, framed bay,
   strata and claims grid as the conduit mode — all of that is
@@ -2730,7 +2772,21 @@ It also covers the twenty-three things that are easy to break silently:
             the height gradient of the whole picture, which is mostly backplane
             and frame and box lid and told the two modes apart only by
             accident; and the bracing reaches the HEIGHT field rather than only
-            the parameters
+            the parameters. Then the two things it can be stripped to: with the
+            backplane switched OFF the piece becomes a cut-out, most of the tile
+            goes transparent, the silhouette is anti-aliased rather than a
+            staircase, NO texel of backplane survives behind it — the check that
+            found the one-texel halo the first soften left round every run — and
+            outside the silhouette the height is zero and the normal flat to
+            every texel, so the decal disturbs nothing it is laid on. And
+            CORROSION: that it takes the metalness with it rather than leaving
+            orange chrome, that it swings the steel red, that it stands proud
+            measured on the fine relief between NEIGHBOURS with the cliffs
+            clipped (the plate's lightening holes drop thirty millimetres over
+            one texel and a plain mean of differences is all hole and no crust),
+            and that the material table says what it should — four of the eight
+            do not corrode at all and the other four each corrode to something
+            of their own. Plus that grime darkens what it collects on
   stage     the wizard's 3D building is the BUILDING: its box is as wide as the
             front's plan says and as deep as the side's, four walls and a roof
             stand on a ground, and both sides come off the one side elevation.

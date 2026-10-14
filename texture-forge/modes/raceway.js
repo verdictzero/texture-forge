@@ -735,7 +735,37 @@ Forge.register({
       ribMm:74,ribWMm:15,ribHMm:7,holeMm:28,
       oil:.3,dust:.35,heat:.2,scuff:.3,aoStr:1,
       mCurve:.5,mGrain:.4,mDust:.35,corrMm:13,
-      cPlate:"#4c5054",cDeep:"#0b0c0d",cFrame:"#7d838a",cLamp:"#49ff9c"}}
+      cPlate:"#4c5054",cDeep:"#0b0c0d",cFrame:"#7d838a",cLamp:"#49ff9c"}},
+
+    /* NOTHING BEHIND IT. A decal to lay over something that already has a
+       surface, so the runs are spread rather than packed — a silhouette is the
+       whole of what you get, and bundles jammed together read as one lump
+       once the plate behind them is gone. */
+    {id:"decal",label:"Decal — no backplane",set:{
+      piece:"tile",back:"none",tileMm:700,cavityMm:95,layers:2,bundles:3,groupMax:4,
+      gaugeMinMm:10,gaugeMaxMm:34,gridMm:70,bendMm:52,branches:.45,
+      wTube:.7,wCorr:.6,wBraid:.4,wSpiral:.5,wRibbon:.1,wLagged:.3,
+      braceAmt:1,braceMm:130,identAmt:.5,lamps:.1,
+      oil:.2,dust:.25,grime:.1,rust:0,heat:.1,scuff:.3,aoStr:1,
+      mCurve:.5,mGrain:.4,mDust:.3,corrMm:14,cLamp:"#49ff9c"}},
+
+    {id:"rot",label:"Rusted and filthy",set:{
+      piece:"tile",back:"plate",tileMm:640,cavityMm:95,layers:3,bundles:4,groupMax:6,
+      gaugeMinMm:8,gaugeMaxMm:34,gridMm:62,bendMm:48,branches:.55,
+      wTube:.8,wCorr:.6,wBraid:.5,wSpiral:.4,wRibbon:.2,wLagged:.3,
+      braceAmt:1,braceMm:120,identAmt:.25,lamps:0,
+      ribMm:80,ribWMm:16,ribHMm:7,holeMm:30,
+      oil:.6,dust:.7,grime:.85,rust:1,heat:.25,scuff:.12,aoStr:1.15,
+      mCurve:.6,mGrain:.75,mDust:.6,corrMm:14,
+      cPlate:"#45413c",cDeep:"#090807",cLamp:"#49ff9c"}},
+
+    {id:"derelict",label:"Derelict decal — rusted, no backplane",set:{
+      piece:"tile",back:"none",tileMm:700,cavityMm:95,layers:2,bundles:3,groupMax:4,
+      gaugeMinMm:10,gaugeMaxMm:34,gridMm:70,bendMm:52,branches:.45,
+      wTube:.75,wCorr:.6,wBraid:.45,wSpiral:.4,wRibbon:.1,wLagged:.35,
+      braceAmt:1,braceMm:130,identAmt:.2,lamps:0,
+      oil:.5,dust:.6,grime:.8,rust:1,heat:.2,scuff:.1,aoStr:1.1,
+      mCurve:.6,mGrain:.75,mDust:.5,corrMm:14,cLamp:"#49ff9c"}}
   ],
 
   controls:[
@@ -747,9 +777,9 @@ Forge.register({
       {id:"tileMm",label:"Tile covers",unit:"mm",min:200,max:2000,step:20,value:640,need:"tile"},
       {id:"bayWmm",label:"Bay width",unit:"mm",min:150,max:1600,step:10,value:560,need:"bay"},
       {id:"bayHmm",label:"Bay height",unit:"mm",min:150,max:1600,step:10,value:400,need:"bay"},
-      {id:"frameMm",label:"Frame width",unit:"mm",min:6,max:80,step:1,value:26,need:"bay"},
-      {id:"cornerMm",label:"Corner radius",unit:"mm",min:0,max:200,step:2,value:16,need:"bay"},
-      {type:"checks",need:"bay",items:[
+      {id:"frameMm",label:"Frame width",unit:"mm",min:6,max:80,step:1,value:26,need:"bayframe"},
+      {id:"cornerMm",label:"Corner radius",unit:"mm",min:0,max:200,step:2,value:16,need:"bayframe"},
+      {type:"checks",need:"bayframe",items:[
         {id:"fasteners",label:"Fasteners round the frame",value:true}]},
       {type:"readout"},
       {id:"seed",type:"seed",label:"Seed",value:7204},
@@ -797,20 +827,38 @@ Forge.register({
     ]},
 
     {title:"Backplane",rows:[
-      {id:"ribMm",label:"Rib spacing",unit:"mm",min:30,max:220,step:2,value:80},
-      {id:"ribWMm",label:"Rib width",unit:"mm",min:4,max:50,step:1,value:16},
-      {id:"ribHMm",label:"Rib height",unit:"mm",min:0,max:24,step:1,value:7},
-      {id:"holeMm",label:"Lightening holes",unit:"mm",min:0,max:120,step:2,value:30},
-      {type:"colors",label:"Plate · down the holes",items:[
+      {id:"back",type:"select",label:"Behind it",value:"plate",options:[
+        ["plate","Ribbed plate"],["none","Nothing — alpha only"]]},
+      {type:"note",need:"noback",html:"<b>Alpha only.</b> No skin behind the runs: "+
+        "opacity.png is the silhouette of the conduit itself, anti-aliased, and "+
+        "everything else is transparent. That makes this a <b>decal</b> — drop it over "+
+        "plating, a hull, a wall, anything already textured — rather than a panel with "+
+        "its own backplane. The runs still tile."},
+      {id:"ribMm",label:"Rib spacing",unit:"mm",min:30,max:220,step:2,value:80,need:"plate"},
+      {id:"ribWMm",label:"Rib width",unit:"mm",min:4,max:50,step:1,value:16,need:"plate"},
+      {id:"ribHMm",label:"Rib height",unit:"mm",min:0,max:24,step:1,value:7,need:"plate"},
+      {id:"holeMm",label:"Lightening holes",unit:"mm",min:0,max:120,step:2,value:30,need:"plate"},
+      {type:"colors",label:"Plate · down the holes",need:"plate",items:[
         {id:"cPlate",value:"#4c5054"},{id:"cDeep",value:"#0b0c0d"}]},
-      {type:"colors",label:"Frame",need:"bay",items:[{id:"cFrame",value:"#7d838a"}]}
+      {type:"colors",label:"Frame",need:"bayframe",items:[{id:"cFrame",value:"#7d838a"}]}
     ]},
 
     {title:"Wear",rows:[
       {id:"oil",label:"Oil and streaks",min:0,max:1,step:.05,value:.25},
       {id:"dust",label:"Dust",min:0,max:1,step:.05,value:.35},
+      {id:"grime",label:"Grime",min:0,max:1,step:.05,value:0},
+      {id:"rust",label:"Corrosion",min:0,max:1,step:.05,value:0},
       {id:"heat",label:"Heat tint",min:0,max:1,step:.05,value:.1},
-      {id:"scuff",label:"Scuffing",min:0,max:1,step:.05,value:.3}
+      {id:"scuff",label:"Scuffing",min:0,max:1,step:.05,value:.3},
+      {type:"note",html:"<b>Corrosion</b> is a property of the material, not a colour "+
+        "laid over everything: PVC and PTFE do not corrode at all, stainless pits dark "+
+        "rather than sheeting red, aluminium goes chalky white and copper goes green. "+
+        "It starts at the arris of a round thing, under the fittings and low down where "+
+        "the water sits, it takes the metalness with it because an oxide is not a metal, "+
+        "and at depth it stands proud and flakes. The <b>stain</b> it runs is not gated "+
+        "on the material — a plastic conduit under a rusted bracket is brown.<br>"+
+        "<b>Grime</b> is not dust: dust is pale and lies on what faces up, grime is dark "+
+        "and collects in the crevices."}
     ]},
 
     {title:"Micro detail",rows:[
@@ -826,10 +874,19 @@ Forge.register({
     ]}
   ],
 
-  needs:function(p){return [isBay(p)?"bay":"tile"];},
+  needs:function(p){
+    const nb=(p.back||"plate")==="none";
+    const out=[isBay(p)?"bay":"tile",nb?"noback":"plate"];
+    /* the frame is the backplane's own edge, so it is a bay WITH a backplane
+       rather than a bay — and `need` is an OR over its keys, so the pair of
+       conditions has to arrive as one key */
+    if(isBay(p)&&!nb)out.push("bayframe");
+    return out;
+  },
 
   seamless:function(p){return !isBay(p);},
-  backdrops:function(p){return isBay(p);},
+  /* anything with transparent texels wants something to be seen against */
+  backdrops:function(p){return isBay(p)||(p.back||"plate")==="none";},
 
   size:function(p){const g=geom(p);return {w:g.TW,h:g.TH};},
   build:function(p,io){return L.build(p,io,{routes:routes});},
@@ -839,7 +896,7 @@ Forge.register({
        the tallest thing standing on it is. Reported because a layer that does
        not clear the one under it is a bug that ought to be checkable from
        outside, and because nobody can see it from the picture alone. */
-    return {w:g.Wm,h:g.Hm,cutout:g.bay,
+    return {w:g.Wm,h:g.Hm,cutout:g.cut,
             strata:Array.from(S.ST.z),crowns:Array.from(S.ST.h),
             stackM:S.ST.top,gaugeScale:S.ST.scale};
   },
@@ -909,7 +966,8 @@ c.boxes&&c.loadAvg!==undefined?("On average "+Math.round(c.loadAvg*100)+"% of a 
   Math.round(g.Wm*1000)+" × "+Math.round(g.Hm*1000)+" mm, at "+info.W+" × "+info.H+" px",
 "("+(g.mpp*1000).toFixed(2)+" mm per texel).",
 "",
-bay?"CUT-OUT. opacity.png is the silhouette of the bay. Use it as the alpha of\nthe base colour, or as an opacity/clip map, and the surface it is dropped\nonto shows through around it."
+g.noBack?"DECAL. There is no backplane: opacity.png is the silhouette of the CONDUIT\nitself — the runs, the fittings on them and the junction boxes — anti-aliased\nby one texel, and everything else is transparent. Lay it over plating, a hull\nor a wall and that surface shows through between the runs. Height is zero and\nthe normal is flat outside the silhouette, so it disturbs nothing it is laid\non; the ambient occlusion is the runs against the surface they sit on, which\nis what grounds them."+(bay?"":"\nIt still tiles in both axes.")
+ :bay?"CUT-OUT. opacity.png is the silhouette of the bay. Use it as the alpha of\nthe base colour, or as an opacity/clip map, and the surface it is dropped\nonto shows through around it."
    :"SEAMLESS. Tiles in both axes. The lattice is snapped so a whole number of\ncells fits the tile, which is what keeps the runs on one side of the wrap in\nstep with the runs on the other.",
 "",
 "WHAT IS IN IT",
@@ -924,12 +982,25 @@ clamp(p.layers|0,1,6)+" layers of "+clamp(p.bundles|0,1,10)+" runs, plus whateve
 "Gauges run "+Math.round(+p.gaugeMinMm||8)+"–"+Math.round(+p.gaugeMaxMm||34)+
   " mm in a cavity "+Math.round(+p.cavityMm||90)+" mm deep.",
 "",
+(+p.rust>0?("CORROSION at "+Math.round((+p.rust)*100)+"%. It is a property of the material rather than a\n"+
+  "colour over everything: PVC, PTFE, rubber and split loom do not corrode, stainless\n"+
+  "pits dark, aluminium goes chalky white, copper goes green, and bare and painted\n"+
+  "steel — the plate, the frame, the clamps and the brackets — go red-brown. It starts\n"+
+  "at the arris of a round thing, under the fittings and low down where water sits; it\n"+
+  "takes the metalness with it; and past a threshold it stands proud and flakes, which\n"+
+  "is in the height and the normal rather than only in the colour. The stain it runs is\n"+
+  "not gated on the material, so plastic under a rusted bracket is brown."):null),
+(+p.grime>0?("GRIME at "+Math.round((+p.grime)*100)+"%, which is not dust: dust is pale and lies on what faces\n"+
+  "up, grime is dark and collects in the crevices. Scuffing is applied after it, so a\n"+
+  "rubbed surface shows through."):null),
+(+p.rust>0||+p.grime>0?"":null),
 "FILES",
 "basecolor.png  sRGB.",
 "normal.png     Tangent space, "+info.normalNote+".",
 "roughness.png  Linear grey.",
 "metallic.png   Linear grey. Braid, tube, brackets and the backplane are metal;",
 "               rubber, PVC, PTFE, lagging and ident sleeving are not.",
+(+p.rust>0?"               Corrosion takes it away where it has formed, because an oxide\n               is not a metal.":null),
 "ao.png         Linear grey. Carries the depth of the cavity as well as the",
 "               local occlusion — see below.",
 "emissive.png   Indicator lamps only. Black where there are none.",
