@@ -52,6 +52,17 @@
    Vent panels above whatever runs hot. Blanks in the gaps, because an
    open U in a cooled cabinet is a short circuit in the airflow.
 
+   AND THE SAME RACK WITH NOTHING YOU CAN OPERATE. All of that describes one
+   of the two sets of kit in here. The other is the opposite proposition:
+   devices that read unmistakably as equipment and say nothing whatever about
+   what they are for. No scales, no needles, no numerals, no captions — a
+   field of cells, a bank of blades, a core of rings, a bar of light, each one
+   idea carried across a whole face at the maker's own pitch, with a seam and
+   a handle and a way of coming out of the rack, because a thing you can
+   imagine servicing is a thing somebody built and a thing with a lumpy
+   silhouette is a greeble. The identifiers are strips of marks with the
+   rhythm of a serial number that are not one and cannot be read.
+
    CABLES GO WHERE CABLES GO. A lead leaves a port, turns down the side
    channel, runs vertically with its neighbours, and comes back out at
    the port it is going to — with a service loop, because nobody pulls a
@@ -137,20 +148,76 @@ const PHOS={
 
      want  0 floor, 1 low, 2 hand height, 3 high, 4 anywhere */
 const DEV=[
-  {id:"power", name:"power distribution",u:[2,3],want:0,heat:0.5,w:1.0},
-  {id:"supply",name:"regulator bay",     u:[3,5],want:0,heat:1.0,w:0.8},
+  {id:"power", name:"power distribution",u:[2,3],want:0,heat:0.5,w:1.0,cap:1},
+  {id:"supply",name:"regulator bay",     u:[3,5],want:0,heat:1.0,w:0.8,cap:2},
   {id:"logic", name:"logic bay",         u:[3,6],want:1,heat:0.8,w:1.0},
   {id:"store", name:"tape transport",    u:[6,9],want:2,heat:0.4,w:0.9},
   {id:"disc",  name:"disc pack drive",   u:[4,6],want:1,heat:0.6,w:0.7},
   {id:"cart",  name:"cartridge loader",  u:[2,3],want:2,heat:0.2,w:0.6},
-  {id:"conso", name:"operator console",  u:[4,7],want:2,heat:0.3,w:0.9},
+  {id:"conso", name:"operator console",  u:[4,7],want:2,heat:0.3,w:0.9,cap:1},
   {id:"instr", name:"instrument panel",  u:[2,4],want:2,heat:0.1,w:0.9},
-  {id:"term",  name:"display terminal",  u:[5,8],want:2,heat:0.4,w:0.6},
+  {id:"term",  name:"display terminal",  u:[5,8],want:2,heat:0.4,w:0.6,cap:2},
   {id:"patch", name:"patch field",       u:[1,3],want:3,heat:0.0,w:0.9},
   {id:"line",  name:"line interface",    u:[1,2],want:3,heat:0.2,w:0.8},
   {id:"timing",name:"timing standard",   u:[1,2],want:3,heat:0.1,w:0.5}
 ];
-const DEV_BY={};for(const d of DEV)DEV_BY[d.id]=d;
+
+/* ================== the devices, the other way ==================
+   THE SAME RACK WITH NOTHING YOU CAN OPERATE. Every archetype above is
+   legible: you can see what a transport does because it has reels, and what a
+   console does because its keys are captioned. This set is the opposite
+   proposition — kit that reads unmistakably as EQUIPMENT and tells you
+   nothing whatever about what it is for.
+
+   That is a harder thing to draw than it sounds, because the easy version is
+   greebles: panels of random lumps, which read as decoration within about a
+   second. What keeps these reading as machinery is that each one is ONE IDEA
+   carried out at a consistent size across the whole face — a field of cells,
+   a bank of blades, a core of rings, a bar of light — and that the idea is
+   SERVICEABLE. A thing with a grain, a pitch, a seam and a way of coming out
+   of the rack is a thing somebody made on purpose. A thing with a lumpy
+   silhouette is a thing nobody made at all.
+
+   So: no scales, no needles, no numerals, no captions, no Latin anywhere. The
+   identifiers are strips of marks that have the rhythm of a serial number and
+   are not one. The only readable thing on the whole cabinet is the hole
+   pattern in the frame, which is what keeps it a rack. */
+const DEV_A=[
+  {id:"sink",  name:"dissipator stack",  u:[2,5],want:0,heat:1.0,w:0.9},
+  {id:"vane",  name:"vane array",        u:[2,4],want:0,heat:0.9,w:0.7},
+  {id:"lattice",name:"cell lattice",     u:[3,8],want:1,heat:0.7,w:1.1},
+  {id:"blade", name:"blade bank",        u:[4,9],want:1,heat:0.8,w:1.0},
+  {id:"spool", name:"coil former",       u:[3,5],want:1,heat:0.5,w:0.6,cap:2},
+  {id:"core",  name:"ring core",         u:[4,7],want:2,heat:0.6,w:0.9,cap:2},
+  {id:"iris",  name:"aperture gate",     u:[3,5],want:2,heat:0.3,w:0.8,cap:2},
+  {id:"node",  name:"node field",        u:[2,4],want:2,heat:0.2,w:0.9},
+  {id:"slab",  name:"sealed block",      u:[2,6],want:4,heat:0.1,w:0.55,cap:2},
+  {id:"lumen", name:"lumen bar",         u:[1,3],want:3,heat:0.2,w:1.0},
+  {id:"comb",  name:"slot comb",         u:[1,3],want:3,heat:0.3,w:0.8},
+  {id:"trunk", name:"trunk bulkhead",    u:[1,3],want:3,heat:0.0,w:0.9}
+];
+/* ids are distinct across the two sets, so one lookup covers both */
+const DEV_BY={};
+for(const d of DEV)DEV_BY[d.id]=d;
+for(const d of DEV_A)DEV_BY[d.id]=d;
+const capOf=d=>(d.cap===undefined?3:d.cap);
+const styleOf=P=>(str(P.style,"period")==="abstract"?"abstract":"period");
+const devsOf=P=>(styleOf(P)==="abstract"?DEV_A:DEV);
+
+/* THE ACCENT, and there is one of it. Abstract kit has no jewel colours
+   because it has no lamps; what it has is light coming out of the gaps in it,
+   and the single most important thing about that light is that the whole
+   installation shares it. Two hues, one dominant — any more and the cabinet
+   reads as a toy shelf rather than as one machine. */
+const GLOW={
+  cyan  :{on:[ 96,226,255],name:"cyan"},
+  ice   :{on:[206,232,255],name:"ice white"},
+  violet:{on:[172,124,255],name:"violet"},
+  lime  :{on:[150,255,132],name:"lime"},
+  ember :{on:[255,154, 66],name:"ember"},
+  rose  :{on:[255,104,140],name:"rose"}
+};
+const GLOW_KEYS=Object.keys(GLOW);
 
 /* ============================ one maker ============================
    Everything in the cabinet was built by the same people, and that is the
@@ -160,6 +227,7 @@ const DEV_BY={};for(const d of DEV)DEV_BY[d.id]=d;
    devices each chose their own styling reads as a junk shop. */
 function houseOf(P){
   const seed=P.seed|0,rng=mulberry32(hseed(7,13,seed));
+  const sty=styleOf(P);
   const face=str(P.finish,"putty");
   const F=FINISH[face]||FINISH.putty;
   const trimKey=bool(P.trimAuto,true)
@@ -169,6 +237,18 @@ function houseOf(P){
      catalogue reads as a toy; two states and an alarm is what a real one
      has, and the third is nearly always red. */
   const pool=shuffled(rng,["amber","green","white","blue"]).slice(0,2);
+  /* WEIGHTED, not uniform. Ice is in the table because a near-white accent is
+     a real choice and a cold one, but drawn one time in six it turns the whole
+     cabinet grey as often as the five chromatic ones do anything — so it is
+     one entry in a pool where the others are two. */
+  const gpool=str(P.accent,"auto")==="auto"
+    ?shuffled(mulberry32(hseed(11,29,seed)),
+      ["cyan","cyan","violet","violet","lime","lime","ember","ember",
+       "rose","rose","ice"])
+    :[str(P.accent,"cyan")].concat(GLOW_KEYS.filter(k=>k!==str(P.accent,"cyan")));
+  const gk=gpool[0];
+  let gk2=gpool[1];
+  for(let i=1;i<gpool.length&&gk2===gk;i++)gk2=gpool[i];
   return {
     F:F,fin:face,
     trim:FINISH[trimKey]||FINISH.char,trimKey:trimKey,
@@ -181,7 +261,20 @@ function houseOf(P){
     screwR:1.9,
     ears:pick(rng,[true,true,false]),           /* a visible ear strip each side */
     div:pick(rng,[true,true,false]),            /* engraved division lines */
-    seed:seed
+    seed:seed,
+    /* --- and the same maker's other language, for kit with no controls ---
+       Drawn here whichever style is asked for, so that switching between them
+       at one seed gives two versions of ONE firm's work rather than two
+       unrelated firms. The draws come last so the period maker above is
+       exactly what it was. */
+    style:sty,
+    glow:gk,                                    /* the accent, and there is one */
+    glow2:gk2,                                  /* used sparingly, on one thing */
+    motif:pick(rng,["square","square","hex","round"]),
+    fast:pick(rng,["hex","hex","flush","slot"]), /* what the fasteners are */
+    cellMm:pick(rng,[9,11,14,18]),              /* the pitch of its cell work */
+    finMm:pick(rng,[4.5,5.5,7]),                /* and of its blade work */
+    seam:pick(rng,[true,true,false])            /* a seam across every face */
   };
 }
 
@@ -529,10 +622,26 @@ function handle(D,x,y,w,h,kind,H){
   for(const sx of [x+2.2,x+w-2.2])
     fill(D,circP(sx,y+h*0.5,r*0.95),{c:shade(H.trim.c,0.9),h:4,met:0.7,gl:0.5});
 }
-/* a rack screw in a hole that exists */
-function screw(D,x,y,r){
+/* a rack screw in a hole that exists. The head is the maker's: a slotted pan
+   head is the period's, a hex socket is what anybody building the other sort
+   of kit would use, and a flush head is what they would use if they did not
+   want you opening it. */
+function screw(D,x,y,r,kind){
   fill(D,circP(x,y,r*1.5),{c:"#0f1012",h:-1.6,met:0.2,gl:0.4});
+  if(kind==="flush"){
+    fill(D,circP(x,y,r*1.15),{c:"#9ea2a7",h:0.2,met:0.9,gl:0.6});
+    fill(D,circP(x,y,r*0.5),{c:"#6a6e73",h:-0.4,met:0.9,gl:0.55});
+    return;
+  }
   fill(D,circP(x,y,r),{c:"#b4b8bd",h:1.8,met:0.92,gl:0.66});
+  if(kind==="hex"){
+    stroke(D,g=>{g.beginPath();
+      for(let i=0;i<6;i++){const a2=i/6*TAU+0.5;
+        const px=x+Math.cos(a2)*r*0.56,py=y+Math.sin(a2)*r*0.56;
+        if(i)g.lineTo(px,py);else g.moveTo(px,py);}
+      g.closePath();},r*0.26,{c:"#4e5257",h:1.0,met:0.9,gl:0.58});
+    return;
+  }
   stroke(D,lineP(x-r*0.62,y,x+r*0.62,y),r*0.3,{c:"#5c6064",h:1.1,met:0.9,gl:0.6});
 }
 /* ENGRAVED LETTERING, from the stroke library, which is what keeps this mode
@@ -662,14 +771,71 @@ function plate(D,x,y,w,uh,H,o){
   }
   for(const sy of screwYs(uh)){
     if(sy<1||sy>h-1)continue;
-    screw(D,x+(w-HOLE_DX)*0.5,y+sy,H.screwR);
-    screw(D,x+w-(w-HOLE_DX)*0.5,y+sy,H.screwR);
+    screw(D,x+(w-HOLE_DX)*0.5,y+sy,H.screwR,H.fast);
+    screw(D,x+w-(w-HOLE_DX)*0.5,y+sy,H.screwR,H.fast);
   }
   return {x:x+ear+2.5,y:y+3.0,w:w-2*(ear+2.5),h:h-6.0,h0:h};
 }
+/* ============ an identifier that is not one ============
+   Abstract kit carries no words, and the temptation is to leave its faces
+   anonymous — which is wrong, because every piece of equipment ever built has
+   something stamped on it, and a face with nothing at all on it reads as
+   unfinished rather than as inscrutable.
+
+   So it carries a MARK: a run of bars with the rhythm of a serial number — a
+   few wide, a few narrow, a space where a hyphen would be — that is not a
+   code, does not encode anything, and cannot be read. The eye takes it for an
+   identifier at a glance and finds nothing in it on a second look, which is
+   exactly the effect the whole style is after. */
+function mark(D,x,y,w,h,rng,o){
+  o=o||{};
+  const col=o.c||"#1d1f22";
+  let cx=x,n=0;
+  const end=x+w;
+  while(cx<end-0.5&&n<48){
+    const bw=0.45+rng()*1.7;
+    if(cx+bw>end)break;
+    const r1=rng();
+    if(r1>0.84){cx+=bw+0.4;n++;continue;}        /* the space in the string */
+    const half=r1<0.34,bh=half?h*0.52:h;
+    const by=(half&&rng()<0.5)?y+h-bh:y;
+    fill(D,rrectP(cx,by,bw,bh,Math.min(0.25,bw*0.4)),
+      {c:col,h:num(o.h,-0.55),met:0.06,gl:0.42,emi:o.emi||null});
+    cx+=bw+0.45+rng()*0.85;n++;
+  }
+  return n;
+}
+/* and a sigil beside it: a stem with one to three features hung off it, which
+   is how a constructed mark is built and why this reads as a device type
+   rather than as a scribble */
+function sigil(D,x,y,s,rng,o){
+  o=o||{};
+  const st={c:o.c||"#1d1f22",h:num(o.h,-0.5),met:0.06,gl:0.4,emi:o.emi||null};
+  const lw=Math.max(0.32,s*0.115),cx=x+s*0.5;
+  stroke(D,lineP(cx,y,cx,y+s),lw,st);
+  const n=1+Math.floor(rng()*3);
+  for(let i=0;i<n;i++){
+    const yy=y+s*(0.12+rng()*0.76),k=Math.floor(rng()*4);
+    if(k===0)stroke(D,lineP(cx-s*0.36,yy,cx+s*0.36,yy),lw,st);
+    else if(k===1)stroke(D,g=>{g.beginPath();g.arc(cx,yy,s*0.22,0,TAU);},lw,st);
+    else if(k===2)stroke(D,lineP(cx,yy,cx+s*0.34,yy-s*0.24),lw,st);
+    else fill(D,circP(cx+(rng()<0.5?-1:1)*s*0.3,yy,lw*0.95),st);
+  }
+}
+
 /* the nameplate, in the one place this maker puts it, and the room it takes */
-function nameplate(D,x,y,w,h,H,text){
+function nameplate(D,x,y,w,h,H,text,rng){
   const cap=Math.min(4.4,h*0.42);
+  if(H.style==="abstract"){
+    /* same place, same size, no words */
+    const r2=rng||mulberry32(hseed(3,5,H.seed));
+    const mw=Math.min(w*0.40,56),col=shade(H.F.c,H.F.met>0.5?0.62:0.50);
+    const top=H.legendAt==="tl";
+    const my=top?y+0.7:y+h-cap-0.7;
+    sigil(D,x+(top?0:w*0.5-mw*0.5-cap*1.6),my,cap,r2,{c:col});
+    mark(D,x+(top?cap*1.6:w*0.5-mw*0.5),my+cap*0.1,mw,cap*0.8,r2,{c:col});
+    return top?{top:cap+2.2,bot:0}:{top:0,bot:cap+2.2};
+  }
   if(H.legendAt==="tl"){
     legend(D,text,x,y+0.7,cap,{align:"left"});
     return {top:cap+2.2,bot:0};
@@ -682,6 +848,21 @@ function nameplate(D,x,y,w,h,H,text){
    holes reads as a rack somebody stripped for parts. */
 function blankFace(D,x,y,w,uh,H,rng){
   const b=plate(D,x,y,w,uh,H,{});
+  if(H.style==="abstract"){
+    /* a blank is still this maker's blank: a seam, and sometimes a mark */
+    const sx=b.x+b.w*(H.seam?0.34:0.62);
+    fill(D,rrectP(sx+0.9,b.y,b.x+b.w-(sx+0.9),b.h,H.r),
+      {c:tone(H.F.c,0.92),h:-0.3,met:H.F.met,gl:1-H.F.rgh});
+    stroke(D,lineP(sx,b.y+1,sx,b.y+b.h-1),0.7,
+      {c:shade(H.F.c,0.52),h:-0.6,met:H.F.met,gl:1-H.F.rgh});
+    stroke(D,lineP(sx+0.9,b.y+1,sx+0.9,b.y+b.h-1),0.5,
+      {c:tone(H.F.c,1.2),h:0.3,met:H.F.met,gl:1-H.F.rgh});
+    if(uh>=2&&rng()<0.45)
+      slotComb(D,b.x+b.w*0.46,b.y+b.h*0.26,b.w*0.38,b.h*0.48,H,rng,{lit:0});
+    mark(D,b.x+5,b.y+b.h*0.5-1.4,Math.min(b.w*0.24,42),2.8,rng,
+      {c:shade(H.F.c,0.52)});
+    return [];
+  }
   if(uh>=2&&rng()<0.5)
     louvre(D,b.x+b.w*0.18,b.y+b.h*0.3,b.w*0.64,b.h*0.4,Math.max(2,Math.round(uh*1.6)));
   return [];
@@ -689,6 +870,11 @@ function blankFace(D,x,y,w,uh,H,rng){
 /* a vent panel, which goes above whatever runs hot */
 function ventFace(D,x,y,w,uh,H,rng){
   const b=plate(D,x,y,w,uh,H,{});
+  if(H.style==="abstract"){
+    if(rng()<0.55)heatFins(D,b.x,b.y+1,b.w,b.h-2,H,{});
+    else slotComb(D,b.x,b.y+1,b.w,b.h-2,H,rng,{lit:0.05});
+    return [];
+  }
   if(rng()<0.5)
     louvre(D,b.x,b.y+1,b.w,b.h-2,Math.max(2,Math.round(uh*3.2)));
   else
@@ -720,7 +906,7 @@ function sublabel(D,text,cx,yTop,cap){
 /* --- power distribution: where the cabinet is fed and what it is fed by --- */
 function facePower(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   /* the master switch, under a guard, on the left where the feed comes in */
   const gx=b.x+3,gy=cy+ch*0.5,gh=Math.min(ch*0.68,30);
@@ -761,7 +947,7 @@ function facePower(D,x,y,w,uh,H,rng,title){
 /* --- regulator bay: a meter per rail, a knob under each, and a lot of air --- */
 function faceSupply(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const rails=uh>=5?3:2;
   /* the left two thirds are instrumentation, the right third is cooling,
@@ -788,7 +974,7 @@ function faceSupply(D,x,y,w,uh,H,rng,title){
 /* --- logic bay: the lamp wall. A word at a glance, in groups of four --- */
 function faceLogic(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top+3.4,ch=b.h-m.top-m.bot-3.4;
   const lab=28;                             /* room at the left for row names */
   const gx0=b.x+lab,gw=b.w-lab-2;
@@ -838,7 +1024,7 @@ function faceLogic(D,x,y,w,uh,H,rng,title){
 /* --- tape transport: the silhouette that dates a machine on sight --- */
 function faceStore(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const wh=ch*(uh>=8?0.60:0.66);
   reel(D,b.x+2,cy,b.w-4,wh,rng,H);
@@ -868,7 +1054,7 @@ function faceStore(D,x,y,w,uh,H,rng,title){
 /* --- disc pack drive: a round door, because the pack inside it is round --- */
 function faceDisc(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const dr=Math.min(ch*0.47,b.w*0.26),dcx=b.x+dr+4,dcy=cy+ch*0.5;
   /* the lid: a thick ring, a smoked window, and a latch you lift */
@@ -903,7 +1089,7 @@ function faceDisc(D,x,y,w,uh,H,rng,title){
 /* --- cartridge loader: slots, and a lamp per slot --- */
 function faceCart(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const n=pick(rng,[3,4,4,5]);
   const sw=(b.w-12)/n-4,sh=Math.min(ch*0.46,11);
@@ -921,7 +1107,7 @@ function faceCart(D,x,y,w,uh,H,rng,title){
 /* --- operator console: the face somebody actually stood in front of --- */
 function faceConso(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   /* a block of legend caps, in rows, each captioned. The caption is why a
      console is a console and not a lamp wall: every key says what it does. */
@@ -955,7 +1141,7 @@ function faceConso(D,x,y,w,uh,H,rng,title){
 /* --- instrument panel: meters in a row, and nothing else needed --- */
 function faceInstr(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const n=pick(rng,[2,3,3,4]);
   const mr=Math.min((b.w-16)/(n*2.5),ch*(uh>=3?0.40:0.46));
@@ -981,7 +1167,7 @@ function faceInstr(D,x,y,w,uh,H,rng,title){
 /* --- display terminal: a screen, and the two knobs it needs --- */
 function faceTerm(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   const sw=Math.min(b.w*0.76,ch*1.34);
   crt(D,b.x+2,cy+1,sw,ch-2,H.phos,rng,H);
@@ -1006,7 +1192,7 @@ function facePatch(D,x,y,w,uh,H,rng,title){
   /* the one panel this maker finishes in the trim colour, because a field of
      holes in a pale panel is a field of nothing */
   const b=plate(D,x,y,w,uh,H,{F:H.trim}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const num=uh>=2?2.0:0;                      /* room for the hole numbers */
   const top=b.y+m.top+num,avail=b.h-m.top-m.bot-num;
   const cols=pick(rng,[24,28,32]),rows=clamp(Math.round(uh*2)-(uh>1?1:0),1,6);
@@ -1033,7 +1219,7 @@ function facePatch(D,x,y,w,uh,H,rng,title){
 /* --- line interface: a shell per circuit, with a lamp to say it is up --- */
 function faceLine(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy0=b.y+m.top,ch=b.h-m.top-m.bot;
   const n=pick(rng,[6,8,8,10,12]);
   const pitch=(b.w-10)/n,sr=Math.min(pitch*0.30,4.6,ch*0.30);
@@ -1053,7 +1239,7 @@ function faceLine(D,x,y,w,uh,H,rng,title){
 /* --- timing standard: a number, and the knob that sets it --- */
 function faceTiming(D,x,y,w,uh,H,rng,title){
   const b=plate(D,x,y,w,uh,H,{}),ps=[];
-  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title);
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
   const cy=b.y+m.top,ch=b.h-m.top-m.bot;
   seg7(D,b.x+b.w*0.30,cy+1,Math.min(13,ch*0.62),6,H.lamps[0],rng);
   for(let i=0;i<2;i++)
@@ -1068,9 +1254,608 @@ function faceTiming(D,x,y,w,uh,H,rng,title){
   return ps;
 }
 
+
+/* ===================== the abstract vocabulary =====================
+   Twelve forms, each ONE IDEA carried across a whole face at a consistent
+   pitch. They are drawn with the same three-plane painter as everything else,
+   and the discipline that keeps them from being greebles is this:
+
+     A PITCH. Everything repeats on a dimension — the cell, the fin, the ring
+     spacing — and the dimension is the maker's rather than the form's, so a
+     cell lattice and a node field in the same cabinet are built to the same
+     module. That alone is most of the difference between machinery and lumps.
+
+     A GRAIN. Each form has a direction: cells are a plane, blades are a
+     stack, rings are concentric, bars are a run. Two forms with the same
+     grain on adjacent panels look like one panel, so the layout mixes them.
+
+     SERVICEABILITY. A grab point, a seam, a collar, a tab, a captive screw —
+     something that says the thing comes out of the rack. Equipment you cannot
+     imagine removing is scenery.
+
+     LIGHT COMES OUT OF GAPS, never off a lens. There are no lamps in this
+     half of the mode: what glows is the bottom of a well, the back of a slot,
+     the inside of a bore. That is why it reads as something running rather
+     than as something indicating. */
+
+/* A HIGHLIGHT THAT SURVIVES A DARK FINISH. Multiplying 0x2a by 1.18 moves it
+   seven levels and the chamfer vanishes; what a lit edge actually does is pick
+   up a fixed share of whatever light is going, so it is mixed TOWARDS WHITE
+   rather than scaled. On a pale panel the two are near enough the same, which
+   is why the period half never needed it. */
+const tone=(hexc,f)=>{
+  const c=hex2rgb(hexc);
+  if(f>=1){const k=clamp(f-1,0,1);
+    return rgb([c[0]+(255-c[0])*k,c[1]+(255-c[1])*k,c[2]+(255-c[2])*k]);}
+  return rgb([c[0]*f,c[1]*f,c[2]*f]);
+};
+const gOn=(H,k)=>GLOW[k||H.glow].on;
+const gDim=(H,k,f)=>{const c=gOn(H,k);return rgb([c[0]*f,c[1]*f,c[2]*f]);};
+
+/* a recessed well with a lip, which nearly every form below sits in */
+function well(D,x,y,w,h,d,H,r){
+  const F=H.F;
+  fill(D,rrectP(x,y,w,h,num(r,1.2)),{c:shade(F.c,0.42),h:-d,met:F.met,gl:1-F.rgh});
+  /* the lip catches the light at the top and loses it at the bottom */
+  stroke(D,lineP(x+2,y+0.5,x+w-2,y+0.5),1.0,
+    {c:tone(F.c,1.26),h:0.6,met:F.met,gl:1-F.rgh});
+  stroke(D,lineP(x+2,y+h-0.5,x+w-2,y+h-0.5),1.0,
+    {c:shade(F.c,0.60),h:-d*0.4,met:F.met,gl:1-F.rgh});
+}
+/* the cell outline for whichever motif this maker works in */
+function cellP(motif,x,y,r){
+  if(motif==="round")return circP(x,y,r);
+  if(motif==="hex")return g=>{g.beginPath();
+    for(let i=0;i<6;i++){const a2=i/6*TAU+Math.PI/6;
+      const px=x+Math.cos(a2)*r,py=y+Math.sin(a2)*r;
+      if(i)g.lineTo(px,py);else g.moveTo(px,py);}
+    g.closePath();};
+  return rrectP(x-r*0.86,y-r*0.86,r*1.72,r*1.72,r*0.22);
+}
+
+/* --- a field of cells, lit at the bottom of some of them ------------------ */
+function cellGrid(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  const pitch=num(o.pitch,H.cellMm);
+  const hexRow=H.motif==="hex"||H.motif==="round";
+  const stepY=hexRow?pitch*0.87:pitch;
+  const nx=Math.max(2,Math.floor((w-1)/pitch)),ny=Math.max(2,Math.floor((h-1)/stepY));
+  const ox=x+(w-nx*pitch)*0.5+pitch*0.5,oy=y+(h-ny*stepY)*0.5+stepY*0.5;
+  const r=pitch*0.46,lit=clamp(num(o.lit,0.22),0,1);
+  well(D,x,y,w,h,5,H,1.0);
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+    const sx=ox+i*pitch+((hexRow&&(j&1))?pitch*0.5:0);
+    if(sx>x+w-r*0.9)continue;
+    const sy=oy+j*stepY;
+    /* the wall between cells stands, the cell itself is a bore */
+    fill(D,cellP(H.motif,sx,sy,r),{c:tone(H.F.c,1.10),h:-2.2,met:H.F.met,gl:1-H.F.rgh});
+    fill(D,cellP(H.motif,sx,sy,r*0.76),{c:"#0d0f11",h:-7.5,met:0.12,gl:0.55});
+    if(!dark()&&rng()<lit*LITF+(1-LITF)*0){
+      const k=0.5+rng()*0.5;
+      fill(D,cellP(H.motif,sx,sy,r*0.60),
+        {c:gDim(H,o.key,0.48*k),h:-8.4,met:0.04,gl:0.7,emi:gDim(H,o.key,0.92*k)});
+    }
+  }
+}
+
+/* --- a stack of blades seen edge-on, with light in the gaps --------------- */
+function finBank(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  const pitch=num(o.pitch,H.finMm);
+  const n=Math.max(4,Math.floor(w/pitch));
+  const step=w/n,bw=step*0.62;
+  well(D,x,y,w,h,4,H,0.8);
+  for(let i=0;i<n;i++){
+    const bx=x+i*step+(step-bw)*0.5;
+    /* the blade: a card standing proud, with a pull notch at the top and a
+       captive fastener at the bottom, because it has to come out */
+    fill(D,rrectP(bx,y+1,bw,h-2,0.5),
+      {c:tone(H.F.c,1.05),h:1.6,met:H.F.met,gl:1-H.F.rgh});
+    stroke(D,lineP(bx+bw*0.5,y+1.4,bx+bw*0.5,y+h-1.4),bw*0.26,
+      {c:tone(H.F.c,1.22),h:2.2,met:H.F.met,gl:1-H.F.rgh});
+    fill(D,rrectP(bx+bw*0.18,y+1.8,bw*0.64,Math.min(4,h*0.1),0.4),
+      {c:shade(H.F.c,0.58),h:0.4,met:H.F.met,gl:1-H.F.rgh});
+    fill(D,circP(bx+bw*0.5,y+h-2.6,Math.min(1.1,bw*0.26)),
+      {c:"#9aa0a6",h:2.6,met:0.9,gl:0.6});
+    if(!dark()&&lit(rng,num(o.lit,0.5))){
+      const gy=y+h*(0.18+rng()*0.6);
+      fill(D,rrectP(bx+bw+step*0.1,gy,Math.max(0.5,step-bw-step*0.2),h*0.22,0.2),
+        {c:gDim(H,o.key,0.52),h:-3.6,met:0.04,gl:0.72,emi:gDim(H,o.key,0.95)});
+    }
+  }
+}
+
+/* --- concentric rings about a bore ---------------------------------------- */
+function ringCore(D,x,y,r,H,rng,o){
+  o=o||{};
+  const F=H.F;
+  fill(D,circP(x,y,r*1.06),{c:shade(F.c,0.80),h:1.4,met:F.met,gl:1-F.rgh});
+  fill(D,circP(x,y,r),{c:shade(F.c,0.50),h:-3.0,met:F.met,gl:1-F.rgh});
+  const rings=4+Math.floor(rng()*4);
+  for(let i=0;i<rings;i++){
+    const rr=r*(0.92-i*(0.62/rings));
+    stroke(D,g=>{g.beginPath();g.arc(x,y,rr,0,TAU);},r*0.055,
+      {c:i&1?shade(F.c,0.56):tone(F.c,1.16),h:-2.4+(i&1?0:0.9),met:F.met,gl:1-F.rgh});
+  }
+  /* the spokes, which is what makes it read as built rather than as a target */
+  const spokes=o.spokes===undefined?(3+Math.floor(rng()*4)):o.spokes;
+  for(let i=0;i<spokes;i++){
+    const a2=i/spokes*TAU+rng()*0.1;
+    stroke(D,lineP(x+Math.cos(a2)*r*0.30,y+Math.sin(a2)*r*0.30,
+                   x+Math.cos(a2)*r*0.96,y+Math.sin(a2)*r*0.96),r*0.085,
+      {c:shade(F.c,0.88),h:-1.4,met:F.met,gl:1-F.rgh});
+  }
+  fill(D,circP(x,y,r*0.30),{c:shade(F.c,0.36),h:-6.5,met:F.met,gl:1-F.rgh});
+  fill(D,circP(x,y,r*0.22),{c:"#0b0d0f",h:-9.0,met:0.1,gl:0.6});
+  if(!dark()){
+    /* one of the grooves is lit, which is what turns a ring of rings into a
+       thing that is running — a bore on its own reads as a hole */
+    const lr=r*(0.52+(o.ring===undefined?0.18:o.ring));
+    stroke(D,g=>{g.beginPath();g.arc(x,y,lr,0,TAU);},r*0.05,
+      {c:gDim(H,o.key,0.44),h:-3.0,met:0.04,gl:0.74,emi:gDim(H,o.key,0.85)});
+    fill(D,circP(x,y,r*0.17),
+      {c:gDim(H,o.key,0.50),h:-9.4,met:0.04,gl:0.74,emi:gDim(H,o.key,1.0)});
+  }
+}
+
+/* --- a bar of light in a channel ------------------------------------------ */
+function lumenBar(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  well(D,x,y,w,h,5,H,Math.min(1.5,h*0.3));
+  const ix=x+2,iy=y+1.6,iw=w-4,ih=h-3.2;
+  fill(D,rrectP(ix,iy,iw,ih,Math.min(1,ih*0.4)),{c:"#0a0c0d",h:-6.5,met:0.1,gl:0.62});
+  if(dark())return;
+  /* SEGMENTS, at the maker's own pitch, each at its own level. A continuous
+     gradient is a later idea and reads as a screen; this reads as a bank. */
+  const seg=Math.max(3,Math.round(iw/num(o.pitch,H.cellMm*1.4)));
+  const sw=iw/seg;
+  for(let i=0;i<seg;i++){
+    const k=Math.pow(rng(),num(o.bias,1.1));
+    if(k<0.1)continue;
+    const key=(o.alt&&rng()<0.15)?H.glow2:(o.key||H.glow);
+    fill(D,rrectP(ix+i*sw+sw*0.12,iy+ih*(1-k)*0.5,sw*0.76,ih*k,Math.min(0.6,ih*0.2)),
+      {c:gDim(H,key,0.44*k+0.14),h:-6.0,met:0.04,gl:0.76,
+       emi:gDim(H,key,0.45+0.55*k)});
+  }
+}
+
+/* --- an iris: blades closed about a hole ---------------------------------- */
+function iris(D,x,y,r,H,rng,o){
+  o=o||{};
+  const F=H.F,n=6+Math.floor(rng()*4)*2;
+  fill(D,circP(x,y,r*1.08),{c:shade(F.c,0.82),h:1.2,met:F.met,gl:1-F.rgh});
+  fill(D,circP(x,y,r),{c:shade(F.c,0.46),h:-4.0,met:F.met,gl:1-F.rgh});
+  const open=clamp(num(o.open,0.3),0.05,0.8);
+  for(let i=0;i<n;i++){
+    const a2=i/n*TAU;
+    /* each blade is a chord swept in from the rim, overlapping its neighbour */
+    fill(D,g=>{
+      const a0=a2,a1=a2+TAU/n*1.9;
+      g.beginPath();
+      g.arc(x,y,r*0.96,a0,a1);
+      g.lineTo(x+Math.cos(a1)*r*open,y+Math.sin(a1)*r*open);
+      g.arc(x,y,r*open,a1,a0,true);
+      g.closePath();},
+      {c:i&1?tone(F.c,1.16):shade(F.c,0.70),h:-2.6+(i&1?0.9:0),
+       met:Math.max(F.met,0.45),gl:1-F.rgh*0.8});
+  }
+  fill(D,circP(x,y,r*open*1.02),{c:"#07090a",h:-9.5,met:0.1,gl:0.6});
+  if(!dark())
+    fill(D,circP(x,y,r*open*0.8),
+      {c:gDim(H,o.key,0.40),h:-9.8,met:0.04,gl:0.72,emi:gDim(H,o.key,0.82)});
+  /* and the ring gear that would drive it */
+  for(let i=0;i<n*3;i++){
+    const a2=i/(n*3)*TAU;
+    stroke(D,lineP(x+Math.cos(a2)*r*1.0,y+Math.sin(a2)*r*1.0,
+                   x+Math.cos(a2)*r*1.07,y+Math.sin(a2)*r*1.07),r*0.045,
+      {c:shade(F.c,0.68),h:1.0,met:Math.max(F.met,0.5),gl:0.5});
+  }
+}
+
+/* --- extruded fins. The one form here with no light in it at all ---------- */
+function heatFins(D,x,y,w,h,H,o){
+  o=o||{};
+  const pitch=num(o.pitch,H.finMm*0.72);
+  const n=Math.max(4,Math.floor(w/pitch)),step=w/n;
+  fill(D,rrectP(x,y,w,h,0.6),{c:shade(H.F.c,0.70),h:-1.0,met:Math.max(H.F.met,0.55),
+    gl:0.42});
+  for(let i=0;i<n;i++){
+    const bx=x+i*step;
+    fill(D,rrectP(bx+step*0.12,y+0.8,step*0.46,h-1.6,0.25),
+      {c:tone(H.F.c,1.20),h:5.5,met:Math.max(H.F.met,0.6),gl:0.5});
+    fill(D,rrectP(bx+step*0.58,y+0.8,step*0.3,h-1.6,0.2),
+      {c:shade(H.F.c,0.44),h:-4.5,met:Math.max(H.F.met,0.5),gl:0.38});
+  }
+}
+
+/* --- a field of domed lenses, bedded in the panel -------------------------- */
+function domeField(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  const pitch=num(o.pitch,H.cellMm*0.85),r=pitch*0.38;
+  const nx=Math.max(2,Math.floor(w/pitch)),ny=Math.max(1,Math.floor(h/(pitch*0.9)));
+  const ox=x+(w-nx*pitch)*0.5+pitch*0.5,oy=y+(h-ny*pitch*0.9)*0.5+pitch*0.45;
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+    const sx=ox+i*pitch+((j&1)?pitch*0.5:0);
+    if(sx>x+w-r)continue;
+    const sy=oy+j*pitch*0.9;
+    fill(D,circP(sx,sy,r*1.35),{c:shade(H.F.c,0.62),h:-1.6,met:H.F.met,gl:1-H.F.rgh});
+    const on=!dark()&&lit(rng,num(o.lit,0.4));
+    fill(D,circP(sx,sy,r),
+      {c:on?gDim(H,o.key,0.52):"#15181b",h:1.5,met:0.06,gl:0.9,
+       emi:on?gDim(H,o.key,0.95):null});
+    fill(D,circP(sx-r*0.3,sy-r*0.3,r*0.26),
+      {c:"#ffffff",h:1.7,met:0.02,gl:0.98,emi:on?"rgb(255,255,250)":null});
+  }
+}
+
+/* --- a flat spiral wound into the face ------------------------------------ */
+function spiralCoil(D,x,y,r,H,rng,o){
+  o=o||{};
+  const turns=3+Math.floor(rng()*3),steps=turns*56;
+  fill(D,circP(x,y,r*1.04),{c:shade(H.F.c,0.52),h:-3.2,met:H.F.met,gl:1-H.F.rgh});
+  const lw=r/(turns*2.6);
+  const path=g=>{
+    g.beginPath();
+    for(let i=0;i<=steps;i++){
+      const t=i/steps,a2=t*turns*TAU,rr=r*(0.16+0.78*t);
+      const px=x+Math.cos(a2)*rr,py=y+Math.sin(a2)*rr;
+      if(i)g.lineTo(px,py);else g.moveTo(px,py);
+    }};
+  stroke(D,path,lw*1.6,{c:shade(H.F.c,0.34),h:-6.0,met:0.2,gl:0.5});
+  stroke(D,path,lw,{c:tone(H.F.c,1.22),h:-1.2,met:Math.max(H.F.met,0.6),gl:0.55});
+  fill(D,circP(x,y,r*0.14),{c:"#0b0d0f",h:-8,met:0.1,gl:0.6});
+  if(!dark())
+    fill(D,circP(x,y,r*0.10),
+      {c:gDim(H,o.key,0.48),h:-8.2,met:0.04,gl:0.74,emi:gDim(H,o.key,0.95)});
+}
+
+/* --- a monolith: one seam, one inset, and nothing else --------------------- */
+function monolith(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  const F=H.F;
+  fill(D,rrectP(x,y,w,h,1.0),{c:tone(F.c,1.04),h:2.2,met:F.met,gl:1-F.rgh});
+  /* THE SEAM IS OFF CENTRE, because a seam down the middle is a decoration and
+     a seam where the thing actually splits is a seam. The face is then two
+     plates at two heights, which is what stops a blank slab reading as a hole
+     in the cabinet — it has to be something, even if it is nothing. */
+  const sx=x+w*(0.3+rng()*0.4);
+  fill(D,rrectP(sx+0.9,y,x+w-(sx+0.9),h,1.0),
+    {c:tone(F.c,0.90),h:1.2,met:F.met,gl:1-F.rgh});
+  stroke(D,lineP(sx,y+1,sx,y+h-1),0.8,{c:shade(F.c,0.52),h:0.4,met:F.met,gl:1-F.rgh});
+  stroke(D,lineP(sx+0.9,y+1,sx+0.9,y+h-1),0.5,
+    {c:tone(F.c,1.26),h:2.6,met:F.met,gl:1-F.rgh});
+  /* a recessed band across the narrow half, and the one lit thing on it */
+  const iw=Math.min(w*0.30,74),ih=Math.min(h*0.46,26);
+  const left=sx-x>w*0.5;
+  const ix=left?x+6:x+w-iw-6,iy=y+h*0.5-ih*0.5;
+  well(D,ix,iy,iw,ih,4.5,H,0.8);
+  const n=2+Math.floor(rng()*3);
+  for(let i=0;i<n;i++){
+    const by=iy+ih*(0.22+i*0.56/Math.max(1,n-1));
+    const on=!dark()&&(i===0||lit(rng,num(o.lit,0.55)));
+    fill(D,rrectP(ix+2.5,by-0.9,iw-5,1.8,0.5),
+      {c:on?gDim(H,o.key,0.46):shade(F.c,0.30),h:-5.5,met:0.04,gl:0.74,
+       emi:on?gDim(H,o.key,0.95):null});
+  }
+  /* and the fasteners that hold the plate on, which is the whole claim that
+     this is a serviceable object rather than a painted rectangle */
+  for(const fx of [x+4,x+w-4])for(const fy of [y+4,y+h-4])
+    screw(D,fx,fy,1.5,H.fast);
+}
+
+/* --- a comb of slots at varying widths ------------------------------------ */
+function slotComb(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  well(D,x,y,w,h,3.5,H,0.8);
+  let cx=x+2.5;
+  const end=x+w-2.5;
+  let guard=200;
+  while(cx<end-1&&guard-->0){
+    const sw=1.2+Math.pow(rng(),1.6)*7;
+    if(cx+sw>end)break;
+    fill(D,rrectP(cx,y+2,sw,h-4,0.4),{c:"#0b0d0f",h:-7.5,met:0.12,gl:0.56});
+    if(!dark()&&lit(rng,num(o.lit,0.22)))
+      fill(D,rrectP(cx+0.3,y+h-5.2,sw-0.6,1.6,0.3),
+        {c:gDim(H,o.key,0.46),h:-7.2,met:0.04,gl:0.74,emi:gDim(H,o.key,0.9)});
+    cx+=sw+1.1+rng()*2.6;
+  }
+}
+
+/* --- chevron vanes, the one form with a diagonal in it -------------------- */
+function vaneField(D,x,y,w,h,H,rng,o){
+  o=o||{};
+  const n=Math.max(3,Math.round(h/Math.max(5,num(o.pitch,H.finMm*1.3))));
+  const step=h/n,sk=Math.min(w*0.10,16);
+  well(D,x,y,w,h,4,H,0.8);
+  for(let i=0;i<n;i++){
+    const vy=y+i*step+step*0.18;
+    const path=g=>{
+      g.beginPath();
+      g.moveTo(x+1.5,vy+step*0.52);
+      g.lineTo(x+w*0.5,vy);
+      g.lineTo(x+w-1.5,vy+step*0.52);
+      g.lineTo(x+w-1.5,vy+step*0.52+step*0.3);
+      g.lineTo(x+w*0.5,vy+step*0.3);
+      g.lineTo(x+1.5,vy+step*0.52+step*0.3);
+      g.closePath();};
+    fill(D,path,{c:tone(H.F.c,1.18),h:2.4,met:Math.max(H.F.met,0.5),gl:0.5});
+    const path2=g=>{
+      g.beginPath();
+      g.moveTo(x+1.5,vy+step*0.52+step*0.3);
+      g.lineTo(x+w*0.5,vy+step*0.3);
+      g.lineTo(x+w-1.5,vy+step*0.52+step*0.3);
+      g.lineTo(x+w-1.5,vy+step*0.78);
+      g.lineTo(x+w*0.5,vy+step*0.56);
+      g.lineTo(x+1.5,vy+step*0.78);
+      g.closePath();};
+    fill(D,path2,{c:"#101214",h:-5.2,met:0.14,gl:0.45});
+    if(sk<0){/* keeps the skew in play for a future angled variant */}
+  }
+}
+
+/* --- a bulkhead of bores where conduit enters ----------------------------- */
+function bulkPorts(D,x,y,w,h,H,rng,ps,px0,o){
+  o=o||{};
+  const n=Math.max(3,Math.round(w/Math.max(16,num(o.pitch,H.cellMm*2.2))));
+  const step=w/n,r=Math.min(step*0.33,h*0.36,7);
+  for(let i=0;i<n;i++){
+    const sx=x+i*step+step*0.5,sy=y+h*0.5;
+    /* a collar, a bore, and a dark behind it */
+    fill(D,circP(sx,sy,r*1.3),{c:shade(H.F.c,0.74),h:1.8,met:Math.max(H.F.met,0.5),
+      gl:0.5});
+    fill(D,circP(sx,sy,r*1.08),{c:tone(H.F.c,1.20),h:3.0,
+      met:Math.max(H.F.met,0.55),gl:0.56});
+    fill(D,circP(sx,sy,r*0.78),{c:"#0a0c0e",h:-6.5,met:0.12,gl:0.6});
+    if(ps)port(ps,sx,sy,SIDE_OF(sx,px0,PANEL_W),o.kind||"sig");
+  }
+  return n;
+}
+
 const FACE={power:facePower,supply:faceSupply,logic:faceLogic,store:faceStore,
   disc:faceDisc,cart:faceCart,conso:faceConso,instr:faceInstr,term:faceTerm,
   patch:facePatch,line:faceLine,timing:faceTiming};
+
+/* ===================== the abstract faces =====================
+   One composer per abstract archetype, laid out in the box its plate leaves,
+   on the same terms as the period ones: the arrangement is designed and only
+   the counts and the states are rolled. Every one of them offers ports,
+   because the cabling is what ties a wall of inscrutable boxes together into
+   an installation — without it they are twelve posters. */
+
+/* --- dissipator stack: fins, a plenum, and no light whatever -------------- */
+function faceSink(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const banks=uh>=4?2:1,gap=4;
+  const bh=(ch-gap*(banks-1))/banks;
+  for(let i=0;i<banks;i++)
+    heatFins(D,b.x,cy+i*(bh+gap),b.w-24,bh,H,{});
+  /* the plenum down the side, where the air leaves */
+  const px=b.x+b.w-21;
+  well(D,px,cy,21,ch,5,H,1.0);
+  slotComb(D,px+1.5,cy+2,18,ch-4,H,rng,{lit:0.06});
+  for(let i=0;i<2;i++){
+    const sx=b.x+b.w-4.5,sy=cy+ch*(0.3+i*0.4);
+    shellR(D,sx,sy,3.0);port(ps,sx,sy,"r","pwr");
+  }
+  return ps;
+}
+
+/* --- vane array: the one diagonal in the cabinet -------------------------- */
+function faceVane(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const cols=uh>=3?2:1,cw=(b.w-30-(cols-1)*5)/cols;
+  for(let i=0;i<cols;i++)vaneField(D,b.x+i*(cw+5),cy,cw,ch,H,rng,{});
+  const rx=b.x+b.w-26;
+  mark(D,rx,cy+1.5,22,2.4,rng,{c:shade(H.F.c,0.52)});
+  domeField(D,rx,cy+6,24,Math.min(ch-8,26),H,rng,{lit:0.3,pitch:9});
+  const sx=b.x+b.w-4.5,sy=cy+ch-4.5;
+  shellR(D,sx,sy,2.8);port(ps,sx,sy,"r","pwr");
+  return ps;
+}
+
+/* --- cell lattice: the deep plane ----------------------------------------- */
+function faceLattice(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  /* a bank of lattice with a rule between every group, which is the thing
+     that stops a big field reading as a texture */
+  const groups=uh>=6?3:(uh>=4?2:1);
+  const gw=(b.w-18-(groups-1)*5)/groups;
+  for(let i=0;i<groups;i++){
+    const gx=b.x+i*(gw+5);
+    cellGrid(D,gx,cy,gw,ch,H,rng,{lit:0.18+rng()*0.26});
+    /* the rib between banks, which is what stops a wall of cells reading as
+       one sheet of perforation */
+    if(i)fill(D,rrectP(gx-4.2,cy,3.4,ch,0.6),
+      {c:tone(H.F.c,1.10),h:1.4,met:H.F.met,gl:1-H.F.rgh});
+  }
+  /* the service strip down the right: a handle, a mark, a captive fastener */
+  const rx=b.x+b.w-15;
+  fill(D,rrectP(rx,cy,15,ch,1.0),{c:shade(H.F.c,0.90),h:0.6,met:H.F.met,
+    gl:1-H.F.rgh});
+  handle(D,rx+1.5,cy+ch*0.5-3.5,12,7,H.handle==="none"?"bar":H.handle,H);
+  fill(D,circP(rx+7.5,cy+4,1.5),{c:"#9aa0a6",h:2.0,met:0.9,gl:0.6});
+  fill(D,circP(rx+7.5,cy+ch-4,1.5),{c:"#9aa0a6",h:2.0,met:0.9,gl:0.6});
+  for(const sd of ["l","r"]){
+    const sx=sd==="l"?b.x+1:b.x+b.w-11;
+    shellD(D,sx,b.y+b.h-8.5,10,7);
+    port(ps,sx+5,b.y+b.h-5,sd,"sig");
+  }
+  return ps;
+}
+
+/* --- blade bank: the stack ------------------------------------------------ */
+function faceBlade(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const rows=uh>=7?2:1,gap=5;
+  const rh=(ch-gap*(rows-1))/rows;
+  for(let i=0;i<rows;i++)
+    finBank(D,b.x,cy+i*(rh+gap),b.w-30,rh,H,rng,{lit:0.42+rng()*0.3});
+  /* the backplane end: where the blades plug in, and where the leads come out */
+  const rx=b.x+b.w-27;
+  well(D,rx,cy,27,ch,4,H,1.0);
+  bulkPorts(D,rx+1,cy+2,25,ch-4,H,rng,null,x,{pitch:14});
+  for(let i=0;i<2;i++){
+    const sx=b.x+b.w-5,sy=cy+ch*(0.26+i*0.44);
+    port(ps,sx,sy,"r","sig");
+  }
+  return ps;
+}
+
+/* --- coil former: the spiral ---------------------------------------------- */
+function faceSpool(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const n=ch>80?2:1;
+  const r=Math.min(ch*0.45,b.w/(n*2.6));
+  for(let i=0;i<n;i++)
+    spiralCoil(D,b.x+r*1.15+i*r*2.5,cy+ch*0.5,r,H,rng,{});
+  const rx=b.x+r*1.15*2+ (n-1)*r*2.5 + r*1.4;
+  const rw=b.x+b.w-rx-2;
+  if(rw>26){
+    lumenBar(D,rx,cy+ch*0.12,rw,Math.min(ch*0.2,13),H,rng,{bias:1.6});
+    cellGrid(D,rx,cy+ch*0.42,rw,ch*0.5,H,rng,{lit:0.16,pitch:H.cellMm*0.8});
+  }
+  for(let i=0;i<2;i++){
+    const sx=b.x+b.w-4.5,sy=cy+ch*(0.3+i*0.36);
+    shellR(D,sx,sy,2.8);port(ps,sx,sy,"r","sig");
+  }
+  return ps;
+}
+
+/* --- ring core: the concentric one ---------------------------------------- */
+function faceCore(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const r=Math.min(ch*0.47,b.w*0.26);
+  const cx=b.x+r+6;
+  ringCore(D,cx,cy+ch*0.5,r,H,rng,{});
+  const rx=cx+r+8,rw=b.x+b.w-rx-3;
+  if(rw>30){
+    /* what the core is doing, said in a way that says nothing */
+    lumenBar(D,rx,cy+2,rw,Math.min(ch*0.17,12),H,rng,{bias:0.8,alt:true});
+    const sh=ch-Math.min(ch*0.17,12)-8;
+    cellGrid(D,rx,cy+Math.min(ch*0.17,12)+5,rw*0.62,sh,H,rng,{lit:0.24});
+    domeField(D,rx+rw*0.66,cy+Math.min(ch*0.17,12)+5,rw*0.34,sh,H,rng,{lit:0.35});
+  }
+  for(let i=0;i<2;i++){
+    const sx=i?b.x+b.w-4.5:b.x+4.5,sy=cy+ch-5;
+    shellR(D,sx,sy,3.0);port(ps,sx,sy,i?"r":"l","sig");
+  }
+  return ps;
+}
+
+/* --- aperture gate: the iris ---------------------------------------------- */
+function faceIris(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const n=ch>120?2:1;
+  const r=Math.min(ch*(n>1?0.24:0.46),b.w*0.2);
+  for(let i=0;i<n;i++)
+    iris(D,b.x+r+6,cy+ch*(n>1?(0.27+i*0.46):0.5),r,H,rng,{open:0.18+rng()*0.3});
+  const rx=b.x+r*2+14,rw=b.x+b.w-rx-3;
+  if(rw>30){
+    slotComb(D,rx,cy+1,rw*0.46,ch-2,H,rng,{lit:0.3});
+    monolith(D,rx+rw*0.5,cy+1,rw*0.5,ch-2,H,rng,{lit:0.6});
+  }
+  for(let i=0;i<2;i++){
+    const sx=b.x+b.w-4.5,sy=cy+ch*(0.28+i*0.4);
+    shellR(D,sx,sy,2.9);port(ps,sx,sy,"r","sig");
+  }
+  return ps;
+}
+
+/* --- node field: the staggered lenses ------------------------------------- */
+function faceNode(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const lw=Math.min(ch*0.3,11);
+  lumenBar(D,b.x,cy,b.w-20,lw,H,rng,{bias:1.3});
+  domeField(D,b.x,cy+lw+3,b.w-20,ch-lw-3,H,rng,{lit:0.42});
+  if(H.div)divide(D,b.x+b.w-22,cy,b.x+b.w-22,cy+ch);
+  mark(D,b.x+b.w-18,cy+2,15,2.6,rng,{c:shade(H.F.c,0.52)});
+  for(let i=0;i<2;i++){
+    const sx=b.x+b.w-4.5,sy=cy+ch*(0.42+i*0.34);
+    shellR(D,sx,sy,2.7);port(ps,sx,sy,"r","sig");
+  }
+  return ps;
+}
+
+/* --- sealed block: the one that gives nothing away ------------------------ */
+function faceSlab(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  monolith(D,b.x,cy,b.w,ch,H,rng,{lit:0.5});
+  /* one hazard-free warning that is not a warning: a band of marks */
+  if(H.seam)mark(D,b.x+6,cy+ch-5.5,Math.min(b.w*0.3,52),3,rng,
+    {c:shade(H.F.c,0.46)});
+  const sx=b.x+b.w-5,sy=cy+ch*0.5;
+  port(ps,sx,sy,"r","pwr");
+  return ps;
+}
+
+/* --- lumen bar: a whole panel of it --------------------------------------- */
+function faceLumen(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const rows=uh>=3?3:(uh>=2?2:1),gap=2.5;
+  const rh=(ch-gap*(rows-1))/rows;
+  for(let i=0;i<rows;i++)
+    lumenBar(D,b.x,cy+i*(rh+gap),b.w-16,rh,H,rng,
+      {bias:0.7+i*0.5,alt:i===0});
+  const rx=b.x+b.w-14;
+  for(let i=0;i<2;i++)
+    fill(D,circP(rx+7,cy+ch*(0.3+i*0.4),1.6),{c:"#9aa0a6",h:2.0,met:0.9,gl:0.6});
+  const sx=b.x+b.w-4.5,sy=cy+ch*0.5;
+  port(ps,sx,sy,"r","sig");
+  return ps;
+}
+
+/* --- slot comb: the barcode that is not one ------------------------------- */
+function faceComb(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const rows=uh>=2?2:1,gap=2.5;
+  const rh=(ch-gap*(rows-1))/rows;
+  for(let i=0;i<rows;i++)
+    slotComb(D,b.x,cy+i*(rh+gap),b.w-30,rh,H,rng,{lit:0.26});
+  const rx=b.x+b.w-28;
+  bulkPorts(D,rx,cy,28,ch,H,rng,ps,x,{pitch:14,kind:"sig"});
+  return ps;
+}
+
+/* --- trunk bulkhead: the panel that exists to be cabled ------------------- */
+function faceTrunk(D,x,y,w,uh,H,rng,title){
+  const b=plate(D,x,y,w,uh,H,{F:H.trim}),ps=[];
+  const m=nameplate(D,b.x,b.y,b.w,b.h,H,title,rng);
+  const cy=b.y+m.top,ch=b.h-m.top-m.bot;
+  const rows=uh>=3?2:1,gap=2;
+  const rh=(ch-gap*(rows-1))/rows;
+  for(let i=0;i<rows;i++)
+    bulkPorts(D,b.x,cy+i*(rh+gap),b.w,rh,H,rng,ps,x,
+      {pitch:Math.max(16,H.cellMm*2.0),kind:i===0?"sig":"pwr"});
+  return ps;
+}
+
+const FACE_A={sink:faceSink,vane:faceVane,lattice:faceLattice,blade:faceBlade,
+  spool:faceSpool,core:faceCore,iris:faceIris,node:faceNode,slab:faceSlab,
+  lumen:faceLumen,comb:faceComb,trunk:faceTrunk};
+const facesOf=P=>(styleOf(P)==="abstract"?FACE_A:FACE);
+
 
 /* ============================ filling the cabinet ============================
    A rack is not a shuffled deck, and the single quickest way to make one look
@@ -1090,7 +1875,8 @@ const FACE={power:facePower,supply:faceSupply,logic:faceLogic,store:faceStore,
    height measured from the FLOOR */
 const ZONE=[[0.00,0.22],[0.10,0.50],[0.38,0.80],[0.68,1.00],[0.00,1.00]];
 /* and how many of one archetype a sane installation has in one cabinet */
-const CAP_OF={power:1,supply:2,conso:1,term:2,disc:3,store:3};
+/* how many of one archetype a sane installation has in one cabinet — a
+   property of the archetype, so it lives on the archetype */
 
 /* WHAT SORT OF INSTALLATION IT IS. The same twelve archetypes in different
    proportions, which is how two machine rooms of the period differed: one was
@@ -1109,7 +1895,21 @@ const MIX={
             term:0.4,cart:0.4}
 };
 const MIX_KEYS=Object.keys(MIX);
-const mixOf=P=>MIX[str(P.mix,"balanced")]||MIX.balanced;
+/* and the same idea for kit with no function: the lean is by FORM rather than
+   by job, because form is all these panels have. */
+const MIX_A={
+  balanced:{},
+  dense :{lattice:3.5,blade:3.0,comb:2.0,node:1.6,
+          slab:0.3,core:0.4,iris:0.3,spool:0.4},
+  cores :{core:3.4,iris:3.0,spool:2.6,slab:1.2,
+          lattice:0.5,blade:0.4,comb:0.4,lumen:0.6},
+  flux  :{lumen:4.0,trunk:3.2,comb:2.6,node:2.2,
+          lattice:0.4,blade:0.3,core:0.4,slab:0.4}
+};
+const MIX_A_KEYS=Object.keys(MIX_A);
+const mixOf=P=>(styleOf(P)==="abstract"
+  ?(MIX_A[str(P.mixA,"balanced")]||MIX_A.balanced)
+  :(MIX[str(P.mix,"balanced")]||MIX.balanced));
 /* OUT OF ZONE, BUT NOT OUT OF THE QUESTION. A device may be placed one band
    away from where it belongs, at a fifth of its weight — which is what lets a
    mix lean the whole cabinet rather than only the one band its favourites live
@@ -1154,7 +1954,7 @@ function layout(P){
   const rU=clamp(P.rackU|0,8,45);
   const want=clamp(num(P.fill,0.86),0.2,1);
   const vents=clamp(num(P.vents,0.7),0,1);
-  const mx=mixOf(P);
+  const mx=mixOf(P),list=devsOf(P),sty=styleOf(P);
   const items=[];                                /* every panel in the place */
   const caps=[];                                 /* and what each bay is called */
   for(let bb=0;bb<bays;bb++){
@@ -1171,8 +1971,8 @@ function layout(P){
       while(guard-->0){
         let used=0;for(let u=lo;u<hi;u++)if(slot[u])used++;
         if(used>=band*want)break;
-        const pool=DEV.filter(d=>(Math.abs(d.want-z)<=1||d.want===4)&&
-          (got[d.id]||0)<(CAP_OF[d.id]===undefined?3:CAP_OF[d.id]));
+        const pool=list.filter(d=>(Math.abs(d.want-z)<=1||d.want===4)&&
+          (got[d.id]||0)<capOf(d));
         if(!pool.length)break;
         const d=weighted(rng,pool,mx,z);
         /* ask for the height the dice want and take the TALLEST that still
@@ -1217,7 +2017,11 @@ function layout(P){
       }
       u--;
     }
-    caps.push(pick(rng,TITLES)+(bays>1?" "+String.fromCharCode(65+bb):""));
+    /* a cabinet name, which the abstract style draws as marks and never
+       prints — it is here so the readout and the readme can say which bay */
+    caps.push(sty==="abstract"
+      ?("bay "+String.fromCharCode(65+bb))
+      :(pick(rng,TITLES)+(bays>1?" "+String.fromCharCode(65+bb):"")));
   }
   return {bays:bays,rU:rU,items:items,caps:caps};
 }
@@ -1255,7 +2059,14 @@ function cabinet(D,x,y,rU,H,rng,capText){
   fill(D,rrectP(x-5,y-CAP-4,CABW+10,9.5,0.8),
     {c:shade(SF.c,1.22),h:2.2,met:SF.met,gl:1-SF.rgh});
   perf(D,x+SIDE+8,y-CAP+10,120,CAP-18,5.4,1.8);
-  legend(D,capText,x+CABW*0.5,y-CAP+13,6.2,{align:"center",track:1.4,c:"#e6e2d6",h:0.4});
+  if(H.style==="abstract"){
+    const mw=Math.min(CABW*0.34,150),mx2=x+CABW*0.5-mw*0.5;
+    sigil(D,mx2-14,y-CAP+12,9,rng,{c:"#d8d4c8",h:0.4});
+    mark(D,mx2,y-CAP+13,mw,7,rng,{c:"#d8d4c8",h:0.4});
+  }else{
+    legend(D,capText,x+CABW*0.5,y-CAP+13,6.2,
+      {align:"center",track:1.4,c:"#e6e2d6",h:0.4});
+  }
   /* the plinth: a kick plate STEPPED BACK from the body, so the cabinet reads
      as standing on something rather than as a box reaching the floor */
   const pin=8;
@@ -1511,6 +2322,7 @@ function wireUp(D,P,geo,ports,rng){
 function compose(cvA,cvP,cvE,P,geo,kx,ky){
   const H=geo.H;
   LITF=clamp(num(P.lit,1),0,1);
+  const FA=facesOf(P);
   const D=painter(cvA,cvP,cvE,kx,ky,H);
   const ports=[];
   for(let bb=0;bb<geo.bays;bb++){
@@ -1527,7 +2339,7 @@ function compose(cvA,cvP,cvE,P,geo,kx,ky){
     let ps=[];
     if(it.kind==="vent")ps=ventFace(D,bx,py,PANEL_W,it.uh,H,rng);
     else if(it.kind==="blank")ps=blankFace(D,bx,py,PANEL_W,it.uh,H,rng);
-    else ps=(FACE[it.id]||blankFace)(D,bx,py,PANEL_W,it.uh,H,rng,it.title);
+    else ps=(FA[it.id]||blankFace)(D,bx,py,PANEL_W,it.uh,H,rng,it.title);
     for(const p of ps){p.bay=it.bay;p.item=it;}
     it.ports=ps;
     for(const p of ps)ports.push(p);
@@ -1555,8 +2367,13 @@ function geomOf(P,sizeOver){
   let items,bays,rU,caps,Wmm,Hmm,ox,oy,askU=0,gotU=0,dev=null;
   if(piece==="panel"){
     const rng=mulberry32(hseed(43,61,P.seed|0));
-    const id=str(P.dev,"auto");
-    const d=(id==="auto"||!DEV_BY[id])?weighted(rng,DEV,mixOf(P)):DEV_BY[id];
+    const list=devsOf(P);
+    const id=styleOf(P)==="abstract"?str(P.devA,"auto"):str(P.dev,"auto");
+    const got=DEV_BY[id];
+    /* an id from the OTHER style is not an error, it is a stale control — the
+       select for the style you are not in keeps whatever you last left in it */
+    const d=(id==="auto"||!got||list.indexOf(got)<0)
+      ?weighted(rng,list,mixOf(P)):got;
     dev=d;
     askU=clamp(P.panelU|0,0,9);
     gotU=askU?clamp(askU,d.u[0],d.u[1])
@@ -1780,18 +2597,25 @@ function build(P,io){
   }
 
   function censusOf(){
-    const by={};let U_used=0,devs=0,blanks=0,vents=0;
+    const by={},pby={};let U_used=0,devs=0,blanks=0,vents=0;
     for(const it of geo.items){
-      if(it.kind==="dev"){by[it.id]=(by[it.id]||0)+1;devs++;U_used+=it.uh;}
+      if(it.kind==="dev"){
+        by[it.id]=(by[it.id]||0)+1;devs++;U_used+=it.uh;
+        /* ports PER ARCHETYPE, because "every device offers somewhere to plug
+           something in" is a claim about the device and not about the rack */
+        pby[it.id]=(pby[it.id]||0)+((it.ports&&it.ports.length)||0);
+      }
       else if(it.kind==="vent"){vents++;}
       else blanks++;
     }
-    return {piece:geo.piece,bays:geo.bays,rU:geo.rU,devs:devs,byId:by,
+    return {piece:geo.piece,style:H.style,bays:geo.bays,rU:geo.rU,devs:devs,byId:by,
+            portsById:pby,
             blanks:blanks,vents:vents,usedU:U_used,
             ports:stat.ports,cords:stat.wires.cords,trunks:stat.wires.trunks,
             exits:stat.wires.exits,
             Wmm:geo.Wmm,Hmm:geo.Hmm,mpp:geo.mpp,cut:geo.cut,
             fin:H.fin,trim:H.trimKey,lamps:H.lamps.slice(),phos:H.phos,
+            glow:H.glow,glow2:H.glow2,motif:H.motif,cellMm:H.cellMm,
             handle:H.handle,dev:geo.dev?geo.dev.id:"",gotU:geo.gotU};
   }
 
@@ -1805,7 +2629,10 @@ window.ForgeRack={
   U:U,PANEL_W:PANEL_W,HOLE_DX:HOLE_DX,HOLE_Y:HOLE_Y,GAP:GAP,
   SIDE:SIDE,PLINTH:PLINTH,CAP:CAP,CABW:CABW,MARGIN:MARGIN,HLO:HLO,HHI:HHI,
   FINISH:FINISH,LAMP:LAMP,PHOS:PHOS,DEV:DEV,DEV_BY:DEV_BY,
-  ZONE:ZONE,CAP_OF:CAP_OF,MIX:MIX,MIX_KEYS:MIX_KEYS,
+  ZONE:ZONE,capOf:capOf,MIX:MIX,MIX_KEYS:MIX_KEYS,
+  DEV_A:DEV_A,GLOW:GLOW,GLOW_KEYS:GLOW_KEYS,MIX_A:MIX_A,
+  MIX_A_KEYS:MIX_A_KEYS,FACE:FACE,FACE_A:FACE_A,
+  styleOf:styleOf,devsOf:devsOf,facesOf:facesOf,
   WORDS:WORDS,TITLES:TITLES,JACKET:JACKET,
   LANE_N:LANE_N,LANE_X0:LANE_X0,LANE_DX:LANE_DX,
   houseOf:houseOf,layout:layout,geomOf:geomOf,screwYs:screwYs,
@@ -1838,53 +2665,80 @@ Forge.register({
 
   presets:[
     {id:"machine",label:"Machine room — logic and tape",set:{
-      piece:"rack",bays:2,rackU:42,mix:"compute",fill:.9,vents:.8,
+      style:"period",piece:"rack",bays:2,rackU:42,mix:"compute",fill:.9,vents:.8,
       finish:"putty",trimAuto:true,phos:"auto",lit:.85,
       wires:true,cables:.7,exits:.4,
       age:.4,dust:.3,grime:.22,scuff:.3,aoStr:1,nStr:1,glow:1,cDirt:"#6b6252"}},
 
     {id:"console",label:"Operations console — somebody stood here",set:{
-      piece:"rack",bays:2,rackU:28,mix:"control",fill:.94,vents:.5,
+      style:"period",piece:"rack",bays:2,rackU:28,mix:"control",fill:.94,vents:.5,
       finish:"slate",trimAuto:true,phos:"p1",lit:1,
       wires:true,cables:.5,exits:.3,
       age:.2,dust:.2,grime:.15,scuff:.4,aoStr:1,nStr:1,glow:1.15,cDirt:"#6b6252"}},
 
     {id:"comms",label:"Comms room — a wall of patch",set:{
-      piece:"rack",bays:3,rackU:45,mix:"comms",fill:.96,vents:.4,
+      style:"period",piece:"rack",bays:3,rackU:45,mix:"comms",fill:.96,vents:.4,
       finish:"bone",trimAuto:true,phos:"auto",lit:.8,
       wires:true,cables:1,exits:.6,
       age:.55,dust:.3,grime:.3,scuff:.25,aoStr:1.05,nStr:1,glow:1,cDirt:"#6b6252"}},
 
     {id:"dark",label:"Powered down — nothing lit",set:{
-      piece:"rack",bays:1,rackU:36,mix:"balanced",fill:.9,vents:.7,
+      style:"period",piece:"rack",bays:1,rackU:36,mix:"balanced",fill:.9,vents:.7,
       finish:"char",trimAuto:true,phos:"auto",lit:0,
       wires:true,cables:.6,exits:.35,
       age:.3,dust:.5,grime:.4,scuff:.3,aoStr:1.1,nStr:1,glow:1,cDirt:"#6b6252"}},
 
     {id:"derelict",label:"Derelict — stripped and filthy",set:{
-      piece:"rack",bays:2,rackU:40,mix:"balanced",fill:.62,vents:.5,
+      style:"period",piece:"rack",bays:2,rackU:40,mix:"balanced",fill:.62,vents:.5,
       finish:"olive",trimAuto:true,phos:"auto",lit:0,
       wires:true,cables:.35,exits:.7,
       age:.9,dust:.85,grime:.95,scuff:.2,aoStr:1.2,nStr:1.1,glow:1,
       cDirt:"#5b5243"}},
 
+    {id:"nofunction",label:"No discernible function — abstract kit",set:{
+      style:"abstract",piece:"rack",bays:2,rackU:42,mixA:"balanced",
+      fill:.92,vents:.6,finish:"anod",trimAuto:true,accent:"auto",lit:.95,
+      wires:true,cables:.7,exits:.4,
+      age:.05,dust:.12,grime:.14,scuff:.18,aoStr:1.05,nStr:1,glow:1.2,
+      cDirt:"#5a5c60"}},
+
+    {id:"array",label:"Dense array — lattice and blades",set:{
+      style:"abstract",piece:"rack",bays:3,rackU:45,mixA:"dense",
+      fill:.96,vents:.8,finish:"char",trimAuto:true,accent:"cyan",lit:1,
+      wires:true,cables:.85,exits:.3,
+      age:.05,dust:.1,grime:.12,scuff:.15,aoStr:1.1,nStr:1,glow:1.3,
+      cDirt:"#5a5c60"}},
+
+    {id:"reliquary",label:"Cold storage — cores, apertures and silence",set:{
+      style:"abstract",piece:"rack",bays:2,rackU:36,mixA:"cores",
+      fill:.9,vents:.3,finish:"brush",trimAuto:true,accent:"violet",lit:.55,
+      wires:true,cables:.45,exits:.5,
+      age:.1,dust:.25,grime:.2,scuff:.3,aoStr:1.05,nStr:1,glow:1.15,
+      cDirt:"#6b6252"}},
+
     {id:"oneface",label:"One panel — a decal of a single device",set:{
-      piece:"panel",dev:"auto",panelU:0,
-      finish:"brush",trimAuto:true,phos:"auto",lit:1,
+      style:"period",piece:"panel",dev:"auto",devA:"auto",panelU:0,
+      finish:"brush",trimAuto:true,phos:"auto",accent:"auto",lit:1,
       wires:true,cables:.5,exits:.3,
       age:.15,dust:.12,grime:.1,scuff:.3,aoStr:1,nStr:1,glow:1.1,cDirt:"#6b6252"}}
   ],
 
   controls:[
     {title:"Output",open:true,rows:[
+      {id:"style",type:"select",label:"The kit is",value:"period",options:[
+        ["period","1980s — operated by hand"],
+        ["abstract","Abstract — no discernible function"]]},
       {id:"piece",type:"select",label:"Draw",value:"rack",options:[
         ["rack","A cabinet, front elevation"],["panel","One device panel"]]},
       {id:"size",type:"select",label:"Resolution",value:2048,numeric:true,
        options:Forge.sizes("plain",4096)},
       {id:"bays",label:"Cabinets",min:1,max:4,step:1,value:2,need:"rack"},
       {id:"rackU",label:"Cabinet height",unit:"U",min:8,max:45,step:1,value:38,need:"rack"},
-      {id:"dev",type:"select",label:"Device",value:"auto",need:"panel",options:
+      {id:"dev",type:"select",label:"Device",value:"auto",need:"panelper",options:
         [["auto","Whatever the seed picks"]].concat(DEV.map(d=>[d.id,
+          d.name.charAt(0).toUpperCase()+d.name.slice(1)]))},
+      {id:"devA",type:"select",label:"Device",value:"auto",need:"panelabs",options:
+        [["auto","Whatever the seed picks"]].concat(DEV_A.map(d=>[d.id,
           d.name.charAt(0).toUpperCase()+d.name.slice(1)]))},
       {id:"panelU",type:"select",label:"Panel height",value:0,numeric:true,need:"panel",
        options:[[0,"Natural for the device"],[1,"1 U"],[2,"2 U"],[3,"3 U"],[4,"4 U"],
@@ -1900,9 +2754,12 @@ Forge.register({
     ]},
 
     {title:"The installation",open:true,need:"rack",rows:[
-      {id:"mix",type:"select",label:"Mostly",value:"balanced",options:[
+      {id:"mix",type:"select",label:"Mostly",value:"balanced",need:"period",options:[
         ["balanced","A bit of everything"],["compute","Logic, tape and disc"],
         ["control","Consoles and instruments"],["comms","Patch, line and timing"]]},
+      {id:"mixA",type:"select",label:"Mostly",value:"balanced",need:"abstract",options:[
+        ["balanced","A bit of everything"],["dense","Dense arrays"],
+        ["cores","Cores and apertures"],["flux","Light and trunking"]]},
       {id:"fill",label:"How full",min:.2,max:1,step:.02,value:.88},
       {id:"vents",label:"Vent panels over hot kit",min:0,max:1,step:.05,value:.7},
       {id:"lit",label:"Powered up",min:0,max:1,step:.05,value:.9},
@@ -1933,14 +2790,20 @@ Forge.register({
       {id:"trim",type:"select",label:"Trim and frame",value:"char",need:"trimman",
        options:FIN_KEYS.map(k=>[k,FINISH[k].name.charAt(0).toUpperCase()+
          FINISH[k].name.slice(1)])},
-      {id:"phos",type:"select",label:"Screen phosphor",value:"auto",options:[
+      {id:"accent",type:"select",label:"Accent light",value:"auto",need:"abstract",
+       options:[["auto","Whatever the maker fitted"]].concat(
+         GLOW_KEYS.map(k=>[k,GLOW[k].name.charAt(0).toUpperCase()+
+           GLOW[k].name.slice(1)]))},
+      {id:"phos",type:"select",label:"Screen phosphor",value:"auto",need:"period",
+       options:[
         ["auto","Whatever the maker fitted"],["p1","Green P1"],["p3","Amber P3"],
         ["p4","White P4"]]},
       {type:"note",html:"One bezel colour, one corner radius, one handle, one place "+
-        "the nameplate goes, <b>three lamp colours and not five</b> — drawn once per "+
-        "seed and applied to every device in the place. A cabinet whose devices each "+
-        "chose their own styling reads as a junk shop, which is the usual failure of "+
-        "this subject."}
+        "the nameplate goes, one fastener, one cell pitch, <b>three lamp colours and "+
+        "not five</b> — or, on abstract kit, <b>one accent and no lamps at all</b> — "+
+        "drawn once per seed and applied to every device in the place. A cabinet "+
+        "whose devices each chose their own styling reads as a junk shop, which is "+
+        "the usual failure of this subject."}
     ]},
 
     {title:"Age and dirt",rows:[
@@ -1975,7 +2838,12 @@ Forge.register({
   },
 
   needs:function(P){
-    const out=[str(P.piece,"rack")==="panel"?"panel":"rack"];
+    const panel=str(P.piece,"rack")==="panel";
+    const abs=styleOf(P)==="abstract";
+    const out=[panel?"panel":"rack",abs?"abstract":"period"];
+    /* `need` is an OR over its keys, so a row that wants BOTH a piece and a
+       style has to be given the pair as one key */
+    out.push((panel?"panel":"rack")+(abs?"abs":"per"));
     if(!bool(P.trimAuto,true))out.push("trimman");
     return out;
   },
@@ -2013,8 +2881,9 @@ Forge.register({
 
   fileBase:function(P,W){
     const g=geomOf(P);
-    return "rack_"+(g.piece==="panel"?("panel_"+(g.dev?g.dev.id:"auto")+"_"+g.gotU+"u")
-      :(g.bays+"bay_"+g.rU+"u"))+"_"+(P.seed|0)+"_"+W;
+    return "rack_"+(g.H.style==="abstract"?"abs_":"")+
+      (g.piece==="panel"?("panel_"+(g.dev?g.dev.id:"auto")+"_"+g.gotU+"u")
+                        :(g.bays+"bay_"+g.rU+"u"))+"_"+(P.seed|0)+"_"+W;
   },
 
   tileTag:function(){return "Cut-out — nothing behind it";},
@@ -2022,7 +2891,11 @@ Forge.register({
   readout:function(P){
     const g=geomOf(P);
     const H=g.H;
-    const lamps=H.lamps.map(k=>LAMP[k].name).join(", ");
+    const abs=H.style==="abstract";
+    /* what the maker's language IS, in the terms that style has */
+    const lamps=abs
+      ?(GLOW[H.glow].name+" accent, "+H.motif+" cell at "+H.cellMm+" mm")
+      :(H.lamps.map(k=>LAMP[k].name).join(", "));
     if(g.piece==="panel"){
       const d=g.dev;
       return "<b>"+Math.round(g.Wmm)+" × "+Math.round(g.Hmm)+" mm</b> · "+
@@ -2031,7 +2904,8 @@ Forge.register({
         (g.askU&&g.askU!==g.gotU
           ?(" — "+g.askU+" U asked for, but this device is built "+d.u[0]+"–"+d.u[1]+" U")
           :"")+
-        "<br>"+FINISH[H.fin].name+", "+H.trim.name+" trim · lamps "+lamps;
+        "<br>"+FINISH[H.fin].name+", "+H.trim.name+" trim · "+
+        (abs?lamps:("lamps "+lamps));
     }
     /* THE FILL IS A REAL PLACEMENT, so these are counted rather than guessed:
        the zone walk is a few hundred tests and costs nothing on a slider. */
@@ -2050,17 +2924,19 @@ Forge.register({
       "<b>"+devs+" devices</b> over "+usedU+" U ("+Math.round(usedU/totU*100)+
       "% of it), "+vents+" vent panel"+(vents===1?"":"s")+", "+blanks+" blank"+
       (blanks===1?"":"s")+"<br>"+
-      FINISH[H.fin].name+", "+H.trim.name+" trim · lamps "+lamps+
-      " · "+PHOS[H.phos].name+" screens<br>"+
-      (num(P.lit,1)<=0.02?"<b>powered down</b> — jewels at their unlit colour, "+
-        "displays blank, meters at the stop"
+      FINISH[H.fin].name+", "+H.trim.name+" trim · "+
+      (abs?lamps:("lamps "+lamps+" · "+PHOS[H.phos].name+" screens"))+"<br>"+
+      (num(P.lit,1)<=0.02
+        ?("<b>powered down</b> — "+(abs
+          ?"every well, slot and bore dark"
+          :"jewels at their unlit colour, displays blank, meters at the stop"))
         :"powered up at <b>"+Math.round(num(P.lit,1)*100)+"%</b>");
   },
 
   readme:function(P,info){
     const g=geomOf(P);
     const c=info.census||{};
-    const H=g.H;
+    const H=g.H,abs=H.style==="abstract";
     const names=Object.keys(c.byId||{}).sort().map(k=>
       "  "+String(c.byId[k]).padStart(2)+" × "+DEV_BY[k].name);
     return [
@@ -2085,10 +2961,20 @@ Forge.register({
 "like a rack — every panel meets its neighbour on the pitch, every screw lands",
 "on a hole that exists, and nothing is anywhere by eye.",
 "",
-"Everything bolted into that frame is invented. The devices here are archetypes",
-"— a regulator bay, a tape transport, a patch field — built out of the controls",
-"a machine of that period was actually operated through, and they are not, and",
-"are not meant to resemble, any product that was ever made or marketed.",
+(abs
+ ?("Everything bolted into that frame is invented, and deliberately illegible.\n"+
+   "Each device is one idea carried across a whole face at one pitch — a field of\n"+
+   "cells, a bank of blades, a core of rings, a bar of light — with a grain, a\n"+
+   "seam and a way of coming out of the rack, and with nothing on it that says\n"+
+   "what it does. There are no scales, no needles, no numerals and no words: the\n"+
+   "identifiers are strips of marks with the rhythm of a serial number that are\n"+
+   "not one and cannot be read. The only legible thing in the picture is the hole\n"+
+   "pattern in the frame, which is what keeps it a rack.")
+ :("Everything bolted into that frame is invented. The devices here are\n"+
+   "archetypes — a regulator bay, a tape transport, a patch field — built out of\n"+
+   "the controls a machine of that period was actually operated through, and they\n"+
+   "are not, and are not meant to resemble, any product that was ever made or\n"+
+   "marketed.")),
 "",
 (g.piece==="panel"
  ?("WHAT IT IS\nOne "+(g.dev?g.dev.name:"panel")+" at "+g.gotU+" U"+
@@ -2113,10 +2999,19 @@ FINISH[H.fin].name+" panels, "+H.trim.name+" trim and frame, "+
   (H.r?H.r+" mm corner radius":"square corners")+", "+
   (H.handle==="none"?"no handles":H.handle==="cup"?"cup handles":"bar handles")+",",
 "nameplate "+(H.legendAt==="tl"?"top left":"bottom centre")+", "+
-  (H.ears?"visible mounting ears":"flush panels")+".",
-"Lamps are "+H.lamps.map(k=>LAMP[k].name).join(", ")+" — three jewel colours and",
-"not five, because two states and an alarm is what a real panel had. Screens are",
-PHOS[H.phos].name+".",
+  (H.ears?"visible mounting ears":"flush panels")+", "+
+  (H.fast==="hex"?"hex-socket":H.fast==="flush"?"flush":"slotted")+" fasteners.",
+(abs
+ ?("The accent is "+GLOW[H.glow].name+", with "+GLOW[H.glow2].name+" used on one\n"+
+   "thing in the cabinet and nowhere else. There are no lamps at all: what glows\n"+
+   "is the bottom of a well, the back of a slot and the inside of a bore, which is\n"+
+   "why the kit reads as running rather than as indicating. The cell work is\n"+
+   H.motif+" at "+H.cellMm+" mm and the blade work is at "+H.finMm+" mm — one module\n"+
+   "across every panel, which is most of the difference between machinery and\n"+
+   "lumps.")
+ :("Lamps are "+H.lamps.map(k=>LAMP[k].name).join(", ")+" — three jewel colours\n"+
+   "and not five, because two states and an alarm is what a real panel had.\n"+
+   "Screens are "+PHOS[H.phos].name+".")),
 "",
 (g.piece==="panel"?null:
 ("THE CABLING\n"+
@@ -2146,8 +3041,13 @@ PHOS[H.phos].name+".",
 "touched, so a rubbed handle shows through both.",
 "",
 (num(P.lit,1)<=0.02
- ?"POWERED DOWN. The jewels are at their unlit colour, the displays are blank,\nthe meters are at their stop and the switches are off. emissive.png is empty."
- :"POWERED UP at "+Math.round(num(P.lit,1)*100)+"%. emissive.png carries the lamps,\nthe legend caps, the seven-segment readouts, the bar graphs and the screens —\nand nothing else, so it can be fed straight to an emissive slot."),
+ ?(abs
+   ?"POWERED DOWN. Every well, slot and bore is dark. emissive.png is empty."
+   :"POWERED DOWN. The jewels are at their unlit colour, the displays are blank,\nthe meters are at their stop and the switches are off. emissive.png is empty.")
+ :("POWERED UP at "+Math.round(num(P.lit,1)*100)+"%. emissive.png carries "+(abs
+   ?"the lit cells,\nthe gaps between blades, the bores, the lumen segments and the node domes —"
+   :"the lamps,\nthe legend caps, the seven-segment readouts, the bar graphs and the screens —")+
+   "\nand nothing else, so it can be fed straight to an emissive slot.")),
 "",
 "FILES",
 "basecolor.png  sRGB.",

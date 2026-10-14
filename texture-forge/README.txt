@@ -1769,6 +1769,63 @@ Rack — a populated equipment rack, 1980s futurism
   asymmetry a 9U transport lands at the top of the cabinet often enough to be
   the one thing in the picture an engineer would point at.
 
+  AND THE SAME RACK WITH NOTHING YOU CAN OPERATE. All of the above describes
+  one of two sets of kit. The other is the opposite proposition: devices that
+  read unmistakably as EQUIPMENT and tell you nothing whatever about what they
+  are for. A dissipator stack, a cell lattice, a blade bank, a ring core, an
+  aperture gate, a coil former, a node field, a lumen bar, a slot comb, a vane
+  array, a trunk bulkhead and a sealed block — twelve of them, against the
+  twelve period archetypes, in the same frame, filled by the same rules and
+  cabled the same way.
+
+  THE HARD PART IS NOT BEING GREEBLES. The easy version of "abstract machinery"
+  is a panel of random lumps, which reads as decoration within about a second.
+  Three things keep these reading as machinery instead.
+
+  A PITCH. Everything repeats on a dimension — the cell, the fin, the ring
+  spacing — and the dimension belongs to the MAKER rather than to the form, so
+  a cell lattice and a node field in the same cabinet are built to the same
+  module. That alone is most of the difference between machinery and lumps.
+
+  A GRAIN. Each form has one direction and one idea carried across the whole
+  face: cells are a plane, blades are a stack, rings are concentric, bars are a
+  run, vanes are the one diagonal in the cabinet. Two forms with the same grain
+  on adjacent panels read as one panel, so the fill mixes them.
+
+  SERVICEABILITY. A grab point, a seam, a collar, a pull notch, a captive
+  fastener — something on every face that says the thing comes out of the rack.
+  Equipment you cannot imagine removing is scenery. It is also why the sealed
+  block, which is the one form that gives nothing away, still has a seam off
+  centre, two plates at two heights and a screw in each corner: a blank slab
+  reads as a hole in the cabinet, and it has to be SOMETHING, even if it is
+  nothing.
+
+  NO WORDS ANYWHERE. No scales, no needles, no numerals, no captions. What each
+  face carries instead is a MARK: a run of bars with the rhythm of a serial
+  number — a few wide, a few narrow, a space where a hyphen would be — that is
+  not a code, encodes nothing and cannot be read, beside a sigil built the way
+  a constructed mark is built, a stem with one to three features hung off it.
+  The eye takes both for an identifier at a glance and finds nothing in them on
+  a second look, which is the whole effect. The only legible thing in the
+  picture is the hole pattern in the frame, which is what keeps it a rack.
+
+  LIGHT COMES OUT OF GAPS, never off a lens. There are no lamps in this half of
+  the mode at all: what glows is the bottom of a well, the back of a slot, the
+  inside of a bore, the gap between two blades. That is why it reads as
+  something RUNNING rather than as something indicating. The maker has one
+  accent and one second colour used on one thing in the cabinet and nowhere
+  else; the near-white accent is in the table because a cold machine is a real
+  choice, but it is drawn a third as often as the chromatic ones, since an
+  installation that comes out grey as often as it comes out cyan is a dice roll
+  rather than a style.
+
+  A HIGHLIGHT THAT SURVIVES A DARK FINISH. Abstract kit is usually finished
+  dark, and multiplying 0x2a by 1.18 to make a chamfer moves it seven levels
+  and the chamfer vanishes. What a lit edge actually does is pick up a fixed
+  share of whatever light is going, so every highlight in this half is mixed
+  TOWARDS WHITE rather than scaled. On a pale panel the two are near enough the
+  same, which is why the period half never needed it.
+
   CABLES GO WHERE CABLES GO, and they are drawn OVER the faces, because that is
   where they are: in front. A lead leaves its connector, SAGS — nobody pulls a
   cable tight, and the sag is the whole difference between a cable and a wiring
@@ -1822,7 +1879,8 @@ Rack — a populated equipment rack, 1980s futurism
   the margin and off the edge.
 
   Presets: machine room, operations console, comms room, powered down,
-  derelict, and one panel on its own.
+  derelict; no discernible function, dense array, cold storage; and one panel
+  on its own.
 
 Sheet · Plate · Slab — three panels off one generator
   What they have in common is that they are all a PANEL: a piece of material
@@ -2921,8 +2979,17 @@ It also covers the twenty-four things that are easy to break silently:
             is one byte a texel with its colour in the buffer beside it, that
             every lead goes between ports that exist, that powered down is
             dark to the last texel, that the cabling comes off without taking
-            the kit with it, and that each of the twelve archetypes can be
-            drawn on its own at a height it is actually built at
+            the kit with it, and that each of the twenty-four archetypes — both
+            styles — can be drawn on its own at a height it is actually built
+            at. Then the ABSTRACT half specifically: that its twelve archetypes
+            share no id with the period twelve and that every one of them has a
+            face and every face an archetype, that a rack built out of them
+            obeys the same frame, zone, airflow and blanking rules, that every
+            one of them offers somewhere to plug something in — without which
+            the cabling has nothing to tie the installation together with — and
+            that ALL of its light is one maker's light, measured as a direction
+            in colour space rather than as a colour, since dimming scales every
+            channel and the question is which way the colour points
   stage     the wizard's 3D building is the BUILDING: its box is as wide as the
             front's plan says and as deep as the side's, four walls and a roof
             stand on a ground, and both sides come off the one side elevation.
@@ -3159,4 +3226,8 @@ The equipment rack is the newest, and it is the circuit board's idea applied to
 a room: a published frame standard, invented hardware bolted into it, placement
 zone by zone in the order an engineer would fill a cabinet, and cables routed
 between ports afterwards. It also carries the first emissive map in the set
-that is more than one colour, which is why `ECOL` exists beside `EMI`.
+that is more than one colour, which is why `ECOL` exists beside `EMI`. It is
+also the only mode with two complete vocabularies in it — kit you can see the
+use of, and kit you cannot — sharing a frame, a fill and a router, which turns
+out to be the right split: what makes a rack a rack is the standard it is
+bolted to, not what is bolted to it.

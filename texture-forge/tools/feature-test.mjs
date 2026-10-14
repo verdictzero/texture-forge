@@ -463,10 +463,19 @@ if (want("threads")) {
      (flags.filter(f => f.t !== true).map(f => f.id + ":" + f.t).join(", ") || "all plain true"));
 
   /* THE CLAIM. Same parameters, both threads, byte for byte. */
-  for (const id of ["factory", "vent", "slab", "hazard", "pcb", "glyph", "rack"]) {
+  /* a mode can appear twice under different settings, which is how the rack's
+     two vocabularies both get compared — they are different code paths and
+     only one of them is the default */
+  for (const spec of ["factory", "vent", "slab", "hazard", "pcb", "glyph",
+                      { id: "rack", set: { style: "period" }, as: "rack (period)" },
+                      { id: "rack", set: { style: "abstract" }, as: "rack (abstract)" }]) {
+    const id = spec.id || spec, label = spec.as || id;
     await wp.click(`#modebar-tabs [data-mode="${id}"]`);
     await wsettle();
-    await wp.evaluate(m => window.Forge.setParam(m, "size", 256), id);
+    await wp.evaluate(([m, set]) => {
+      window.Forge.setParam(m, "size", 256);
+      for (const k in (set || {})) window.Forge.setParam(m, k, set[k]);
+    }, [id, spec.set || null]);
     await wp.click(`#${id}--forge`);
     await wsettle();
     const hashes = await wp.evaluate(async (mid) => {
@@ -497,7 +506,7 @@ if (want("threads")) {
       st.B = keep;
       return { threaded, main };
     }, id);
-    ok(id + ": a worker build is the same build",
+    ok(label + ": a worker build is the same build",
        hashes.threaded === hashes.main, hashes.threaded + " vs " + hashes.main);
   }
 
@@ -6054,16 +6063,115 @@ if (want("rack")) {
      "cables " + live.census.trunks + "→" + bare.census.trunks +
      ", texels standing proud " + live.proud + "→" + bare.proud);
 
+  /* ---- the other half of the mode: kit with no discernible function ----
+     The frame, the fill and the cabling are shared, so what is checked here is
+     that the abstract set is COMPLETE and SEPARATE, that the structural rules
+     still hold when it is the one in the rack, and that its light is one
+     maker's light rather than a colour per panel. */
+  const two = await page.evaluate(() => {
+    const R = window.ForgeRack;
+    const ids = R.DEV.map(d => d.id), idsA = R.DEV_A.map(d => d.id);
+    const clash = ids.filter(i => idsA.indexOf(i) >= 0);
+    const noFace = idsA.filter(i => !R.FACE_A[i]).concat(ids.filter(i => !R.FACE[i]));
+    const spare = Object.keys(R.FACE_A).filter(i => idsA.indexOf(i) < 0);
+    /* and the same placement rules, with the abstract set in the rack */
+    const bad = [], screws = [];
+    const h = { 0: [], 1: [], 2: [], 3: [] };
+    let vents = 0, hot = 0;
+    for (const seed of [31, 606, 4242]) {
+      const L = R.layout({ seed: seed, bays: 1, rackU: 42, fill: 0.72, vents: 1,
+                           mix: "balanced", style: "abstract" });
+      const cover = new Array(L.rU).fill(0), by = {};
+      for (const it of L.items) for (let k = 0; k < it.uh; k++) { cover[it.u0 + k]++; by[it.u0 + k] = it; }
+      for (const it of L.items) {
+        if (it.kind === "dev") {
+          if (idsA.indexOf(it.id) < 0) bad.push("a " + it.id + " in an abstract rack");
+          const d = R.DEV_BY[it.id];
+          if (d.want < 4) h[d.want].push((it.u0 + it.uh * 0.5) / L.rU);
+          const top = (L.rU - it.u0 - it.uh) * R.U + R.GAP * 0.5;
+          for (const sy of R.screwYs(it.uh)) {
+            const up = L.rU * R.U - (top + sy), inU = ((up % R.U) + R.U) % R.U;
+            if (Math.min.apply(null, R.HOLE_Y.map(q => Math.abs(inU - q))) > 0.02)
+              screws.push(it.id);
+          }
+        } else if (it.kind === "vent") {
+          vents++;
+          const below = by[it.u0 - 1];
+          if (below && below.kind === "dev" && R.DEV_BY[below.id].heat > 0) hot++;
+        }
+      }
+      for (let u = 0; u < L.rU; u++) if (cover[u] !== 1) bad.push("U" + u + " covered " + cover[u]);
+    }
+    const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : -1;
+    return { clash: clash, noFace: noFace, spare: spare, bad: bad, screws: screws,
+             z: [mean(h[0]), mean(h[1]), mean(h[2]), mean(h[3])],
+             n: [h[0].length, h[1].length, h[2].length, h[3].length],
+             vents: vents, hot: hot, nA: idsA.length };
+  });
+  ok("the abstract set is complete and shares no id with the period one",
+     two.clash.length === 0 && two.noFace.length === 0 && two.spare.length === 0,
+     two.nA + " archetypes, each with a face" +
+     (two.clash.length ? " · clashes: " + two.clash.join(",") : "") +
+     (two.noFace.length ? " · no face: " + two.noFace.join(",") : "") +
+     (two.spare.length ? " · orphan faces: " + two.spare.join(",") : ""));
+  ok("an abstract rack is built to the same rules as a period one",
+     two.bad.length === 0 && two.screws.length === 0 &&
+     two.z[0] < two.z[2] && two.z[2] <= two.z[3] && two.vents > 0 && two.hot === two.vents,
+     "mean height by zone " + two.z.map(v => (v * 100).toFixed(0) + "%").join(" / ") +
+     " (n = " + two.n.join("/") + "), " + two.hot + "/" + two.vents +
+     " vents over heat" + (two.bad.length ? " · " + two.bad.slice(0, 2).join("; ") : "") +
+     (two.screws.length ? " · screws off: " + two.screws.length : ""));
+
+  const abs = await built({ style: "abstract", piece: "rack", bays: 2, rackU: 36,
+    mixA: "balanced", fill: 0.92, vents: 0.7, lit: 1, wires: true, cables: 0.8,
+    accent: "cyan", finish: "char", size: 512 });
+  ok("every abstract device offers somewhere to plug something in",
+     Object.keys(abs.census.byId).every(k => (abs.census.portsById[k] || 0) > 0),
+     Object.keys(abs.census.byId).map(k => k + ":" + (abs.census.portsById[k] || 0))
+       .join(" ") || "(nothing placed)");
+
+  /* THE LIGHT IS ONE MAKER'S LIGHT. Every lit texel should sit on the accent,
+     on the one second colour, or on the white of a catch light — the test is a
+     direction in colour space, since dimming scales all three channels. */
+  const hue = await page.evaluate(() => {
+    const B = window.Forge.active().B, R = window.ForgeRack, N = B.W * B.H;
+    const H = R.houseOf(window.Forge.state("rack").P);
+    const want = [R.GLOW[H.glow].on, R.GLOW[H.glow2].on, [255, 255, 255]]
+      .map(c => { const m = Math.hypot(c[0], c[1], c[2]); return [c[0] / m, c[1] / m, c[2] / m]; });
+    let on = 0, near = 0;
+    for (let i = 0; i < N; i++) {
+      const r = B.ECOL[i * 3], g = B.ECOL[i * 3 + 1], b = B.ECOL[i * 3 + 2];
+      const m = Math.hypot(r, g, b);
+      if (m < 24) continue;
+      on++;
+      const v = [r / m, g / m, b / m];
+      if (want.some(w => v[0] * w[0] + v[1] * w[1] + v[2] * w[2] > 0.995)) near++;
+    }
+    return { on: on, near: near, glow: H.glow, glow2: H.glow2 };
+  });
+  ok("and all of it is lit in one maker's colours",
+     hue.on > 500 && hue.near / hue.on > 0.97,
+     (100 * hue.near / Math.max(1, hue.on)).toFixed(1) + "% of " + hue.on +
+     " lit texels are " + hue.glow + ", " + hue.glow2 + " or a catch light");
+
+  const absDark = await built({ lit: 0 });
+  ok("and it goes dark the same way",
+     absDark.emi === 0, "lit " + abs.emi + " texels, dark " + absDark.emi);
+  await page.evaluate(() => { window.Forge.setParam("rack", "style", "period");
+                              window.Forge.setParam("rack", "lit", 1); });
+
   /* ---- a single panel is a single panel ---- */
   const one = await page.evaluate(() => {
     const R = window.ForgeRack, out = [];
-    for (const d of R.DEV) {
-      const g = R.geomOf({ piece: "panel", dev: d.id, panelU: 0, seed: 31, size: 512 });
+    for (const d of R.DEV.concat(R.DEV_A)) {
+      const ab = R.DEV_A.indexOf(d) >= 0;
+      const base = ab ? { style: "abstract", devA: d.id } : { style: "period", dev: d.id };
+      const g = R.geomOf(Object.assign({ piece: "panel", panelU: 0, seed: 31, size: 512 }, base));
       const u = g.gotU;
       if (u < d.u[0] || u > d.u[1]) out.push(d.id + " came out " + u + "U");
       if (Math.abs(g.Hmm - (u * R.U - R.GAP + 4)) > 1e-6) out.push(d.id + " is the wrong height");
       /* and an impossible ask is clamped to what the device is built at */
-      const c = R.geomOf({ piece: "panel", dev: d.id, panelU: 9, seed: 31, size: 512 });
+      const c = R.geomOf(Object.assign({ piece: "panel", panelU: 9, seed: 31, size: 512 }, base));
       if (c.gotU !== Math.min(9, d.u[1])) out.push(d.id + " ignored its own range");
     }
     return out;
@@ -6076,7 +6184,7 @@ if (want("rack")) {
   await page.evaluate(() => window.Forge.setParam("rack", "piece", "rack"));
 
   ok("every device can be drawn on its own, at a height it is actually built at",
-     one.length === 0, one.slice(0, 3).join("; ") || "all 12 archetypes");
+     one.length === 0, one.slice(0, 3).join("; ") || "all 24 archetypes, both styles");
 }
 
 if (errors.length) { fails++; console.log("\npage errors:\n" + errors.join("\n")); }
